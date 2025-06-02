@@ -218,14 +218,13 @@ struct Enemy {
 
 struct Companion {
     string name;
-    int level;
-    int hp;
-    int maxHp;
-    int loyalty;
-    string personality;
-    string description;
-    vector<string> abilities;
-    bool met;
+    int initialLoyalty; 
+    string personality; 
+    string description; 
+    vector<string> coreAbilitiesOrTraits; 
+    bool met; 
+    map<int, wstring> detailedInfoPerLevel; 
+    map<int, vector<wstring>> traitsRevealedPerLevel; 
 };
 
 struct GameEvent {
@@ -241,6 +240,20 @@ struct Quest {
     bool completed;
     int reward;
     Quest* next;
+};
+
+struct DailyQuest {
+    string title;
+    string description;
+    string type; // "kill" / "travel"
+    string target;
+    int dungeonFloor = 0;
+    string dungeonName;
+    bool taken = false;
+    bool completed = false;
+    int expReward = 0;
+    int goldReward = 0;
+    string rank = "C"; // C, B, A, S, SS
 };
 
 struct Location {
@@ -282,11 +295,27 @@ struct Dungeon {
     vector<int> visitedCampAreas;
 };
 
+struct SocialLink {
+    string characterName;
+    int currentLevel = 1; // Mulai dari level 1
+    bool completed = false;
+};
+
+struct SocialLinkStory {
+    vector<wstring> levelDialogs; // Dialog per level
+    unordered_set<int> lockedLevels; // Level yang terkunci
+};
+
+
 unordered_map<string, WorldArea> allWorlds;
 unordered_map<string, Dungeon> allDungeons;
 unordered_map<string, Enemy> enemyDatabase;
 unordered_map<string, bool> defeatedBosses;
 unordered_map<string, vector<wstring>> asciiArtMap;
+unordered_map<string, SocialLink> socialLinks;
+unordered_map<string, SocialLinkStory> socialLinkStories;
+unordered_map<string, bool> talkedToday;
+
 string currentWorld = "Mansion Astra";
 string currentSubArea = "Kamar Weiss";
 
@@ -296,6 +325,9 @@ vector<Companion> companions;
 vector<Item> allItems;
 vector<Weapon> allWeapons;
 vector<Magic> allMagic;
+vector<DailyQuest> allDailyQuestPool;
+vector<DailyQuest> dailyQuests;
+vector<DailyQuest> activeDailyQuests;
 unordered_map<string, Item*> itemDatabase;
 unordered_map<string, Weapon*> weaponDatabase;
 unordered_map<string, Magic*> magicDatabase;
@@ -310,6 +342,8 @@ const double BASE_XP = 7.0;
 const double XP_EXPONENT = 1.1;
 const vector<int> MAGIC_ELEMENT_UNLOCK_LEVELS = {20, 40, 60, 80, 100}; 
 int currentDay = 1;
+int maxActionsPerDay = 5;
+int currentActionsRemaining = 5;
 bool gameRunning = true;
 string currentLocation = "Noble's Room";
 // Function Declarations
@@ -339,7 +373,11 @@ void showDiaryMenu();
 void setupWorldAreas();
 bool startBattle(Enemy& baseEnemy);
 void displayEnemyASCII(const string& enemyName);
+void initializeAllQuests();
+void generateDailyQuests();
 void loadEnemyASCIIFromFile(const string& filename);
+void applySocialLinkBonus(const string& npcName);
+
 
 
 // Utility Functions
@@ -376,6 +414,15 @@ map<string, MagicSpell> getAllSpells() {
 }
 
 
+string getQuestRankLetter() {
+    if (storyFlags["true_ending_unlocked"] > 0) return "SS";
+    if (storyFlags["final_duel"] > 0) return "S";
+    if (storyFlags["met_protagonist"] > 0) return "A";
+    if (storyFlags["plot_derailed"] > 0) return "B";
+    return "C";
+}
+
+
 void delayPrint(const wstring& text, int delayMs) {
     for (wchar_t ch : text) {
         wcout << ch << flush;
@@ -398,6 +445,13 @@ void centerText(const wstring& text, int width) {
     for (int i = 0; i < pad; i++) wcout << L' ';
     wcout << text << endl;
 }
+
+void waitForEnter() {
+    wcout << L"Tekan Enter untuk melanjutkan...";
+    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    cin.get();
+}
+
 
 wstring padRight(const wstring& text, int width) {
     if (text.length() >= width) return text;
@@ -469,9 +523,7 @@ void showBeforePrologue() {
     wcout << endl;
     
     printLine();
-    wcout << L"Tekan Enter untuk melanjutkan...";
-    cin.ignore(numeric_limits<streamsize>::max(), L'\n');
-    cin.get();
+    waitForEnter();
 }
 
 void showPrologue() {
@@ -497,9 +549,7 @@ void showPrologue() {
     wcout << endl;
     
     printLine();
-    wcout << L"Tekan Enter untuk melanjutkan...";
-    cin.ignore(numeric_limits<streamsize>::max(), L'\n');
-    cin.get();
+    waitForEnter();
 }
 
 void chooseInitialMagicElements(Character& character) {
@@ -613,6 +663,31 @@ long long calculateExpToNextLevel(int currentLevel) {
     if (currentLevel <= 0) return static_cast<long long>(BASE_XP); // Should not happen if level starts at 1
     return static_cast<long long>(floor(BASE_XP * pow(static_cast<double>(currentLevel), XP_EXPONENT)));
 }
+
+void checkEndOfDay() {
+    if (currentActionsRemaining <= 0) {
+        printLine();
+        centerText(L"⚠ Hari telah menuju malam...");
+        delayPrint(L"Aku merasa lelah... Sebaiknya kembali dan mengakhiri hariku.", 30);
+        delayPrint(L"Aku akan tidur malam ini dan bersiap menghadapi hari berikutnya.", 30);
+        currentDay++;
+        currentActionsRemaining = maxActionsPerDay;
+        printLine();
+        centerText(L"✦ Hari berganti! Sekarang Hari ke-" + to_wstring(currentDay) + L" ✦");
+        printLine();
+        system("pause");
+        activeDailyQuests.clear();
+        generateDailyQuests(); // quest baru untuk hari berikutnya
+    }
+}
+
+void consumeAction() {
+    if (currentActionsRemaining > 0) {
+        currentActionsRemaining--;
+    }
+    checkEndOfDay();
+}
+
 
 void initializeSpellsForElement(MagicElement& element) {
     // === FIRE ELEMENT (Diperluas) ===
@@ -1052,6 +1127,9 @@ void initializeGame() {
     player.activeHoTs.clear();
     player.inventory.clear(); // Pastikan inventory kosong di awal
     player.weapons.clear();
+    companions.clear();
+    initializeAllQuests();
+    generateDailyQuests();
     
     allItems = {
         // Nama, Tipe, Nilai Jual (opsional), Deskripsi, Syarat Stat, Harga Beli
@@ -1121,17 +1199,229 @@ void initializeGame() {
         }
     }
 
-    // Setup Companions
-    companions = {
-        {"Seraphina", 1, 80, 80, 50, "Tsundere", "A noble lady with complicated feelings", {"Healing Magic", "Sword Skills"}, false},
-        {"Marcus", 1, 120, 120, 30, "Loyal Knight", "Your devoted bodyguard", {"Shield Bash", "Taunt"}, true},
-        {"Luna", 1, 60, 60, 70, "Mysterious Mage", "A girl with hidden powers", {"Dark Magic", "Stealth"}, false}
-    };
-    
-    // Initialize relations
-    for(auto& comp : companions) {
-        companionRelations[comp.name] = comp.loyalty;
-    }
+// --- MASHA VON AURORA ---
+Companion masha;
+masha.name = "Masha";
+masha.initialLoyalty = 10;
+masha.personality = "Putri Bangsawan Dingin";
+masha.description = "Seorang putri dari keluarga bangsawan Aurora yang dikenal sangat menjaga sikap dan perkataannya. Sering terlihat di Taman Norelia, Puncak Arcadia.";
+masha.coreAbilitiesOrTraits = {"Observatif Tajam", "Pemikir Kritis", "Pengetahuan Filsafat"};
+masha.met = false;
+
+masha.detailedInfoPerLevel[1] = L"Pertemuan pertama terasa sangat formal dan dingin. Dia tampak tidak tertarik berbasa-basi dan lebih suka menyendiri.";
+masha.traitsRevealedPerLevel[1] = {L"Menjaga Jarak", L"Formal"};
+masha.detailedInfoPerLevel[2] = L"Meskipun masih dingin, dia menunjukkan sedikit ketertarikan pada topik intelektual (filsafat Xantus). Mungkin ada sisi lain di balik sikapnya.";
+masha.traitsRevealedPerLevel[2] = {L"Tertarik Filsafat (Tersembunyi)"};
+masha.detailedInfoPerLevel[3] = L"Mulai mau terlibat dalam diskusi filosofis yang lebih dalam. Mengungkapkan bahwa ia menghargai pemikiran yang mendalam ketimbang gosip bangsawan.";
+masha.traitsRevealedPerLevel[3] = {L"Intelektual", L"Menghargai Diskusi Serius"};
+masha.detailedInfoPerLevel[4] = L"Terungkap memiliki minat dan pengetahuan tersembunyi dalam herbologi, terutama pada tanaman langka seperti Edelweiss. Tampak sedikit defensif saat hobinya diketahui.";
+masha.traitsRevealedPerLevel[4] = {L"Ahli Herbologi (Amatir)", L"Menyukai Tanaman Langka"};
+masha.detailedInfoPerLevel[5] = L"Menunjukkan sisi rapuhnya terkait tekanan perjodohan dari keluarganya. Mulai sedikit terbuka tentang perasaannya sebagai 'aset' keluarga.";
+masha.traitsRevealedPerLevel[5] = {L"Merasa Tertekan Ekspektasi", L"Menentang Perjodohan (Dalam Hati)"};
+masha.detailedInfoPerLevel[6] = L"Terlihat antusias membahas proyek Anggrek Bulan Salju dengan pelayannya, menunjukkan gairah tersembunyi. Kembali dingin saat Weiss muncul, namun sisi lainnya telah terlihat.";
+masha.traitsRevealedPerLevel[6] = {L"Ambisius (Proyek Botani)", L"Bersemangat (Tersembunyi)"};
+masha.detailedInfoPerLevel[7] = L"Terlibat dalam perdebatan filosofis yang lebih mendalam, menunjukkan kecerdasan dan kemampuannya berargumen. Mulai menghargai Weiss sebagai lawan diskusi yang sepadan.";
+masha.traitsRevealedPerLevel[7] = {L"Debater Ulung", L"Rasional"};
+masha.detailedInfoPerLevel[8] = L"Secara terbuka mengungkapkan frustrasinya terhadap perjodohan yang dipercepat dan tekanan keluarga. Menerima tawaran dukungan Weiss dengan sedikit keraguan namun penuh arti.";
+masha.traitsRevealedPerLevel[8] = {L"Berani Mengungkapkan Perasaan (pada Weiss)", L"Mencari Solusi"};
+masha.detailedInfoPerLevel[9] = L"Bekerja sama dengan Weiss menyelamatkan mawar langka. Menunjukkan sisi peduli dan kelembutan yang tulus. Mengakui bantuan Weiss dan menawarkan teh herbal buatannya.";
+masha.traitsRevealedPerLevel[9] = {L"Peduli", L"Mulai Hangat", L"Berterima Kasih"};
+masha.detailedInfoPerLevel[10] = L"Berhasil menunda perjodohannya berkat proyek botani dan dukungan Weiss. Menganugerahkan bros Edelweiss sebagai simbol persahabatan. Menjadi sekutu setia Weiss.";
+masha.traitsRevealedPerLevel[10] = {L"Mandiri", L"Percaya Diri", L"Sahabat Setia"};
+companions.push_back(masha);
+
+// --- KINICH ---
+Companion kinich;
+kinich.name = "Kinich";
+kinich.initialLoyalty = 15;
+kinich.personality = "Penjaga Tambang Keras dan Berpengalaman";
+kinich.description = "Seorang pria tangguh yang menjaga keamanan di sekitar Goa Avernix. Tidak banyak bicara dan sangat waspada terhadap orang asing, terutama bangsawan.";
+kinich.coreAbilitiesOrTraits = {"Pengetahuan Tambang Luas", "Insting Tajam", "Keahlian Bertahan Hidup"};
+kinich.met = false;
+
+kinich.detailedInfoPerLevel[1] = L"Sangat skeptis dan formal. Menganggap kunjungan bangsawan hanya sebagai 'tur wisata'. Menjelaskan bahaya goa dengan singkat.";
+kinich.traitsRevealedPerLevel[1] = {L"Waspada", L"Profesional Kaku"};
+kinich.detailedInfoPerLevel[2] = L"Sedikit terkejut saat Weiss menanyakan kesejahteraan penambang. Masih sinis terhadap janji bangsawan, tapi mulai melihat keseriusan Weiss.";
+kinich.traitsRevealedPerLevel[2] = {L"Peduli Nasib Penambang (Tersembunyi)", L"Sinis terhadap Otoritas"};
+kinich.detailedInfoPerLevel[3] = L"Mulai berbagi cerita tentang bahaya goa yang lebih mistis ('Guncangan Besar', 'Roh Penunggu Goa') dan tradisi penambang. Menunjukkan sisi spiritualnya.";
+kinich.traitsRevealedPerLevel[3] = {L"Percaya Takhayul Tambang", L"Menghormati Alam Goa"};
+kinich.detailedInfoPerLevel[4] = L"Mau berbagi pengetahuan spesifik tentang lokasi di goa ('Gua Kunang-Kunang') dan jenis kristal. Bahkan sedikit bercanda, menunjukkan sisi yang lebih hangat.";
+kinich.traitsRevealedPerLevel[4] = {L"Ahli Peta Goa", L"Memiliki Sisi Humoris (Langka)"};
+kinich.detailedInfoPerLevel[5] = L"Sangat terkesan dengan tindakan nyata Weiss yang membantu menyediakan makanan dan berjanji mengatasi masalah lampu karbit. Memberikan hadiah kecil sebagai tanda terima kasih.";
+kinich.traitsRevealedPerLevel[5] = {L"Menghargai Tindakan Nyata", L"Mulai Percaya pada Weiss"};
+kinich.detailedInfoPerLevel[6] = L"Berbagi cerita tentang persaudaraan penambang dan keyakinannya pada 'Roh Goa'. Mengungkapkan kekhawatiran jika goa tidak dijaga dengan benar.";
+kinich.traitsRevealedPerLevel[6] = {L"Menjunjung Persaudaraan", L"Spiritual (Goa)"};
+kinich.detailedInfoPerLevel[7] = L"Menunjukkan rasa terima kasih yang besar atas bantuan peralatan baru. Memanggil Weiss dengan nama tanpa gelar di depan umum sebagai tanda hormat.";
+kinich.traitsRevealedPerLevel[7] = {L"Sangat Menghargai Bantuan", L"Loyal pada Penambang"};
+kinich.detailedInfoPerLevel[8] = L"Membagikan kisah tragis tentang kehilangan sahabatnya, Kael, di tambang. Mengungkapkan sumpahnya untuk selalu melindungi anak buahnya.";
+kinich.traitsRevealedPerLevel[8] = {L"Penuh Dedikasi (Keselamatan)", L"Memiliki Luka Batin"};
+kinich.detailedInfoPerLevel[9] = L"Bekerja sama dengan Weiss dalam situasi krisis kebocoran gas, menunjukkan kepercayaan penuh dan mengakui Weiss sebagai pemimpin sejati.";
+kinich.traitsRevealedPerLevel[9] = {L"Tenang dalam Krisis", L"Mempercayai Weiss Sepenuhnya"};
+kinich.detailedInfoPerLevel[10] = L"Menunjukkan 'Jantung Goa' kepada Weiss dan memberikan 'Air Mata Avernix' sebagai simbol persahabatan abadi dan kesetiaan. Menganggap Weiss sebagai saudara.";
+kinich.traitsRevealedPerLevel[10] = {L"Sahabat Sejati", L"Penjaga Rahasia Goa", L"Sangat Loyal"};
+companions.push_back(kinich);
+
+// --- IRENE ---
+Companion irene;
+irene.name = "Irene";
+irene.initialLoyalty = 25;
+irene.personality = "Maid Setia dan Lembut";
+irene.description = "Pelayan baru di Mansion Astra yang rajin dan perhatian. Awalnya pemalu dan gugup, namun memiliki hati yang baik.";
+irene.coreAbilitiesOrTraits = {"Merawat Taman dengan Baik", "Perhatian pada Detail"};
+irene.met = true; // Asumsi langsung bertemu
+
+irene.detailedInfoPerLevel[1] = L"Sangat gugup dan canggung saat pertama kali diajak bicara. Menunjukkan kesukaannya pada taman sebagai tempat yang menenangkan.";
+irene.traitsRevealedPerLevel[1] = {L"Pemalu", L"Menyukai Ketenangan Taman"};
+irene.detailedInfoPerLevel[2] = L"Sedikit lebih santai. Mengungkapkan rasa syukurnya bisa bekerja di mansion dan dibimbing oleh senior.";
+irene.traitsRevealedPerLevel[2] = {L"Bersyukur", L"Rajin Belajar"};
+irene.detailedInfoPerLevel[3] = L"Mulai terbuka tentang hobinya membaca buku fantasi dan sedikit menyulam. Antusias saat Weiss menawarkan bertukar rekomendasi buku.";
+irene.traitsRevealedPerLevel[3] = {L"Suka Membaca Fantasi", L"Bisa Menyulam (Dasar)"};
+irene.detailedInfoPerLevel[4] = L"Berbagi momen ringan mengamati kupu-kupu langka bersama Weiss. Tidak lagi kaku dan bisa tertawa lepas.";
+irene.traitsRevealedPerLevel[4] = {L"Menghargai Keindahan Alam", L"Mulai Akrab"};
+irene.detailedInfoPerLevel[5] = L"Menunjukkan perhatian tulus saat melihat Weiss pucat. Berinisiatif menawarkan teh herbal buatannya.";
+irene.traitsRevealedPerLevel[5] = {L"Sangat Perhatian", L"Berinisiatif Membantu"};
+irene.detailedInfoPerLevel[6] = L"Berbagi perasaannya tentang rindu kampung halaman, namun juga menganggap Mansion Astra sebagai rumah kedua.";
+irene.traitsRevealedPerLevel[6] = {L"Penyayang Keluarga", L"Mulai Merasa Betah"};
+irene.detailedInfoPerLevel[7] = L"Sangat antusias berdiskusi tentang buku yang direkomendasikan Weiss, menunjukkan kesamaan selera dan kenyamanan dalam berpendapat.";
+irene.traitsRevealedPerLevel[7] = {L"Kritis terhadap Cerita", L"Teman Diskusi yang Baik"};
+irene.detailedInfoPerLevel[8] = L"Dengan tulus mengungkapkan rasa syukurnya atas perubahan positif dalam diri Weiss dan bagaimana itu dirasakan oleh semua staf.";
+irene.traitsRevealedPerLevel[8] = {L"Jujur", L"Mengapresiasi Kebaikan"};
+irene.detailedInfoPerLevel[9] = L"Menawarkan dukungan emosional saat Weiss merasa terbebani. Menegaskan kesetiaannya sebagai teman.";
+irene.traitsRevealedPerLevel[9] = {L"Pendengar yang Baik", L"Sangat Setia"};
+irene.detailedInfoPerLevel[10] = L"Memberikan jam saku pusaka keluarganya sebagai simbol persahabatan dan kesetiaan abadi. Menganggap Weiss sebagai keluarga.";
+irene.traitsRevealedPerLevel[10] = {L"Sangat Loyal dan Berbakti", L"Menganggap Weiss Keluarga"};
+companions.push_back(irene);
+
+// --- RUIGERD ---
+Companion ruigerd;
+ruigerd.name = "Ruigerd";
+ruigerd.initialLoyalty = 30;
+ruigerd.personality = "Chef Bijaksana Keluarga Astra";
+ruigerd.description = "Kepala Koki Mansion Astra yang telah lama mengabdi. Dikenal karena keahlian memasaknya yang luar biasa dan kearifannya.";
+ruigerd.coreAbilitiesOrTraits = {"Ahli Memasak Hidangan Kerajaan", "Pengetahuan Bahan Makanan Luas"};
+ruigerd.met = true;
+
+ruigerd.detailedInfoPerLevel[1] = L"Profesional dan sedikit terkejut dengan kunjungan Weiss ke dapur. Menjelaskan menu makan malam dengan formal.";
+ruigerd.traitsRevealedPerLevel[1] = {L"Profesional", L"Menjaga Standar Tinggi"};
+ruigerd.detailedInfoPerLevel[2] = L"Mulai terbuka menjelaskan teknik memasak (penggunaan kayu bakar). Menunjukkan kesabaran sebagai kunci memasak.";
+ruigerd.traitsRevealedPerLevel[2] = {L"Detail dalam Memasak", L"Sabar"};
+ruigerd.detailedInfoPerLevel[3] = L"Bangga saat masakannya (sup jamur Morel) dipuji. Menjelaskan pentingnya bahan musiman.";
+ruigerd.traitsRevealedPerLevel[3] = {L"Mencintai Bahan Musiman", L"Antusias pada Keahliannya"};
+ruigerd.detailedInfoPerLevel[4] = L"Menunjukkan sisi mentor saat mengajari juru masak muda. Berbagi filosofi tentang kesabaran dalam belajar dan memasak (saus hollandaise).";
+ruigerd.traitsRevealedPerLevel[4] = {L"Bijaksana", L"Mentor yang Baik"};
+ruigerd.detailedInfoPerLevel[5] = L"Senang atas apresiasi Weiss terhadap pesta teh. Menawarkan kue cokelat spesial buatannya, menunjukkan kebanggaan seorang seniman kuliner.";
+ruigerd.traitsRevealedPerLevel[5] = {L"Kreatif dalam Resep", L"Bangga akan Karyanya"};
+ruigerd.detailedInfoPerLevel[6] = L"Berbagi kenangan sentimental tentang kakek dan ayah Weiss, serta hidangan favorit mereka. Menunjukkan kesetiaan lamanya pada keluarga Astra.";
+ruigerd.traitsRevealedPerLevel[6] = {L"Sangat Loyal pada Keluarga Astra", L"Penjaga Kenangan"};
+ruigerd.detailedInfoPerLevel[7] = L"Memberikan nasihat bijak tentang tanggung jawab dan menghadapi tekanan, menggunakan analogi dari dunia dapur. Menawarkan dukungan moral.";
+ruigerd.traitsRevealedPerLevel[7] = {L"Pemberi Nasihat Ulung", L"Berpengalaman Luas"};
+ruigerd.detailedInfoPerLevel[8] = L"Mengakui dan memuji perubahan positif serta kedewasaan Weiss. Menyatakan dukungannya dan melihat potensi besar dalam diri Weiss.";
+ruigerd.traitsRevealedPerLevel[8] = {L"Observatif terhadap Perubahan", L"Mendukung Penuh Weiss"};
+ruigerd.detailedInfoPerLevel[9] = L"Menunjukkan perhatian kebapakan saat Weiss merasa terbebani. Menawarkan cokelat hangat dan dukungan emosional yang mendalam.";
+ruigerd.traitsRevealedPerLevel[9] = {L"Perhatian seperti Ayah", L"Pendengar yang Empatik"};
+ruigerd.detailedInfoPerLevel[10] = L"Menciptakan hidangan 'Simfoni Astra' dan mewariskan buku resep pribadinya sebagai simbol kepercayaan tertinggi dan kesetiaan abadi.";
+ruigerd.traitsRevealedPerLevel[10] = {L"Sangat Setia dan Berdedikasi", L"Menganggap Weiss Keluarga"};
+companions.push_back(ruigerd);
+
+// --- ELLA ---
+Companion ella;
+ella.name = "Ella";
+ella.initialLoyalty = 5;
+ella.personality = "Pemilik Cross Guild yang Tegas dan Pragmatis";
+ella.description = "Wanita tangguh yang mengelola Cross Guild di Kota Arcadia dengan tangan besi. Tidak suka basa-basi dan sangat berorientasi pada hasil.";
+ella.coreAbilitiesOrTraits = {"Manajemen Guild yang Efisien", "Jaringan Informasi Luas di Dunia Bawah"};
+ella.met = false;
+
+ella.detailedInfoPerLevel[1] = L"Sangat profesional dan sedikit sinis terhadap kunjungan bangsawan. Menjelaskan fungsi guild secara to-the-point.";
+ella.traitsRevealedPerLevel[1] = {L"Tegas", L"Praktis", L"Skeptis terhadap Bangsawan"};
+ella.detailedInfoPerLevel[2] = L"Menjelaskan cara kerja guild dalam menangani kasus 'kecil' yang tidak terjangkau aparat. Menunjukkan pemahamannya tentang 'aturan main' di dunia bawah.";
+ella.traitsRevealedPerLevel[2] = {L"Memahami Realitas Lapangan", L"Transparan (dengan caranya)"};
+ella.detailedInfoPerLevel[3] = L"Mengungkapkan bahwa guild adalah 'keluarga besar yang kacau balau' baginya, menunjukkan sisi sentimentil di balik sikap kerasnya.";
+ella.traitsRevealedPerLevel[3] = {L"Dedikasi pada Guild", L"Melindungi Anggotanya"};
+ella.detailedInfoPerLevel[4] = L"Menyelesaikan sengketa antar petualang dengan cepat dan tegas. Menunjukkan sisi humor sarkastisnya saat berbincang dengan Weiss.";
+ella.traitsRevealedPerLevel[4] = {L"Pemimpin yang Tegas", L"Humoris (Sarkastis)"};
+ella.detailedInfoPerLevel[5] = L"Terkesan dengan masukan praktis Weiss tentang formulir quest. Mulai melihat Weiss sebagai individu yang cerdas, bukan hanya bangsawan.";
+ella.traitsRevealedPerLevel[5] = {L"Menghargai Ide Bagus", L"Mulai Terbuka"};
+ella.detailedInfoPerLevel[6] = L"Berbagi kisah tentang quest sulit di masa lalu (wabah di Pegunungan Naga Merah), menunjukkan esensi guild yang sebenarnya: membantu orang.";
+ella.traitsRevealedPerLevel[6] = {L"Menjunjung Tinggi Misi Guild", L"Berpengalaman dalam Krisis"};
+ella.detailedInfoPerLevel[7] = L"Memberikan nasihat praktis dan informasi sensitif tentang penyelundupan di dermaga, menunjukkan kepercayaannya pada Weiss.";
+ella.traitsRevealedPerLevel[7] = {L"Memiliki Jaringan Intelijen", L"Berani Mengambil Risiko (Terukur)"};
+ella.detailedInfoPerLevel[8] = L"Mengakui bahwa Weiss berbeda dari bangsawan kebanyakan karena kepedulian dan tindakannya. Menunjukkan rasa hormat yang tulus.";
+ella.traitsRevealedPerLevel[8] = {L"Menilai Orang dari Tindakan", L"Mulai Menghormati Weiss"};
+ella.detailedInfoPerLevel[9] = L"Menyatakan kesamaan tujuan dengan Weiss dalam memberantas premanisme di pasar malam. Menawarkan kerjasama dan menunjukkan sisi protektifnya.";
+ella.traitsRevealedPerLevel[9] = {L"Berjiwa Keadilan", L"Siap Bekerja Sama"};
+ella.detailedInfoPerLevel[10] = L"Menganugerahkan Lencana Kehormatan Guild Tertinggi kepada Weiss sebagai simbol kepercayaan penuh dan aliansi. Mengungkap motivasi pribadinya menjalankan guild.";
+ella.traitsRevealedPerLevel[10] = {L"Sangat Mempercayai Weiss", L"Visioner", L"Mitra Setia"};
+companions.push_back(ella);
+
+// --- CHARLOTTE ---
+Companion charlotte;
+charlotte.name = "Charlotte";
+charlotte.initialLoyalty = 5;
+charlotte.personality = "Wartawan Gigih Arcadia Chronicle";
+charlotte.description = "Jurnalis muda yang idealis dan bersemangat dari Harian Arcadia Chronicle. Selalu mencari kebenaran dan tidak mudah menyerah.";
+charlotte.coreAbilitiesOrTraits = {"Keahlian Investigasi Mendalam", "Menulis Artikel yang Tajam"};
+charlotte.met = false;
+
+charlotte.detailedInfoPerLevel[1] = L"Energik dan langsung ke pokok permasalahan. Mengajukan pertanyaan tajam tentang motivasi Weiss terlibat dalam urusan kota.";
+charlotte.traitsRevealedPerLevel[1] = {L"Gigih", L"Profesional", L"Analitis"};
+charlotte.detailedInfoPerLevel[2] = L"Mengungkapkan tantangan pekerjaannya dalam memilah fakta dari desas-desus (kasus dermaga). Menunjukkan idealismenya tentang hak publik untuk tahu.";
+charlotte.traitsRevealedPerLevel[2] = {L"Idealis", L"Memiliki Jaringan Luas (Potensial)"};
+charlotte.detailedInfoPerLevel[3] = L"Sedang menginvestigasi keluhan pedagang pasar. Terkejut namun menghargai 'tip' dari Weiss, mulai melihat potensi kerjasama.";
+charlotte.traitsRevealedPerLevel[3] = {L"Peduli pada Rakyat Kecil", L"Mulai Percaya (Sedikit)"};
+charlotte.detailedInfoPerLevel[4] = L"Terlihat frustrasi menghadapi jalan buntu dalam investigasinya. Menunjukkan semangat juangnya yang tak mau menyerah demi kebenaran.";
+charlotte.traitsRevealedPerLevel[4] = {L"Pantang Menyerah", L"Berdedikasi Tinggi"};
+charlotte.detailedInfoPerLevel[5] = L"Mulai bertukar informasi secara lebih terbuka dengan Weiss terkait penyelidikan di dermaga dan catatan properti lama. Kemitraan mulai terbentuk.";
+charlotte.traitsRevealedPerLevel[5] = {L"Kolaboratif", L"Menghargai Informasi Akurat"};
+charlotte.detailedInfoPerLevel[6] = L"Bekerja hingga larut malam menyusun artikel investigasi. Berbagi kekhawatiran tentang risiko dan serangan balik dari pihak yang merugi.";
+charlotte.traitsRevealedPerLevel[6] = {L"Berani Mengambil Risiko (Jurnalistik)", L"Teliti"};
+charlotte.detailedInfoPerLevel[7] = L"Menghadapi dilema etis terkait penggunaan bukti sensitif dan keselamatan sumber. Memutuskan untuk mengambil risiko bersama Weiss.";
+charlotte.traitsRevealedPerLevel[7] = {L"Memegang Teguh Etika", L"Berani Bertindak"};
+charlotte.detailedInfoPerLevel[8] = L"Mengakui bahwa Weiss telah mengubah pandangannya tentang bangsawan. Menunjukkan rasa terima kasih atas dukungan dan keberanian Weiss.";
+charlotte.traitsRevealedPerLevel[8] = {L"Menghargai Integritas Weiss", L"Rekan yang Solid"};
+charlotte.detailedInfoPerLevel[9] = L"Melakukan pengintaian berbahaya bersama Weiss untuk mendapatkan bukti final. Menunjukkan keberanian fisik dan ikatan kuat sebagai tim.";
+charlotte.traitsRevealedPerLevel[9] = {L"Sangat Berani", L"Rekan Seperjuangan"};
+charlotte.detailedInfoPerLevel[10] = L"Berhasil menerbitkan berita skandal besar. Mengungkap motivasi pribadinya melanjutkan perjuangan ayahnya. Memberikan 'Pena Saksi Kebenaran' sebagai simbol persahabatan abadi.";
+charlotte.traitsRevealedPerLevel[10] = {L"Pembawa Perubahan", L"Sahabat Setia", L"Sangat Idealistis"};
+companions.push_back(charlotte);
+
+// --- MARS ---
+Companion mars;
+mars.name = "Mars";
+mars.initialLoyalty = 10;
+mars.personality = "Penjaga Pos Hutan yang Tangguh dan Bijaksana";
+mars.description = "Seorang pria bertubuh tegap yang menjaga Hutan Merah dengan penuh dedikasi. Awalnya pendiam dan waspada, namun memiliki kearifan alam.";
+mars.coreAbilitiesOrTraits = {"Pengetahuan Hutan Mendalam", "Keahlian Bertahan Hidup Unggul", "Insting Alam Tajam"};
+mars.met = false;
+
+mars.detailedInfoPerLevel[1] = L"Sangat formal dan waspada terhadap bangsawan. Menjelaskan tugasnya dengan singkat dan mengingatkan bahaya hutan.";
+mars.traitsRevealedPerLevel[1] = {L"Tegas", L"Profesional", L"Menghormati Hutan"};
+mars.detailedInfoPerLevel[2] = L"Sedikit melunak saat Weiss menunjukkan ketertarikan pada masalah perburuan liar. Mulai berbagi informasi tentang tantangan pekerjaannya.";
+mars.traitsRevealedPerLevel[2] = {L"Peduli Ekosistem", L"Praktis"};
+mars.detailedInfoPerLevel[3] = L"Mulai berbagi anekdot tentang hutan (babi hutan besar, pencari jamur tersesat). Menunjukkan sisi humor langka dan pengetahuannya tentang tanda-tanda alam.";
+mars.traitsRevealedPerLevel[3] = {L"Berpengalaman Luas (Hutan)", L"Observatif"};
+mars.detailedInfoPerLevel[4] = L"Menghargai hadiah apel dari Weiss. Berbagi pengetahuan tentang tanaman obat (Daun Jantung Ungu) dan legenda Bunga Bulan Perak.";
+mars.traitsRevealedPerLevel[4] = {L"Ahli Tanaman Obat (Dasar)", L"Menyimpan Cerita Hutan"};
+mars.detailedInfoPerLevel[5] = L"Terkesan dengan kesediaan Weiss membantu memperbaiki pagar. Mulai melihat Weiss berbeda dari rumor dan bangsawan lain. Memberikan air mata air hutan.";
+mars.traitsRevealedPerLevel[5] = {L"Menilai dari Tindakan", L"Mulai Terbuka"};
+mars.detailedInfoPerLevel[6] = L"Berbagi kekhawatiran tentang bencana alam di sekitar hutan saat terjebak hujan bersama Weiss. Menunjukkan harapan saat Weiss menawarkan bantuan.";
+mars.traitsRevealedPerLevel[6] = {L"Peduli Masyarakat Sekitar Hutan", L"Bertanggung Jawab"};
+mars.detailedInfoPerLevel[7] = L"Sangat berterima kasih atas bantuan Weiss dalam meloloskan proposal peralatan baru. Mengakui Weiss sebagai sahabat sejati hutan.";
+mars.traitsRevealedPerLevel[7] = {L"Sangat Menghargai Bantuan Nyata", L"Pemimpin yang Dihormati Penjaga Lain"};
+mars.detailedInfoPerLevel[8] = L"Berbagi kisah pribadi yang mendalam tentang pengalamannya berhadapan dengan Beruang Cakar Besi dan filosofinya tentang menghormati alam.";
+mars.traitsRevealedPerLevel[8] = {L"Memiliki Ikatan Spiritual dengan Alam", L"Pemberani (dengan Kearifan)"};
+mars.detailedInfoPerLevel[9] = L"Bekerja sama dengan Weiss dalam operasi penyelamatan tim patroli yang hilang. Mengakui bakat kepemimpinan dan ketenangan Weiss dalam krisis.";
+mars.traitsRevealedPerLevel[9] = {L"Rekan yang Andal dalam Krisis", L"Mempercayai Weiss"};
+mars.detailedInfoPerLevel[10] = L"Menunjukkan tempat favoritnya di Hutan Merah dan memberikan 'Taring Serigala Penjaga' sebagai simbol persahabatan abadi dan pengakuan Weiss sebagai 'Penjaga Hutan dalam hati'.";
+mars.traitsRevealedPerLevel[10] = {L"Sahabat dan Saudara Setia", L"Pelindung Warisan Alam"};
+companions.push_back(mars);
+
+
+// Inisialisasi relasi untuk semua companion (pastikan ini dilakukan setelah semua companion di-push_back)
+companionRelations.clear(); // Kosongkan dulu untuk menghindari duplikasi jika fungsi dipanggil ulang
+for(const auto& comp : companions) {
+    companionRelations[comp.name] = comp.initialLoyalty;
+}
     
     // Setup initial quests
     Quest* quest1 = new Quest{"Avoid Death Flags", "Don't die like a typical villain", false, 100, nullptr};
@@ -1717,6 +2007,7 @@ void levelUpCharacter(Character& character) {
 
 
 void handleExperienceAndLevelUp(Character& character, int expGained) {
+    system("cls");
     if (expGained <= 0) return;
 
     character.exp += expGained;
@@ -1976,9 +2267,7 @@ bool showSpellDetailAndMaybeUnlock(Character& character, const MagicSpell& spell
         }
     }
 
-    wcout << L"\nTekan Enter untuk kembali...";
-    cin.ignore();
-    cin.get();
+    waitForEnter();
     return true;
 }
 
@@ -2074,8 +2363,8 @@ void setupWorldAreas() {
     mansion.startSubArea = "Kamar Weiss";
     mansion.subAreas = {
         {"Kamar Weiss", { "Kamar Weiss", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }},
-        {"Dapur Mansion", { "Dapur Mansion", {"Cek Sekitar", "Bicara dengan Companion", "Membuka Diary", "Pilih Lokasi"} }},
-        {"Taman Floresia", { "Taman Floresia", {"Cek Sekitar", "Bicara dengan Companion", "Membuka Diary", "Pilih Lokasi"} }},
+        {"Dapur Mansion", { "Dapur Mansion", {"Cek Sekitar", "Bicara dengan Ruigerd", "Membuka Diary", "Pilih Lokasi"} }},
+        {"Taman Floresia", { "Taman Floresia", {"Cek Sekitar", "Bicara dengan Irene", "Membuka Diary", "Pilih Lokasi"} }},
         {"Lorong Panjang", { "Lorong Panjang", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }}
     };
     allWorlds["Mansion Astra"] = mansion;
@@ -2085,9 +2374,9 @@ void setupWorldAreas() {
     arcadia.name = "Kota Arcadia";
     arcadia.startSubArea = "Balai Kota";
     arcadia.subAreas = {
-        {"Cross Guild", { "Cross Guild", {"Cek Sekitar", "Quest Board", "Bicara dengan Companion", "Buka Diary", "Pilih Lokasi"} }},
+        {"Cross Guild", { "Cross Guild", {"Cek Sekitar", "Quest Board", "Bicara dengan Ella", "Buka Diary", "Pilih Lokasi"} }},
         {"Perbelanjaan", { "Perbelanjaan", {"Cek Sekitar", "Item Shop", "Penempa Besi", "Buka Diary", "Pilih Lokasi"} }},
-        {"Balai Kota", { "Balai Kota", {"Cek Sekitar", "Cek Berita Kota", "Bicara dengan Companion", "Buka Diary", "Pilih Lokasi"} }}
+        {"Balai Kota", { "Balai Kota", {"Cek Sekitar", "Cek Berita Kota", "Bicara dengan Charlotte", "Buka Diary", "Pilih Lokasi"} }}
     };
     allWorlds["Kota Arcadia"] = arcadia;
 
@@ -2096,7 +2385,7 @@ void setupWorldAreas() {
     hutan.name = "Hutan Merah";
     hutan.startSubArea = "Pos Hutan";
     hutan.subAreas = {
-        {"Pos Hutan", { "Pos Hutan", {"Cek Sekitar", "Bicara dengan Companion", "Membuka Diary", "Pilih Lokasi"} }},
+        {"Pos Hutan", { "Pos Hutan", {"Cek Sekitar", "Bicara dengan Mars", "Membuka Diary", "Pilih Lokasi"} }},
         {"Reruntuhan Kuno", { "Reruntuhan Kuno", {"Cek Sekitar", "Masuk ke Ancient Temple (Dungeon)", "Membuka Diary", "Pilih Lokasi"} }}
     };
     allWorlds["Hutan Merah"] = hutan;
@@ -2106,22 +2395,263 @@ void setupWorldAreas() {
     goa.name = "Goa Avernix";
     goa.startSubArea = "Camp Avernix";
     goa.subAreas = {
-        {"Camp Avernix", { "Camp Avernix", {"Cek Sekitar", "Masuk ke Goa Avernix (Dungeon)", "Bicara dengan Companion", "Membuka Diary", "Pilih Lokasi"} }},
+        {"Camp Avernix", { "Camp Avernix", {"Cek Sekitar", "Masuk ke Goa Avernix (Dungeon)", "Bicara dengan Kinich", "Membuka Diary", "Pilih Lokasi"} }},
         {"Tambang Terbengkalai", { "Tambang Terbengkalai", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }}
     };
     allWorlds["Goa Avernix"] = goa;
 
     // Puncak Patung Pahlawan Negara
     WorldArea puncak;
-    puncak.name = "Puncak Patung Pahlawan Negara";
+    puncak.name = "Puncak Arcadia";
     puncak.startSubArea = "Taman Norelia";
     puncak.subAreas = {
-        {"Taman Norelia", { "Taman Norelia", {"Cek Sekitar", "Bicara dengan Companion", "Membuka Diary", "Pilih Lokasi"} }},
-        {"Bukit Myriad", { "Bukit Myriad", {"Cek Sekitar", "Lawan Vallen", "Membuka Diary", "Pilih Lokasi"} }}
+        {"Taman Norelia", { "Taman Norelia", {"Cek Sekitar", "Bicara dengan Masha", "Membuka Diary", "Pilih Lokasi"} }},
+        {"Bukit Myriad", { "Bukit Myriad", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }}
     };
     allWorlds["Puncak Patung Pahlawan Negara"] = puncak;
     
 }
+
+
+
+void initializeAllQuests() {
+    allDailyQuestPool.clear();
+
+    // ==========================================================================
+    // ====== RANK C QUESTS (Lantai Dungeon 1-10, Area Awal/Mudah) ======
+    // ==========================================================================
+    // Kill Quests - Rank C
+    allDailyQuestPool.push_back({"Perburuan Slime Dasar", "Bunuh 1 monster Slime.", "kill", "Slime", 0, "", false, false, 30, 20, "C"});
+    allDailyQuestPool.push_back({"Ancaman Tikus Biasa", "Kalahkan 1 Giant Rat.", "kill", "GiantRat", 0, "", false, false, 35, 25, "C"});
+    allDailyQuestPool.push_back({"Masalah Goblin Grunt", "Habisi 1 Feral Goblin Grunt.", "kill", "FeralGoblinGrunt", 2, "Goa Avernix", false, false, 40, 30, "C"});
+    allDailyQuestPool.push_back({"Penjinakan Sprite Batu", "Hancurkan 1 Stone Sprite.", "kill", "StoneSprite", 0, "", false, false, 45, 35, "C"});
+    allDailyQuestPool.push_back({"Serangga Gua Mengganggu", "Basmi 1 Giant Cave Cricket.", "kill", "GiantCaveCricket", 1, "Goa Avernix", false, false, 50, 40, "C"});
+    allDailyQuestPool.push_back({"Gerombolan Tikus Kuil", "Singkirkan 1 Temple Rat Swarm.", "kill", "TempleRatSwarm", 3, "Ancient Temple", false, false, 55, 45, "C"});
+    allDailyQuestPool.push_back({"Pencuri Kobold", "Kalahkan 1 Kobold Scavenger.", "kill", "KoboldScavenger", 4, "Goa Avernix", false, false, 60, 50, "C"});
+    allDailyQuestPool.push_back({"Jamur Aneh", "Selidiki dan kalahkan 1 Glow Shroom Cluster.", "kill", "GlowShroomCluster", 0, "", false, false, 65, 55, "C"});
+    // Travel Quests - Rank C
+    allDailyQuestPool.push_back({"Kunjungan ke Dapur", "Kunjungi Dapur Mansion.", "travel", "Dapur Mansion", 0, "Mansion Astra", false, false, 20, 15, "C"});
+    allDailyQuestPool.push_back({"Menikmati Taman Floresia", "Jalan-jalan santai di Taman Floresia.", "travel", "Taman Floresia", 0, "Mansion Astra", false, false, 25, 20, "C"});
+    allDailyQuestPool.push_back({"Menyusuri Lorong Kediaman", "Periksa Lorong Panjang di Mansion Astra.", "travel", "Lorong Panjang", 0, "Mansion Astra", false, false, 20, 15, "C"});
+    allDailyQuestPool.push_back({"Ke Balai Kota Arcadia", "Kunjungi Balai Kota di Kota Arcadia.", "travel", "Balai Kota", 0, "Kota Arcadia", false, false, 30, 25, "C"});
+    allDailyQuestPool.push_back({"Mampir ke Pos Hutan", "Laporkan diri di Pos Hutan, Hutan Merah.", "travel", "Pos Hutan", 0, "Hutan Merah", false, false, 35, 30, "C"});
+    allDailyQuestPool.push_back({"Dasar Kuil Kuno", "Jelajahi hingga Lantai 2 Ancient Temple.", "travel", "Ancient Temple Lt.2", 2, "Ancient Temple", false, false, 70, 60, "C"});
+    allDailyQuestPool.push_back({"Pintu Masuk Goa Avernix", "Capai Lantai B1 (lantai 1) di Goa Avernix.", "travel", "Goa Avernix Lt.B1", 1, "Goa Avernix", false, false, 75, 65, "C"});
+    allDailyQuestPool.push_back({"Debu Misterius", "Kalahkan 1 Dust Mephit.", "kill", "DustMephit", 0, "", false, false, 80, 70, "C"});
+    allDailyQuestPool.push_back({"Anjing Penjaga", "Hadapi 1 Temple Guard Dog.", "kill", "TempleGuardDog", 6, "Ancient Temple", false, false, 90, 75, "C"});
+
+
+    // ========================================================================
+    // ====== RANK B QUESTS (Lantai Dungeon 11-20, Area Menengah) ======
+    // ========================================================================
+    // Kill Quests - Rank B
+    allDailyQuestPool.push_back({"Kobold Penjaga Jalur", "Kalahkan 1 Kobold Pathguard.", "kill", "KoboldPathguard", 8, "Goa Avernix", false, false, 150, 100, "B"});
+    allDailyQuestPool.push_back({"Pengintai Gua", "Hadapi 1 Cave Lurker.", "kill", "CaveLurker", 0, "", false, false, 160, 110, "B"});
+    allDailyQuestPool.push_back({"Pedang Animasi", "Hancurkan 1 Animated Sword di reruntuhan.", "kill", "AnimatedSword", 11, "Ancient Temple", false, false, 170, 120, "B"});
+    allDailyQuestPool.push_back({"Perayap Kegelapan", "Singkirkan 1 Umbral Crawler.", "kill", "UmbralCrawler", 13, "Goa Avernix", false, false, 180, 130, "B"});
+    allDailyQuestPool.push_back({"Fragmen Penjaga Kuno", "Nonaktifkan 1 Ancient Sentry Fragment.", "kill", "AncientSentryFragment", 14, "Ancient Temple", false, false, 190, 140, "B"});
+    allDailyQuestPool.push_back({"Anak Anjing Bayangan", "Tenangkan 1 Shadow Pup.", "kill", "ShadowPup", 0, "", false, false, 200, 150, "B"});
+    allDailyQuestPool.push_back({"Orb Penjaga", "Hancurkan 1 Guardian Orb.", "kill", "GuardianOrb", 11, "Ancient Temple", false, false, 210, 160, "B"});
+    allDailyQuestPool.push_back({"Pelempar Batu Goblin", "Lumpuhkan 1 Goblin Rockthrower.", "kill", "GoblinRockthrower", 12, "Goa Avernix", false, false, 220, 170, "B"});
+    // Travel Quests - Rank B
+    allDailyQuestPool.push_back({"Jelajah Reruntuhan Kuno", "Kunjungi area Reruntuhan Kuno di Hutan Merah.", "travel", "Reruntuhan Kuno", 0, "Hutan Merah", false, false, 100, 80, "B"});
+    allDailyQuestPool.push_back({"Ke Distrik Perbelanjaan", "Cari barang di Perbelanjaan, Kota Arcadia.", "travel", "Perbelanjaan", 0, "Kota Arcadia", false, false, 110, 90, "B"});
+    allDailyQuestPool.push_back({"Menemui Informan Guild", "Datangi Cross Guild di Kota Arcadia.", "travel", "Cross Guild", 0, "Kota Arcadia", false, false, 120, 100, "B"});
+    allDailyQuestPool.push_back({"Menjelajah Kuil Tengah", "Capai Lantai 15 di Ancient Temple.", "travel", "Ancient Temple Lt.15", 15, "Ancient Temple", false, false, 250, 180, "B"});
+    allDailyQuestPool.push_back({"Turuni Goa Avernix (Mid)", "Capai Lantai B14 (lantai 14) di Goa Avernix.", "travel", "Goa Avernix Lt.B14", 14, "Goa Avernix", false, false, 260, 190, "B"});
+    allDailyQuestPool.push_back({"Akolit Kuil Sesat", "Kalahkan 1 Temple Acolyte.", "kill", "TempleAcolyte", 16, "Ancient Temple", false, false, 230, 175, "B"});
+    allDailyQuestPool.push_back({"Troll Gua Muda", "Hadapi 1 Young Cave Troll.", "kill", "YoungCaveTroll", 17, "Goa Avernix", false, false, 240, 185, "B"});
+    allDailyQuestPool.push_back({"Imp Pengganggu", "Usir 1 Lesser Imp.", "kill", "LesserImp", 0, "", false, false, 200, 150, "B"});
+    allDailyQuestPool.push_back({"Inisiat Kultus Gelap", "Hentikan 1 Dark Cult Initiate.", "kill", "DarkCultInitiate", 0, "", false, false, 215, 165, "B"});
+
+
+    // =========================================================================
+    // ====== RANK A QUESTS (Lantai Dungeon 21-30, Area Sulit) ======
+    // =========================================================================
+    // Kill Quests - Rank A
+    allDailyQuestPool.push_back({"Ksatria Kuil Aspiran", "Ujilah kekuatan 1 Temple Knight Aspirant.", "kill", "TempleKnightAspirant", 22, "Ancient Temple", false, false, 400, 250, "A"});
+    allDailyQuestPool.push_back({"Babi Hutan Perkasa", "Burulah 1 Wild Boar (Strong).", "kill", "WildBoarStrong", 0, "", false, false, 420, 260, "A"});
+    allDailyQuestPool.push_back({"Penjaga Rune Aktif", "Nonaktifkan 1 Rune Guardian.", "kill", "RuneGuardian", 25, "Ancient Temple", false, false, 440, 270, "A"});
+    allDailyQuestPool.push_back({"Induk Laba-laba Gua", "Kalahkan 1 Brood Cavern Spider.", "kill", "BroodCavernSpider", 23, "Goa Avernix", false, false, 460, 280, "A"});
+    allDailyQuestPool.push_back({"Cherub Terkorupsi", "Sucikan 1 Corrupted Cherub.", "kill", "CorruptedCherub", 0, "", false, false, 480, 290, "A"});
+    allDailyQuestPool.push_back({"Penggali Kobold Ahli", "Hentikan 1 Kobold Digger.", "kill", "KoboldDigger", 21, "Goa Avernix", false, false, 500, 300, "A"});
+    allDailyQuestPool.push_back({"Iblis Pisau Obsidian", "Lawan 1 Obsidian Razorfiend.", "kill", "ObsidianRazorfiend", 0, "", false, false, 520, 310, "A"});
+    allDailyQuestPool.push_back({"Prajurit Hantu", "Tenangkan arwah 1 Phantom Warrior.", "kill", "PhantomWarrior", 28, "Ancient Temple", false, false, 540, 320, "A"});
+    allDailyQuestPool.push_back({"Penjaga Altar Kuno", "Kalahkan 1 Altar Guardian.", "kill", "AltarGuardian", 29, "Ancient Temple", false, false, 560, 330, "A"});
+    // Travel Quests - Rank A
+    allDailyQuestPool.push_back({"Inspeksi Tambang Terbengkalai", "Selidiki Tambang Terbengkalai di Goa Avernix.", "travel", "Tambang Terbengkalai", 0, "Goa Avernix", false, false, 200, 150, "A"});
+    allDailyQuestPool.push_back({"Menjelajahi Kuil Dalam", "Capai Lantai 25 di Ancient Temple.", "travel", "Ancient Temple Lt.25", 25, "Ancient Temple", false, false, 600, 350, "A"});
+    allDailyQuestPool.push_back({"Menerobos Goa Avernix (Dalam)", "Capai Lantai B28 (lantai 28) di Goa Avernix.", "travel", "Goa Avernix Lt.B28", 28, "Goa Avernix", false, false, 620, 360, "A"});
+    allDailyQuestPool.push_back({"Salamander Hangus", "Kalahkan 1 Charred Salamander.", "kill", "CharredSalamander", 0, "", false, false, 570, 340, "A"});
+    allDailyQuestPool.push_back({"Laba-laba Hutan Belantara", "Singkirkan 1 Forest Spider.", "kill", "ForestSpider", 0, "", false, false, 580, 350, "A"});
+    allDailyQuestPool.push_back({"Singa Batu Muda", "Hadapi 1 Stone Lion Cub.", "kill", "StoneLionCub", 0, "", false, false, 590, 360, "A"});
+    allDailyQuestPool.push_back({"Ular Sungai Berbisa", "Lumpuhkan 1 River Serpent.", "kill", "RiverSerpent", 0, "", false, false, 600, 370, "A"});
+
+
+    // ===========================================================================
+    // ====== RANK S QUESTS (Lantai Dungeon 31-40, Area Sangat Sulit) ======
+    // ===========================================================================
+    // Kill Quests - Rank S
+    allDailyQuestPool.push_back({"Elite Prajurit Tengkorak", "Musnahkan 1 Skeleton Soldier Elite.", "kill", "SkeletonSoldierElite", 31, "Ancient Temple", false, false, 800, 500, "S"});
+    allDailyQuestPool.push_back({"Gargoyle Penjaga", "Kalahkan 1 Lesser Gargoyle.", "kill", "LesserGargoyle", 33, "Ancient Temple", false, false, 830, 520, "S"});
+    allDailyQuestPool.push_back({"Brute Penghuni Kedalaman", "Hadapi 1 Deep Dweller Brute.", "kill", "DeepDwellerBrute", 32, "Goa Avernix", false, false, 860, 540, "S"});
+    allDailyQuestPool.push_back({"Animator Hieroglif", "Hentikan 1 Hieroglyphic Animator.", "kill", "HieroglyphicAnimator", 35, "Ancient Temple", false, false, 890, 560, "S"});
+    allDailyQuestPool.push_back({"Pemimpin Bandit Kejam", "Tangkap atau kalahkan 1 Leader Bandit Thug.", "kill", "LeaderBanditThug", 0, "", false, false, 920, 580, "S"});
+    allDailyQuestPool.push_back({"Anjing Pengejar Ketakutan", "Lawan 1 Fear Hound.", "kill", "FearHound", 36, "Goa Avernix", false, false, 950, 600, "S"});
+    allDailyQuestPool.push_back({"Justicar Kuil Terkutuk", "Adili 1 Fallen Temple Justicar.", "kill", "FallenTempleJusticar", 38, "Ancient Temple", false, false, 980, 620, "S"});
+    allDailyQuestPool.push_back({"Suku Orc Elit", "Kalahkan 1 Orc Grunt Elite.", "kill", "OrcGruntElite", 0, "", false, false, 1010, 640, "S"});
+    allDailyQuestPool.push_back({"Pecahan Golem Batu Raksasa", "Hancurkan 1 Rock Golem Shard.", "kill", "RockGolemShard", 39, "Goa Avernix", false, false, 1040, 660, "S"});
+    // Travel Quests - Rank S
+    allDailyQuestPool.push_back({"Menjelajahi Jantung Kuil", "Capai Lantai 35 di Ancient Temple.", "travel", "Ancient Temple Lt.35", 35, "Ancient Temple", false, false, 1100, 700, "S"});
+    allDailyQuestPool.push_back({"Menuruni Inti Avernix", "Capai Lantai B38 (lantai 38) di Goa Avernix.", "travel", "Goa Avernix Lt.B38", 38, "Goa Avernix", false, false, 1150, 720, "S"});
+    allDailyQuestPool.push_back({"Elemental Inti Cair", "Taklukkan 1 Molten Core Elemental.", "kill", "MoltenCoreElemental", 31, "Goa Avernix", false, false, 1050, 670, "S"});
+    allDailyQuestPool.push_back({"Klerik Matahari Bayangan", "Hadapi 1 Shadowed Sun Cleric.", "kill", "ShadowedSunCleric", 0, "", false, false, 1060, 680, "S"});
+    allDailyQuestPool.push_back({"Roh Penjaga Agung", "Lawan 1 Guardian Spirit.", "kill", "GuardianSpirit", 33, "Ancient Temple", false, false, 1070, 690, "S"});
+    allDailyQuestPool.push_back({"Ritualis Jurang Maut", "Gagalkan ritual 1 Abyssal Ritualist.", "kill", "AbyssalRitualist", 34, "Ancient Temple", false, false, 1080, 700, "S"});
+    allDailyQuestPool.push_back({"Inti Golem Kristal", "Ambil inti dari 1 Crystal Golem Core.", "kill", "CrystalGolemCore", 35, "Goa Avernix", false, false, 1090, 710, "S"});
+
+
+    // ===================================================================================
+    // ====== RANK SS QUESTS (Lantai Dungeon 41-50, Area/Monster Legendaris) ======
+    // ===================================================================================
+    // Kill Quests - Rank SS
+    allDailyQuestPool.push_back({"Matriark Harpy Penguasa", "Kalahkan 1 Harpy Matriarch.", "kill", "HarpyMatriarch", 0, "", false, false, 1500, 1000, "SS"});
+    allDailyQuestPool.push_back({"Anakan Behemoth Lava", "Lumpuhkan 1 Lava Behemoth Whelp.", "kill", "LavaBehemothWhelp", 41, "Goa Avernix", false, false, 1550, 1050, "SS"});
+    allDailyQuestPool.push_back({"Kelelawar Iblis Neraka", "Basmi 1 Hellish Devil Bat.", "kill", "HellishDevilBat", 0, "", false, false, 1600, 1100, "SS"});
+    allDailyQuestPool.push_back({"Gema Seraphim", "Hadapi 1 Seraphic Echo.", "kill", "SeraphicEcho", 43, "Ancient Temple", false, false, 1650, 1150, "SS"});
+    allDailyQuestPool.push_back({"Tanaman Karnivora Purba", "Tebang 1 Ancient Carnivorous Plant.", "kill", "AncientCarnivorousPlant", 0, "", false, false, 1700, 1200, "SS"});
+    allDailyQuestPool.push_back({"Akolit Archon Terkorupsi", "Hentikan 1 Corrupted Archon Acolyte.", "kill", "CorruptedArchonAcolyte", 45, "Ancient Temple", false, false, 1750, 1250, "SS"});
+    allDailyQuestPool.push_back({"Pengintai Jurang Neraka", "Kalahkan 1 Abyssal Watcher.", "kill", "AbyssalWatcher", 42, "Goa Avernix", false, false, 1800, 1300, "SS"});
+    allDailyQuestPool.push_back({"Barisan Depan Inferno", "Hadapi 1 Infernal Vanguard.", "kill", "InfernalVanguard", 44, "Goa Avernix", false, false, 1850, 1350, "SS"});
+    allDailyQuestPool.push_back({"Benteng Batu Matahari", "Hancurkan 1 Sunstone Sentinel.", "kill", "SunstoneSentinel", 0, "", false, false, 1900, 1400, "SS"});
+    allDailyQuestPool.push_back({"Penjaga Konstruk Ilahi", "Nonaktifkan 1 Divine Construct Sentry.", "kill", "DivineConstructSentry", 46, "Ancient Temple", false, false, 1950, 1450, "SS"});
+    // Travel Quests - Rank SS
+    allDailyQuestPool.push_back({"Menaklukkan Puncak Kuil Suci", "Capai Lantai 45 Ancient Temple.", "travel", "Ancient Temple Lt.45", 45, "Ancient Temple", false, false, 2000, 1500, "SS"});
+    allDailyQuestPool.push_back({"Menuruni Dasar Avernix", "Capai Lantai B48 (lantai 48) Goa Avernix.", "travel", "Goa Avernix Lt.B48", 48, "Goa Avernix", false, false, 2100, 1550, "SS"});
+    allDailyQuestPool.push_back({"Alfa Serigala Kegelapan", "Burulah pemimpin Dark Wolf Alpha.", "kill", "DarkWolfAlpha", 0, "", false, false, 2200, 1600, "SS"});
+    allDailyQuestPool.push_back({"Wisp Penyerap Jiwa", "Musnahkan 1 Soul Leech Wisp.", "kill", "SoulLeechWisp", 47, "Ancient Temple", false, false, 2300, 1650, "SS"});
+    allDailyQuestPool.push_back({"Gema Orang Suci yang Hilang", "Tenangkan 1 Echo of a Lost Saint.", "kill", "EchoOfALostSaint", 0, "", false, false, 2400, 1700, "SS"});
+    allDailyQuestPool.push_back({"Iblis Muda dari Jurang", "Kalahkan 1 Young Pit Fiend.", "kill", "YoungPitFiend", 49, "Goa Avernix", false, false, 2500, 1750, "SS"});
+    allDailyQuestPool.push_back({"Penjaga Kuil Abadi", "Hadapi 1 Timeless Temple Sentinel.", "kill", "TimelessTempleSentinel", 50, "Ancient Temple", false, false, 3000, 2000, "SS"}); // Monster kuat di lantai akhir
+}
+
+void generateDailyQuests() {
+    dailyQuests.clear();
+    unordered_set<int> chosen;
+    string playerRank = getQuestRankLetter();
+    vector<DailyQuest> filtered;
+
+    map<string, int> rankValue = {{"C", 1}, {"B", 2}, {"A", 3}, {"S", 4}, {"SS", 5}};
+
+    for (const auto& q : allDailyQuestPool) {
+        if (rankValue[q.rank] <= rankValue[playerRank]) {
+            filtered.push_back(q);
+        }
+    }
+
+    while (dailyQuests.size() < 3 && chosen.size() < filtered.size()) {
+        int idx = rand() % filtered.size();
+        if (!chosen.count(idx)) {
+            chosen.insert(idx);
+            dailyQuests.push_back(filtered[idx]);
+        }
+    }
+}
+
+
+
+void showQuestBoard() {
+    while (true) {
+        system("cls");
+        printLine();
+        centerText(L"✦✦✦ PAPAN QUEST CROSS GUILD ✦✦✦");
+        centerText(L"» RANK QUEST HARI INI: " + utf8_to_wstring(getQuestRankLetter()));
+        printLine();
+
+        for (int i = 0; i < dailyQuests.size(); i++) {
+            DailyQuest& q = dailyQuests[i];
+            wcout << L"❖ " << i + 1 << L". " << utf8_to_wstring(q.title);
+            if (q.taken) wcout << L" [Diambil]";
+            if (q.completed) wcout << L" [Selesai]";
+            wcout << endl;
+        }
+
+        printLine();
+        wcout << L"❖ Pilih nomor untuk lihat detail quest, atau 0 untuk kembali: ";
+        int qchoice; cin >> qchoice;
+        if (qchoice == 0) break;
+        if (qchoice < 1 || qchoice > dailyQuests.size()) continue;
+
+        DailyQuest& q = dailyQuests[qchoice - 1];
+        system("cls");
+        printLine();
+        centerText(L"✦ DETAIL QUEST ✦");
+        printLine();
+        wcout << L"✦ Judul     : " << utf8_to_wstring(q.title) << endl;
+        wcout << L"✦ Deskripsi : " << utf8_to_wstring(q.description) << endl;
+        wcout << L"✦ Target    : " << utf8_to_wstring(q.target) << endl;
+        wcout << L"✦ Rank      : " << utf8_to_wstring(q.rank) << endl;
+        wcout << L"✦ Reward    : " << q.expReward << L" EXP, " << q.goldReward << L" Gold" << endl;
+        printLine();
+
+        if (!q.taken) {
+            wcout << L"Ambil quest ini? (y/n): ";
+            char confirm; cin >> confirm;
+            if (confirm == 'y' || confirm == 'Y') {
+                q.taken = true;
+                activeDailyQuests.push_back(q);
+                delayPrint(L"✓ Quest berhasil diambil!");
+            }
+        } else {
+            delayPrint(L"Kamu sudah mengambil quest ini.");
+        }
+        system("pause");
+    }
+}
+
+
+
+void showActiveQuestsInDiary() {
+    while (true) {
+        system("cls");
+        printLine();
+        centerText(L"✦✦✦ QUEST AKTIF ✦✦✦");
+        printLine();
+
+        if (activeDailyQuests.empty()) {
+            wcout << L"Belum ada quest aktif." << endl;
+            break;
+        }
+
+        for (int i = 0; i < activeDailyQuests.size(); i++) {
+            const DailyQuest& q = activeDailyQuests[i];
+            wcout << L"❖ " << i + 1 << L". " << utf8_to_wstring(q.title);
+            if (q.completed) wcout << L" [Selesai]";
+            wcout << endl;
+        }
+
+        printLine();
+        wcout << L"Pilih nomor quest untuk detail, atau 0 untuk kembali: ";
+        int qsel; cin >> qsel;
+        if (qsel == 0) break;
+        if (qsel < 1 || qsel > activeDailyQuests.size()) continue;
+
+        const DailyQuest& q = activeDailyQuests[qsel - 1];
+        system("cls");
+        printLine();
+        centerText(L"✦ DETAIL QUEST DIARY ✦");
+        printLine();
+        wcout << L"✦ Judul     : " << utf8_to_wstring(q.title) << endl;
+        wcout << L"✦ Deskripsi : " << utf8_to_wstring(q.description) << endl;
+        wcout << L"✦ Target    : " << utf8_to_wstring(q.target) << endl;
+        wcout << L"✦ Rank      : " << utf8_to_wstring(q.rank) << endl;
+        wcout << L"✦ Hadiah    : " << q.expReward << L" EXP, " << q.goldReward << L" Gold" << endl;
+        wcout << L"Status      : " << (q.completed ? L"✅ Selesai" : L"⏳ Belum selesai") << endl;
+        printLine();
+        wcout << L"Tekan Enter untuk kembali..."; cin.ignore(); cin.get();
+    }
+}
+
 
 
 // Pastikan fungsi utf8_to_wstring sudah ada di atas fungsi ini
@@ -2901,6 +3431,25 @@ bool startBattle(Enemy& baseEnemy) {
             wcout << "<< Tekan Enter Untuk Berpindah Ke Selanjutnya";
             cin.get();
             handleExperienceAndLevelUp(player, enemy.expReward);
+            for (auto& quest : activeDailyQuests) {
+                if (!quest.completed && quest.taken && quest.type == "kill" && enemy.name == quest.target) {
+                    quest.completed = true;
+                    player.exp += quest.expReward;
+                    player.gold += quest.goldReward;
+                    delayPrint(L"✓ Quest selesai: " + utf8_to_wstring(quest.title));
+                    delayPrint(L"Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold");
+                    handleExperienceAndLevelUp(player, quest.expReward);
+                    // ⬇️ Tambahkan ini di bawah quest selesai
+                    activeDailyQuests.erase(
+                        remove_if(activeDailyQuests.begin(), activeDailyQuests.end(),
+                            [](const DailyQuest& q) { return q.completed; }),
+                        activeDailyQuests.end()
+                    );
+    }
+
+
+}
+
             printLine();
         } else if (playerRevivedThisBattle && enemy.hp > 0) {
             delayPrint(L" Kamu bangkit, namun musuh masih berdiri. Pertarungan berakhir untuk saat ini.", 40);
@@ -3012,51 +3561,161 @@ void showWeaponDetail(Weapon* weapon) {
     wcout << L"Pilih aksi ✦: ";
 }
 
-void showCompanionList() {
+void applySocialLinkBonus(const string& npcName) {
+    // implementasi logika di sini
+}
+
+void showCompanionListScreen() {
     system("cls");
     printLine();
-    centerText(L"✦✦✦ COMPANION LIST ✦✦✦");
+    centerText(L"✦✦✦ DAFTAR REKANAN (COMPANION) ✦✦✦");
     printLine();
-    
-    for(int i = 0; i < companions.size(); i++) {
-        wcout << L"    ❖ " << i+1 << L". " << companions[i].name.c_str();
-        if(companions[i].met) {
-            wcout << L" [MET]";
-        } else {
-            wcout << L" [UNKNOWN]";
+
+    if (companions.empty()) {
+        wcout << L"    Anda belum menjalin hubungan dengan siapa pun." << endl;
+    } else {
+        wcout << L"    Pilih rekanan untuk melihat detail:" << endl;
+        for (size_t i = 0; i < companions.size(); ++i) {
+            const Companion& comp = companions[i]; // Gunakan const reference
+            wcout << L"    ❖ " << (i + 1) << L". " << utf8_to_wstring(comp.name);
+            if (comp.met) {
+                int currentSocialLevel = 0;
+                if (socialLinks.count(comp.name)) {
+                    currentSocialLevel = socialLinks[comp.name].currentLevel;
+                }
+                wcout << L" [Sudah Bertemu | Hubungan Lv.: " << currentSocialLevel << L" | Loyalitas: " << companionRelations[comp.name] << L"]";
+            } else {
+                wcout << L" [Belum Dikenal]";
+            }
+            wcout << endl;
         }
-        wcout << endl;
     }
-    wcout << L"    ❖ 0. Kembali" << endl;
-    printLine(50, L'─');
-    wcout << L"Pilih companion ✦: ";
+    printLine(70, L'─');
+    wcout << L"    ❖ 0. Kembali ke Diary" << endl;
+    printLine(70, L'─');
+    wcout << L"Pilihan Anda ✦: ";
 }
 
 
-void showCompanionDetail(Companion& companion) {
-    system("cls");
-    printLine();
-    centerText(L"✦✦✦ DETAIL COMPANION ✦✦✦");
-    printLine();
-    
-    wcout << L"Nama: " << companion.name.c_str() << endl;
-    if(companion.met) {
-        wcout << L"Level: " << companion.level << endl;
-        wcout << L"HP: " << companion.hp << L"/" << companion.maxHp << endl;
-        wcout << L"Loyalty: " << companionRelations[companion.name] << L"/100" << endl;
-        wcout << L"Personality: " << companion.personality.c_str() << endl;
-        wcout << L"Deskripsi: " << companion.description.c_str() << endl;
-    } else {
-        wcout << L"Status: Belum bertemu" << endl;
-        wcout << L"Info: ???" << endl;
-    }
-    printLine();
-    wcout << L"    ❖ 1. Kembali" << endl;
-    printLine(50, L'─');
-    wcout << L"Pilih aksi ✦: ";
+
+void showCompanionDetailScreen(const Companion& companion) { // Terima const reference
+    // bool inDetailView = true; // Tidak perlu loop jika hanya menampilkan info
+    // while (inDetailView) { // Loop dihilangkan
+        system("cls");
+        printLine();
+        centerText(L"✦✦✦ DETAIL REKANAN - " + utf8_to_wstring(companion.name) + L" ✦✦✦");
+        printLine();
+
+        if (companion.met) {
+            int currentSocialLevel = 0;
+            bool isMaxLevel = false; // Tambahkan flag untuk level maksimal
+
+            if (socialLinks.count(companion.name)) {
+                currentSocialLevel = socialLinks[companion.name].currentLevel;
+                if (socialLinks[companion.name].completed) { // Cek apakah sudah completed (level 10)
+                    isMaxLevel = true;
+                    // Jika sudah completed, currentLevel di struct SocialLink mungkin > 10
+                    // atau tetap 10 tergantung implementasi Anda setelah scene level 10.
+                    // Untuk tampilan, kita anggap level MAX adalah 10.
+                    currentSocialLevel = 10;
+                }
+            } else {
+                 wcout << L"    Belum ada progres hubungan sosial dengan " << utf8_to_wstring(companion.name) << L"." << endl;
+            }
+
+            wcout << L" Nama         : " << utf8_to_wstring(companion.name) << endl;
+            wcout << L" Kepribadian  : " << utf8_to_wstring(companion.personality) << endl;
+            wcout << L" Loyalitas    : " << companionRelations[companion.name] << L"/100" << endl;
+            wcout << L" Level Hub.   : " << currentSocialLevel << (isMaxLevel ? L" (MAX)" : L"") << endl; // Tampilkan (MAX) jika sudah
+            wcout << endl;
+            wcout << L" Deskripsi Awal:" << endl;
+            wcout << L"   " << utf8_to_wstring(companion.description) << endl;
+            wcout << endl;
+
+            wcout << L" Sifat & Keahlian Inti:" << endl;
+            if (companion.coreAbilitiesOrTraits.empty()) {
+                wcout << L"   - Belum ada yang diketahui secara jelas." << endl;
+            } else {
+                for (const auto& ability : companion.coreAbilitiesOrTraits) {
+                    wcout << L"   - " << utf8_to_wstring(ability) << endl;
+                }
+            }
+            wcout << endl;
+
+            wcout << L" Informasi & Sifat Terungkap (Seiring Hubungan):" << endl;
+            bool infoRevealedThisSession = false; // Ganti nama variabel agar lebih jelas
+            // Pastikan currentSocialLevel yang digunakan untuk loop adalah level yang valid untuk diakses di map
+            int displayUpToLevel = currentSocialLevel;
+            if (isMaxLevel) { // Jika sudah max, tampilkan info sampai level 10
+                displayUpToLevel = 10;
+            }
+
+
+            for (int i = 1; i <= displayUpToLevel; ++i) { // Iterasi hingga level sosial saat ini (atau 10 jika MAX)
+                bool levelInfoDisplayed = false;
+                wstring tempLevelInfo = L"";
+
+                if (companion.detailedInfoPerLevel.count(i)) {
+                    tempLevelInfo += L"\n   ✧ Level " + to_wstring(i) + L": " + companion.detailedInfoPerLevel.at(i);
+                    levelInfoDisplayed = true;
+                    infoRevealedThisSession = true;
+                }
+                if (companion.traitsRevealedPerLevel.count(i)) {
+                    if (!levelInfoDisplayed) { // Jika info detail belum ada, tambahkan header level
+                        tempLevelInfo += L"\n   ✧ Level " + to_wstring(i) + L":";
+                        levelInfoDisplayed = true;
+                    }
+                    for (const auto& trait : companion.traitsRevealedPerLevel.at(i)) {
+                        tempLevelInfo += L"\n     └─ Sifat/Keahlian Baru: " + trait;
+                    }
+                    infoRevealedThisSession = true;
+                }
+                if (levelInfoDisplayed) {
+                    wcout << tempLevelInfo << endl;
+                }
+            }
+
+            if (!infoRevealedThisSession && currentSocialLevel > 0) { // Jika ada level sosial tapi tidak ada info spesifik
+                 wcout << L"   Belum ada informasi detail tambahan yang terungkap pada level hubungan ini." << endl;
+            } else if (currentSocialLevel == 0 && companion.met) { // Sudah bertemu tapi belum ada progres sosial link
+                 wcout << L"   Mulailah berinteraksi untuk mengenal mereka lebih dalam!" << endl;
+            } else if (!infoRevealedThisSession && currentSocialLevel == 0 && !companion.met) {
+                 // Ini seharusnya tidak terjadi jika companion.met = false, karena akan masuk ke blok else di bawah
+            }
+
+
+            printLine(70, L'─');
+            // Opsi interaktif dihilangkan
+            // wcout << L"    ❖ 1. Beri Hadiah (Belum Implementasi)" << endl;
+            // wcout << L"    ❖ 2. Ajak Bicara (Lihat Lokasi NPC untuk memulai/lanjutkan Social Link)" << endl;
+            wcout << L"    Tekan Enter untuk kembali ke Daftar Rekanan." << endl; // Hanya opsi kembali
+        } else {
+            wcout << L" Nama         : ???" << endl;
+            wcout << L" Status       : Belum Dikenal" << endl;
+            wcout << L" Informasi    : Anda belum bertemu dengan individu ini." << endl;
+            printLine(70, L'─');
+            wcout << L"    Tekan Enter untuk kembali ke Daftar Rekanan." << endl; // Hanya opsi kembali
+        }
+        printLine(70, L'─');
+        // wcout << L"Pilihan Aksi ✦: "; // Input pilihan dihilangkan
+
+        // Langsung menunggu Enter untuk kembali
+        cin.clear(); // Bersihkan flag error jika ada
+        // Membersihkan buffer input dengan lebih aman
+        if (cin.rdbuf()->in_avail() > 0) { // Cek jika ada sisa di buffer
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        } else if (cin.peek() == '\n' && cin.peek() != EOF) { // Jika hanya newline
+            cin.ignore(); // Ambil newline tunggal
+        }
+        // Jika tidak ada apa-apa di buffer, cin.get() berikutnya akan menunggu input baru
+        cin.get(); // Menunggu Enter
+
+        // inDetailView = false; // Tidak perlu lagi karena loop dihilangkan
+    // } // Akhir dari loop while yang dihilangkan
 }
 
 void enterDungeon(string dungeonName) {
+    consumeAction();
     Dungeon& dungeon = allDungeons[dungeonName];
     bool inDungeon = true;
     if (!dungeon.visitedCampAreas.empty()) {
@@ -3220,6 +3879,21 @@ void enterDungeon(string dungeonName) {
                     break;
             }
         }
+        for (auto& quest : dailyQuests) {
+        if (quest.type == "dungeon" && quest.taken && !quest.completed && dungeon.name == quest.dungeonName && dungeon.currentFloor == quest.dungeonFloor) {
+        quest.completed = true;
+        delayPrint(L"✓ Quest dungeon selesai: " + utf8_to_wstring(quest.title));
+        delayPrint(L"Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold");
+        player.exp += quest.expReward;
+        player.gold += quest.goldReward;
+        handleExperienceAndLevelUp(player, quest.expReward);
+        activeDailyQuests.erase(
+        remove_if(activeDailyQuests.begin(), activeDailyQuests.end(),
+        [](const DailyQuest& q) { return q.completed; }),
+        activeDailyQuests.end()
+        );
+    }
+}
 
         wcout << L"\nTekan Enter untuk lanjut..."; cin.ignore(); cin.get();
     }
@@ -3383,21 +4057,39 @@ void showDiaryMenu() {
                 } while(invChoice != 3);
                 break;
             }
+            case 3: {
+                showActiveQuestsInDiary();
+                break;
+            }
             case 5: {
-                // Companion List
                 int compChoice;
                 do {
-                    showCompanionList();
+                    showCompanionListScreen(); // Menggunakan nama fungsi yang sudah kita update
                     cin >> compChoice;
-                    
-                    if(compChoice > 0 && compChoice <= companions.size()) {
-                        int detailChoice;
-                        do {
-                            showCompanionDetail(companions[compChoice-1]);
-                            cin >> detailChoice;
-                        } while(detailChoice != 1);
+
+                    // Membersihkan buffer dan validasi input
+                    if (cin.fail()) {
+                        cin.clear();
+                        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                        delayPrint(L"Pilihan tidak valid. Coba lagi.", 20);
+                        system("pause"); // Beri waktu pemain untuk membaca pesan
+                        compChoice = -1; // Set agar loop berlanjut
+                        continue;
                     }
-                } while(compChoice != 0);
+                    // Membersihkan sisa newline jika input valid
+                    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+
+                    if (compChoice > 0 && compChoice <= static_cast<int>(companions.size())) {
+                        // Tidak perlu loop 'do-while' untuk detailChoice lagi
+                        // karena showCompanionDetailScreen sekarang kembali setelah Enter.
+                        showCompanionDetailScreen(companions[compChoice - 1]);
+                        // system("pause"); // Mungkin tidak perlu pause di sini, karena showCompanionDetailScreen sudah menunggu Enter
+                    } else if (compChoice != 0) {
+                        delayPrint(L"Nomor pilihan tidak ada dalam daftar.", 20);
+                        system("pause");
+                    }
+                } while (compChoice != 0);
                 break;
             }
             case 6: {
@@ -3409,7 +4101,6 @@ void showDiaryMenu() {
                 } while(calChoice != 1);
                 break;
             }
-            case 3:
             case 4:
                 showSkillTreeMenu(player);
                 break;
@@ -3427,6 +4118,1937 @@ void showDiaryMenu() {
     }
 }
 
+void sceneRuigerdLevel1() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 1 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Masuk ke dapur yang ramai namun teratur) \"Permisi, Kepala Koki Ruigerd. Apakah saya mengganggu?\"", 30);
+    delayPrint(L"Ruigerd: (Menoleh dari panci besar yang mengepulkan uap, sedikit terkejut) \"Tuan Muda Weiss! Tidak sama sekali. Suatu kehormatan Anda mengunjungi dapur. Ada yang bisa saya bantu, Tuan Muda?\"", 30);
+    delayPrint(L"Weiss: \"Tidak ada yang spesifik. Hanya ingin melihat-lihat. Aroma dari sini selalu luar biasa. Apa yang sedang Anda siapkan untuk makan malam nanti?\"", 30);
+    delayPrint(L"Ruigerd: \"Malam ini menu utamanya adalah Daging Panggang Rempah ala Astra, Tuan Muda. Dengan saus jamur hutan dan beberapa hidangan pendamping sayuran musim semi.\"", 30);
+    delayPrint(L"Weiss: \"Kedengarannya lezat. Saya selalu mengagumi bagaimana Anda dan tim Anda bisa menyajikan begitu banyak hidangan setiap hari dengan kualitas yang konsisten.\"", 30);
+    delayPrint(L"Ruigerd: (Sedikit tersenyum, sebuah senyum profesional) \"Itu sudah menjadi tugas kami, Tuan Muda. Memastikan keluarga Astra mendapatkan yang terbaik. Apakah ada preferensi khusus untuk hidangan Anda malam ini?\"", 30);
+    delayPrint(L"Weiss: \"Tidak ada. Saya percaya penuh pada keahlian Anda, Kepala Koki. Terima kasih atas waktunya. Saya tidak akan mengganggu lebih lama.\"", 30);
+    delayPrint(L"Ruigerd: \"Sama-sama, Tuan Muda. Jika ada apapun, jangan ragu memberitahu saya.\"", 30);
+    delayPrint(L"Weiss: \"Tentu. Selamat melanjutkan pekerjaan Anda.\"", 30);
+    delayPrint(L"Ruigerd: \"Terima kasih, Tuan Muda.\"", 30);
+    delayPrint(L"Ruigerd kembali fokus pada pekerjaannya, namun kamu merasa ada sedikit rasa ingin tahu dalam tatapannya. Kunjunganmu yang sopan mungkin sedikit mengejutkannya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel2() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 2 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Kepala Koki Ruigerd, saya perhatikan Anda selalu menggunakan jenis kayu bakar tertentu untuk oven panggang. Apakah ada alasan khusus?\"", 30);
+    delayPrint(L"Ruigerd: (Mengelap tangannya di celemek, menoleh ke Weiss) \"Pengamatan yang baik, Tuan Muda. Ya, saya lebih suka menggunakan kayu dari pohon apel atau ceri untuk memanggang daging. Asapnya memberikan aroma manis yang khas dan tidak terlalu kuat.\"", 30);
+    delayPrint(L"Weiss: \"Menarik sekali. Saya tidak pernah tahu hal sedetail itu bisa mempengaruhi rasa. Apakah itu teknik umum atau rahasia dapur Astra?\"", 30);
+    delayPrint(L"Ruigerd: (Tersenyum tipis) \"Kombinasi keduanya, Tuan Muda. Ada beberapa teknik dasar yang kami pelajari, tapi setiap koki biasanya punya sentuhan pribadi. Bagaimana sarapan Anda pagi ini? Apakah Roti Panggang Madu-Kayumanisnya sesuai selera?\"", 30);
+    delayPrint(L"Weiss: \"Sangat lezat, Kepala Koki. Seperti biasa. Kehangatannya pas dan rasa manisnya tidak berlebihan. Apakah ada bahan rahasia di dalamnya?\"", 30);
+    delayPrint(L"Ruigerd: \"Tidak ada rahasia besar, Tuan Muda. Hanya bahan-bahan segar berkualitas dan sedikit kesabaran dalam proses pemanggangan. Itu kunci utama dalam memasak.\"", 30);
+    delayPrint(L"Weiss: \"Kesabaran, ya? Saya rasa itu berlaku untuk banyak hal, bukan hanya memasak. Terima kasih atas penjelasannya, Kepala Koki.\"", 30);
+    delayPrint(L"Ruigerd: \"Dengan senang hati, Tuan Muda. Apakah Anda tertarik mempelajari lebih banyak tentang seni kuliner?\"", 30);
+    delayPrint(L"Weiss: \"Mungkin suatu saat nanti. Untuk saat ini, saya cukup menikmati hasil karya Anda.\" (tersenyum)", 30);
+    delayPrint(L"Ruigerd: \"Sebuah kehormatan bagi saya, Tuan Muda.\"", 30);
+    delayPrint(L"Ruigerd tampak sedikit lebih terbuka hari ini, mungkin karena ketertarikanmu yang tulus pada keahliannya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel3() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 3 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Kepala Koki Ruigerd, sup jamur yang disajikan semalam benar-benar istimewa. Rasanya sangat kaya dan... berbeda dari biasanya. Apa ada yang spesial?\"", 30);
+    delayPrint(L"Ruigerd: (Wajahnya sedikit cerah mendengar pujian itu) \"Ah, Tuan Muda memperhatikan. Ya, saya menggunakan jamur Morel liar yang baru saja dikirim dari pemasok di pegunungan utara. Jenis itu hanya tumbuh di musim tertentu dan punya aroma tanah yang khas.\"", 30);
+    delayPrint(L"Weiss: \"Jamur Morel liar? Pantas saja. Saya pernah membacanya di buku, tapi baru pertama kali mencicipinya. Apakah sulit untuk mengolahnya?\"", 30);
+    delayPrint(L"Ruigerd: \"Membutuhkan penanganan yang hati-hati, Tuan Muda. Karena teksturnya yang lembut dan mudah hancur. Saya hanya menumisnya sebentar dengan bawang putih dan sedikit thyme segar sebelum dimasukkan ke dalam kaldu krim.\"", 30);
+    delayPrint(L"Weiss: \"Kedengarannya sederhana, tapi hasilnya luar biasa. Apakah Anda sering bereksperimen dengan bahan-bahan musiman seperti itu?\"", 30);
+    delayPrint(L"Ruigerd: \"Selalu, Tuan Muda. Menggunakan bahan musiman adalah cara terbaik untuk mendapatkan rasa yang optimal. Alam selalu menyediakan yang terbaik pada waktunya. Saya senang Anda menikmatinya.\"", 30);
+    delayPrint(L"Weiss: \"Sangat menikmati. Itu mungkin sup terbaik yang pernah saya makan. Tolong sampaikan pujian saya kepada seluruh tim dapur juga.\"", 30);
+    delayPrint(L"Ruigerd: (Mengangguk dengan bangga) \"Akan saya sampaikan, Tuan Muda. Pujian dari Anda sangat berarti bagi kami semua. Apakah ada hidangan lain yang ingin Anda coba dengan bahan musiman tertentu?\"", 30);
+    delayPrint(L"Weiss: \"Saya serahkan pada keahlian Anda, Kepala Koki. Kejutan dari dapur Anda selalu menyenangkan.\"", 30);
+    delayPrint(L"Ruigerd: \"Saya akan pastikan ada kejutan menyenangkan lainnya untuk Anda, Tuan Muda.\"", 30);
+    delayPrint(L"Kamu melihat sedikit kilau antusiasme di mata Ruigerd saat berbicara tentang pekerjaannya. Sepertinya dia benar-benar mencintai apa yang dilakukannya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel4() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 4 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Melihat Ruigerd sedang dengan sabar mengajari seorang juru masak muda cara memotong sayuran dengan benar) \"Kepala Koki Ruigerd, Anda terlihat sangat telaten mengajari staf baru.\"", 30);
+    delayPrint(L"Ruigerd: (Menoleh sambil tersenyum tipis) \"Tuan Muda Weiss. Ya, regenerasi itu penting di setiap profesi, termasuk di dapur. Keterampilan dasar seperti ini adalah fondasi. Jika fondasinya kuat, bangunannya juga akan kokoh.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah filosofi yang bagus. Tapi tidakkah itu melelahkan, mengulang hal yang sama berulang kali? Saya perhatikan anak muda itu sudah beberapa kali salah memegang pisau.\"", 30);
+    delayPrint(L"Ruigerd: \"Memasak itu seperti kehidupan, Tuan Muda. Butuh kesabaran dan ketekunan. Tidak ada yang langsung ahli. Kesalahan adalah bagian dari proses belajar. Yang penting, jangan menyerah dan terus mencoba memperbaiki diri. Sama seperti saat kita mencoba resep baru, terkadang gagal, tapi dari kegagalan itu kita belajar.\"", 30);
+    delayPrint(L"Weiss: \"Kata-kata yang bijak, Kepala Koki. Saya jadi teringat, apakah ada hidangan yang menurut Anda paling sulit untuk dikuasai? Yang membutuhkan kesabaran paling ekstra?\"", 30);
+    delayPrint(L"Ruigerd: (Berpikir sejenak) \"Mungkin membuat saus hollandaise yang sempurna, Tuan Muda. Keseimbangan antara mentega cair, kuning telur, dan lemon harus tepat. Terlalu panas, saus akan pecah. Terlalu dingin, tidak akan mengental. Butuh perasaan dan latihan bertahun-tahun.\"", 30);
+    delayPrint(L"Weiss: \"Begitu rupanya. Saya jadi semakin menghargai setiap hidangan yang tersaji di meja makan. Ada begitu banyak usaha dan dedikasi di baliknya.\"", 30);
+    delayPrint(L"Ruigerd: \"Kami senang jika usaha kami dihargai, Tuan Muda. Itu memberi kami semangat. Apakah Anda ingin mencoba memotong sayuran ini? Saya bisa ajari dasarnya.\"", 30);
+    delayPrint(L"Weiss: (Tertawa kecil) \"Mungkin lain kali, Kepala Koki. Saya khawatir malah merusak bahan makanan Anda. Saya serahkan pada ahlinya saja.\"", 30);
+    delayPrint(L"Ruigerd: \"Baiklah, Tuan Muda. Tapi tawaran saya selalu terbuka.\"", 30);
+    delayPrint(L"Kamu merasa Ruigerd bukan hanya seorang koki, tapi juga seorang mentor yang bijaksana. Ada aura tenang dan berwibawa darinya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel5() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 5 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Kepala Koki Ruigerd, saya datang secara khusus untuk mengucapkan terima kasih. Pesta teh kemarin sore benar-benar sukses besar. Semua tamu memuji hidangan kecil dan kue-kue yang Anda sajikan.\"", 30);
+    delayPrint(L"Ruigerd: (Menghentikan sejenak pekerjaannya menguleni adonan, wajahnya menunjukkan sedikit kelegaan) \"Syukurlah jika semuanya berjalan lancar dan memuaskan para tamu, Tuan Muda. Kami semua bekerja keras untuk itu.\"", 30);
+    delayPrint(L"Weiss: \"Saya tahu. Dan saya sangat menghargainya. Terutama Scone Cranberry dengan krim lemon itu, benar-benar luar biasa. Apakah itu resep baru?\"", 30);
+    delayPrint(L"Ruigerd: \"Resep lama yang sedikit saya modifikasi, Tuan Muda. Saya menambahkan sedikit parutan kulit jeruk untuk aroma yang lebih segar. Saya senang Anda menyukainya. Sebenarnya, saya sudah menyiapkan sesuatu yang lain untuk Anda cicipi.\"", 30);
+    delayPrint(L"Ruigerd mengambil sebuah piring kecil dari lemari pendingin, di atasnya ada sepotong kecil kue cokelat gelap yang terlihat sangat lembut.", 30);
+    delayPrint(L"Ruigerd: \"Ini Kue Cokelat Lava Valrhona dengan inti raspberry. Saya baru saja mengujinya untuk menu pencuci mulut khusus nanti. Silakan dicoba, Tuan Muda.\"", 30);
+    delayPrint(L"Weiss: (Matanya berbinar) \"Anda terlalu baik, Kepala Koki! Ini terlihat... sangat menggoda. Saya tidak bisa menolaknya.\"", 30);
+    delayPrint(L"Weiss mencicipi kue itu. Rasanya benar-benar meleleh di mulut, kombinasi cokelat pahit dan raspberry asam manis yang sempurna.", 30);
+    delayPrint(L"Weiss: \"Ini... ini adalah kesempurnaan, Kepala Koki! Luar biasa! Anda benar-benar seorang seniman.\"", 30);
+    delayPrint(L"Ruigerd: (Tersenyum lebar, kali ini senyum yang tulus dan bangga) \"Pujian dari Anda adalah kehormatan terbesar, Tuan Muda. Saya senang bisa menciptakan sesuatu yang membawa kebahagiaan. Itulah tujuan utama seorang koki.\"", 30);
+    delayPrint(L"Weiss: \"Anda telah berhasil, Kepala Koki. Lebih dari berhasil. Terima kasih untuk ini.\"", 30);
+    delayPrint(L"Ruigerd: \"Kapan saja, Tuan Muda. Selalu ada sesuatu yang baru untuk dicicipi di dapur ini bagi Anda.\"", 30);
+    delayPrint(L"Kamu merasa hubunganmu dengan Ruigerd semakin hangat. Dia mulai melihatmu bukan hanya sebagai Tuan Muda, tapi juga sebagai seseorang yang menghargai seninya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel6() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 6 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Menemukan Ruigerd sedang duduk sendirian di sudut dapur, memandangi sebuah foto lama yang sudah usang) \"Kepala Koki? Apakah semuanya baik-baik saja? Maaf jika saya mengganggu momen pribadi Anda.\"", 30);
+    delayPrint(L"Ruigerd: (Sedikit terkejut, lalu buru-buru menyimpan foto itu) \"Oh, Tuan Muda Weiss. Tidak apa-apa. Saya hanya sedang... bernostalgia sedikit. Ini foto lama saat saya pertama kali mulai bekerja untuk kakek Anda, Tuan Besar Alaric Astra.\"", 30);
+    delayPrint(L"Weiss: \"Kakek Alaric? Saya tidak banyak mendengar cerita tentang beliau. Beliau yang mempekerjakan Anda pertama kali?\"", 30);
+    delayPrint(L"Ruigerd: \"Benar, Tuan Muda. Saya masih sangat muda waktu itu, baru lulus dari akademi kuliner kecil di desa. Beliau melihat potensi dalam diri saya dan memberi saya kesempatan. Beliau adalah orang yang sangat tegas namun bijaksana, dan punya selera makan yang luar biasa.\"", 30);
+    delayPrint(L"Weiss: \"Pasti banyak kenangan indah selama Anda mengabdi pada keluarga Astra. Apakah ada hidangan favorit Kakek yang sering Anda buatkan untuknya?\"", 30);
+    delayPrint(L"Ruigerd: (Tersenyum mengenang) \"Oh, banyak sekali. Tapi yang paling beliau sukai adalah Sup Buntut Sapi Klasik dengan Roti Bawang Putih Panggang. Beliau bilang itu mengingatkannya pada masakan ibunya. Setiap kali saya membuatnya, saya merasa seperti sedang menghormati kenangan beliau.\"", 30);
+    delayPrint(L"Weiss: \"Itu cerita yang sangat menyentuh, Kepala Koki. Saya bisa merasakan betapa Anda menghormati beliau. Apakah... apakah Ayah saya juga punya hidangan favorit tertentu dari Anda?\"", 30);
+    delayPrint(L"Ruigerd: (Menghela napas pelan, ada sedikit kesedihan di matanya) \"Tuan Regulus... ayah Anda, Tuan Muda... beliau lebih menyukai hidangan yang sederhana namun penuh rasa. Ikan Salmon Panggang dengan Saus Dill Lemon adalah salah satu kesukaannya. Beliau sering memintanya saat sedang banyak pikiran.\"", 30);
+    delayPrint(L"Weiss: \"Terima kasih sudah berbagi cerita ini, Kepala Koki. Ini membantu saya merasa... sedikit lebih dekat dengan mereka, dengan sejarah keluarga ini.\"", 30);
+    delayPrint(L"Ruigerd: \"Suatu kehormatan bagi saya bisa berbagi kenangan ini dengan Anda, Tuan Muda. Anda adalah penerus mereka. Dan saya yakin, mereka akan bangga melihat Anda sekarang.\"", 30);
+    delayPrint(L"Weiss: \"Saya harap begitu, Kepala Koki. Saya harap begitu.\"", 30);
+    delayPrint(L"Ruigerd: \"Saya percaya Anda akan membawa nama Astra ke masa depan yang lebih baik, Tuan Muda.\"", 30);
+    delayPrint(L"Percakapan ini terasa sangat personal. Kamu merasa Ruigerd bukan hanya pelayan setia, tapi juga penjaga kenangan keluarga Astra.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel7() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 7 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Kepala Koki Ruigerd, apakah Anda punya waktu sebentar? Ada sesuatu yang ingin saya diskusikan, tapi ini bukan tentang makanan.\"", 30);
+    delayPrint(L"Ruigerd: (Menghentikan pekerjaannya memotong daging, lalu membersihkan tangannya) \"Tentu saja, Tuan Muda Weiss. Selalu ada waktu untuk Anda. Silakan, apa yang ada di pikiran Anda?\"", 30);
+    delayPrint(L"Weiss: \"Ini tentang... tanggung jawab. Sebagai pewaris keluarga Astra, ada banyak ekspektasi dan tekanan. Terkadang saya merasa bingung bagaimana harus menyeimbangkan keinginan pribadi dengan tugas keluarga. Anda sudah lama mengabdi di sini, pasti Anda melihat banyak hal. Bagaimana Anda menghadapi tekanan dalam pekerjaan Anda sendiri?\"", 30);
+    delayPrint(L"Ruigerd: (Tertegun sejenak, lalu mengangguk paham) \"Pertanyaan yang sangat bagus, Tuan Muda. Tekanan selalu ada di setiap pekerjaan, terutama di dapur besar seperti ini di mana setiap hidangan harus sempurna. Kuncinya, bagi saya, adalah fokus pada apa yang bisa saya kendalikan: kualitas bahan, ketepatan teknik, dan kerja tim yang solid.\"", 30);
+    delayPrint(L"Ruigerd: \"Untuk hal-hal di luar kendali saya, saya belajar untuk menerimanya dan beradaptasi. Dan yang paling penting, jangan pernah takut meminta bantuan atau nasihat jika merasa buntu. Tidak ada orang yang bisa melakukan semuanya sendirian, Tuan Muda, bahkan seorang Kepala Koki atau pewaris keluarga sekalipun.\"", 30);
+    delayPrint(L"Weiss: \"Fokus pada apa yang bisa dikendalikan... itu masuk akal. Tapi bagaimana jika ekspektasi itu datang dari orang-orang yang kita hormati? Bagaimana cara agar tidak mengecewakan mereka?\"", 30);
+    delayPrint(L"Ruigerd: \"Lakukan yang terbaik dengan tulus, Tuan Muda. Itu saja. Orang yang benar-benar menghormati Anda akan menghargai usaha Anda, apapun hasilnya. Dan ingatlah, Tuan Muda, Anda tidak harus menjadi persis seperti ayah atau kakek Anda. Anda adalah diri Anda sendiri, dengan kekuatan dan jalan Anda sendiri. Temukan itu, dan pegang teguh.\"", 30);
+    delayPrint(L"Weiss: \"Menemukan jalan sendiri... Itu nasihat yang sangat berharga, Kepala Koki. Anda selalu punya cara pandang yang bijaksana. Terima kasih banyak, ini sangat membantu saya.\"", 30);
+    delayPrint(L"Ruigerd: \"Saya hanya berbagi pengalaman hidup yang sedikit ini, Tuan Muda. Saya senang jika bisa membantu Anda. Ingat, dapur ini selalu terbuka jika Anda butuh tempat untuk berpikir atau sekadar secangkir kopi hangat.\"", 30);
+    delayPrint(L"Weiss: \"Akan saya ingat itu, Kepala Koki. Terima kasih sekali lagi.\"", 30);
+    delayPrint(L"Ruigerd: \"Tidak masalah, Tuan Muda. Sekarang, jika Anda tidak keberatan, daging panggang ini tidak bisa menunggu lebih lama lagi.\"", 30);
+    delayPrint(L"Kamu merasa sangat beruntung memiliki seseorang seperti Ruigerd di sisimu, yang bisa memberikan perspektif dan dukungan layaknya seorang ayah atau mentor.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel8() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 8 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Ruigerd: \"Tuan Muda Weiss, saya perhatikan Anda semakin sering menghabiskan waktu di perpustakaan dan berdiskusi dengan para penasihat keluarga. Apakah ada proyek besar yang sedang Anda kerjakan?\"", 30);
+    delayPrint(L"Weiss: \"Ya, Kepala Koki. Saya sedang mencoba memahami lebih dalam tentang aset dan investasi keluarga Astra. Banyak hal yang rumit dan perlu dipelajari. Saya ingin memastikan bisa mengelolanya dengan baik di masa depan.\"", 30);
+    delayPrint(L"Ruigerd: (Mengangguk dengan tatapan penuh hormat) \"Itu adalah sikap yang sangat bertanggung jawab, Tuan Muda. Saya harus mengatakan, saya sangat terkesan dengan perubahan dan kedewasaan yang Anda tunjukkan akhir-akhir ini.\"", 30);
+    delayPrint(L"Weiss: \"Perubahan? Apakah saya terlihat sangat berbeda dari sebelumnya?\"", 30);
+    delayPrint(L"Ruigerd: \"Sangat berbeda, Tuan Muda. Jika saya boleh jujur, dulu... Anda lebih sering terlihat acuh tak acuh dan mudah tersinggung. Tapi sekarang, Anda lebih bijaksana, lebih sabar, dan lebih peduli pada orang-orang di sekitar Anda, termasuk kami para staf. Itu bukan hanya pengamatan saya, tapi juga pembicaraan hangat di antara para pelayan senior.\"", 30);
+    delayPrint(L"Weiss: (Sedikit terkejut namun juga lega) \"Benarkah? Saya... saya senang jika perubahan ini membawa dampak positif. Sejujurnya, saya sendiri merasa seperti... terbangun dari tidur panjang yang buruk.\"", 30);
+    delayPrint(L"Ruigerd: \"Apapun yang telah membangunkan Anda, Tuan Muda, itu adalah berkah. Keluarga Astra membutuhkan pemimpin yang kuat dan berhati baik seperti Anda sekarang. Dan saya, bersama seluruh staf dapur, akan selalu mendukung Anda dengan segenap kemampuan kami.\"", 30);
+    delayPrint(L"Weiss: \"Dukungan Anda sangat berarti bagi saya, Kepala Koki. Lebih dari yang Anda bayangkan. Terkadang, saya masih meragukan diri sendiri, tapi mengetahui ada orang-orang seperti Anda yang percaya pada saya, itu memberi saya kekuatan.\"", 30);
+    delayPrint(L"Ruigerd: \"Jangan pernah ragu pada diri Anda, Tuan Muda. Anda memiliki potensi yang luar biasa. Saya sudah melihat banyak pemimpin datang dan pergi, dan saya melihat sesuatu yang istimewa dalam diri Anda. Sesuatu yang mengingatkan saya pada semangat Tuan Besar Alaric.\"", 30);
+    delayPrint(L"Weiss: (Tersentuh) \"Disamakan dengan Kakek Alaric adalah pujian tertinggi bagi saya, Kepala Koki. Terima kasih.\"", 30);
+    delayPrint(L"Ruigerd: \"Anda pantas mendapatkannya, Tuan Muda. Sekarang, bagaimana kalau saya siapkan minuman penambah energi? Sepertinya Anda akan membutuhkan banyak tenaga untuk mempelajari semua laporan itu.\"", 30);
+    delayPrint(L"Weiss: \"Itu ide yang sangat bagus, Kepala Koki. Terima kasih.\"", 30);
+    delayPrint(L"Pengakuan tulus dari Ruigerd, seseorang yang telah lama mengabdi pada keluarganya, terasa sangat memvalidasi usahamu untuk berubah.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel9() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 9 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Masuk ke dapur larut malam, menemukan Ruigerd masih di sana, sedang membersihkan peralatannya dengan teliti) \"Kepala Koki? Anda masih di sini selarut ini? Saya pikir semua orang sudah beristirahat.\"", 30);
+    delayPrint(L"Ruigerd: (Menoleh, sedikit terkejut) \"Tuan Muda Weiss. Saya hanya menyelesaikan beberapa hal. Anda sendiri, kenapa belum tidur? Apakah ada yang mengganggu pikiran Anda? Anda terlihat sedikit... murung.\"", 30);
+    delayPrint(L"Weiss: (Menghela napas, duduk di salah satu bangku) \"Hanya... banyak hal yang harus dipikirkan, Kepala Koki. Tentang masa depan, tentang tanggung jawab yang semakin besar. Terkadang rasanya sedikit membebani.\"", 30);
+    delayPrint(L"Ruigerd: (Mengeringkan tangannya, lalu duduk di hadapan Weiss) \"Saya mengerti, Tuan Muda. Memikul beban sebesar itu di usia muda pasti tidak mudah. Tapi ingatlah, Anda tidak sendirian. Ada banyak orang yang peduli dan siap membantu Anda, termasuk saya.\"", 30);
+    delayPrint(L"Weiss: \"Saya tahu, Kepala Koki. Dan saya sangat bersyukur untuk itu. Tapi ada kalanya saya merasa... takut gagal. Takut tidak bisa memenuhi harapan semua orang. Takut mengecewakan warisan keluarga ini.\"", 30);
+    delayPrint(L"Ruigerd: \"Kegagalan adalah bagian dari kehidupan, Tuan Muda. Bahkan koki terbaik pun pernah membuat hidangan yang gosong atau salah bumbu. Yang penting bukan apakah kita pernah gagal, tapi bagaimana kita bangkit dan belajar dari kegagalan itu. Dan percayalah, Tuan Muda, harapan terbesar kami bukanlah kesempurnaan, tapi melihat Anda berusaha yang terbaik dengan hati yang tulus.\"", 30);
+    delayPrint(L"Ruigerd: \"Saya sudah melihat Anda tumbuh dari seorang anak laki-laki yang sering membuat ulah menjadi seorang pemuda yang bertanggung jawab dan penuh pertimbangan. Perjalanan Anda sungguh luar biasa. Jangan biarkan ketakutan itu meredupkan cahaya yang sudah Anda pancarkan.\"", 30);
+    delayPrint(L"Weiss: (Menatap Ruigerd dengan rasa terima kasih yang dalam) \"Anda selalu tahu apa yang harus dikatakan, Kepala Koki. Kata-kata Anda seperti... balsam yang menenangkan. Rasanya seperti berbicara dengan seorang ayah.\"", 30);
+    delayPrint(L"Ruigerd: (Tersenyum hangat, ada sorot kebapakan di matanya) \"Saya mungkin tidak bisa menggantikan ayah Anda, Tuan Muda. Tapi saya akan selalu ada di sini untuk Anda, sebagai teman, sebagai penasihat, sebagai seseorang yang akan selalu mendoakan yang terbaik untuk Anda. Sekarang, bagaimana kalau saya buatkan cokelat hangat? Itu minuman terbaik untuk malam-malam perenungan seperti ini.\"", 30);
+    delayPrint(L"Weiss: \"Itu... akan sangat menyenangkan, Kepala Koki. Terima kasih. Untuk segalanya.\"", 30);
+    delayPrint(L"Ruigerd: \"Anggap saja ini tugas tambahan saya, Tuan Muda. Menjaga semangat Anda tetap menyala.\"", 30);
+    delayPrint(L"Malam itu, di keheningan dapur, kamu merasa menemukan sosok ayah dalam diri Ruigerd. Seseorang yang bisa kamu andalkan dan percaya sepenuhnya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneRuigerdLevel10() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ruigerd - Chef ✦ Level 10 ✦ Dapur Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Ruigerd: (Menyambut Weiss di pintu dapur dengan senyum lebar dan khidmat) \"Selamat datang, Tuan Muda Weiss. Saya sudah menyiapkan sesuatu yang sangat spesial untuk Anda hari ini. Anggap saja ini perayaan kecil kita atas semua pencapaian dan pertumbuhan Anda.\"", 30);
+    delayPrint(L"Weiss: \"Perayaan? Untuk saya, Kepala Koki? Anda tidak perlu serepot ini. Tapi... saya sangat penasaran. Apa yang Anda siapkan? Aromanya saja sudah luar biasa.\"", 30);
+    delayPrint(L"Ruigerd memimpin Weiss ke sebuah meja kecil yang telah ditata dengan indah di sudut dapur yang tenang. Di atasnya, tersaji hidangan yang tampak seperti sebuah mahakarya kuliner.", 30);
+    delayPrint(L"Ruigerd: \"Ini adalah 'Simfoni Astra', Tuan Muda. Sebuah hidangan yang saya ciptakan khusus untuk Anda. Setiap elemen di piring ini melambangkan sesuatu. Daging Rusa Panggang Madu ini melambangkan kekuatan dan ketahanan Anda. Puree Ubi Ungu dengan Truffle melambangkan kebijaksanaan dan kedalaman karakter Anda. Dan Asparagus Panggang dengan Saus Lemon-Mentega ini melambangkan kesegaran dan harapan baru yang Anda bawa.\"", 30);
+    delayPrint(L"Weiss: (Terpana, menatap hidangan itu dengan takjub dan haru) \"Kepala Koki... Ruigerd... saya... saya tidak tahu harus berkata apa. Ini... ini adalah hidangan terindah dan paling bermakna yang pernah saya lihat seumur hidup saya.\"", 30);
+    delayPrint(L"Ruigerd: \"Ada satu hal lagi, Tuan Muda.\" (Mengeluarkan sebuah buku catatan kulit yang sudah tua namun terawat baik) \"Ini adalah buku resep pribadi saya. Di dalamnya, ada semua resep yang telah saya kumpulkan dan ciptakan selama bertahun-tahun mengabdi pada keluarga Astra, termasuk beberapa resep rahasia yang hanya diketahui oleh Kepala Koki.\"", 30);
+    delayPrint(L"Ruigerd: \"Saya ingin mewariskan ini kepada Anda. Bukan agar Anda menjadi koki, Tuan Muda, tapi sebagai simbol kepercayaan saya yang penuh. Di dalamnya ada lebih dari sekadar resep; ada sejarah, ada cinta, ada dedikasi. Gunakanlah dengan bijak, mungkin suatu hari nanti Anda ingin membuatkan hidangan spesial untuk orang yang Anda sayangi, atau sekadar memahami lebih dalam tentang warisan kuliner keluarga ini.\"", 30);
+    delayPrint(L"Weiss: (Menerima buku itu dengan tangan gemetar, air mata menggenang di pelupuk matanya) \"Kepala Koki... Ruigerd... ini... ini adalah kehormatan yang tak ternilai harganya. Saya bersumpah akan menjaga buku ini dan semua isinya dengan segenap jiwa saya. Anda... Anda lebih dari sekadar Kepala Koki bagi saya. Anda adalah guru, mentor, sahabat, dan sosok ayah yang telah membimbing saya.\"", 30);
+    delayPrint(L"Ruigerd: (Menepuk bahu Weiss dengan hangat, matanya juga berkaca-kaca) \"Dan Anda, Tuan Muda Weiss, adalah harapan terbaik keluarga Astra. Saya telah mengabdi pada tiga generasi keluarga ini, dan saya bisa katakan dengan keyakinan penuh, Anda memiliki semua yang dibutuhkan untuk menjadi pemimpin yang hebat dan dicintai. Hati Anda ada di tempat yang benar.\"", 30);
+    delayPrint(L"Ruigerd: \"Sekarang, silakan nikmati hidangannya selagi hangat. Dan ketahuilah, Tuan Muda, bahwa kesetiaan dan dukungan saya akan selalu menyertai Anda, sampai akhir hayat saya. Dapur ini, dan hati saya, akan selalu terbuka untuk Anda.\"", 30);
+    delayPrint(L"Weiss: \"Terima kasih, Ruigerd. Terima kasih untuk segalanya. Saya tidak akan pernah melupakan ini. Anda adalah bagian tak terpisahkan dari keluarga Astra, dari hidup saya.\"", 30);
+    delayPrint(L"Ruigerd: \"Suatu kehormatan terbesar bagi saya, Tuan Muda. Suatu kehormatan terbesar.\"", 30);
+    delayPrint(L"Di tengah aroma masakan yang memikat dan kehangatan persahabatan yang tulus, kamu merasa ikatanmu dengan Ruigerd telah mencapai puncaknya. Sebuah hubungan yang ditempa oleh waktu, rasa hormat, dan kasih sayang yang tulus, layaknya hidangan terbaik yang membutuhkan kesabaran dan cinta untuk tercipta.", 30);
+
+    // applySocialLinkBonus("Ruigerd"); // Misal: "Ruigerd's Culinary Legacy" (Passive buff: Significant boost to HP/Max HP, or ability to cook special restorative items once per day, or unlock a secret powerful recipe item).
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel1() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 1 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Permisi, apakah kau Irene? Pelayan baru yang bertugas di area taman ini, bukan?\"", 30);
+    delayPrint(L"Irene: (Terkejut dan sedikit membungkuk) \"I-iya, Tuan Muda Weiss. Sayalah Irene. Ada yang bisa saya bantu?\"", 30);
+    delayPrint(L"Weiss: \"Tidak ada yang spesifik. Hanya ingin menyapa. Kau terlihat sangat serius merawat mawar itu. Indah sekali bunganya. Apakah itu jenis favorit seseorang di sini?\"", 30);
+    delayPrint(L"Irene: \"Oh... t-terima kasih, Tuan Muda. Saya hanya mencoba melakukan yang terbaik. Mawar ini memang salah satu favorit Nyonya Astra. Beliau suka jika ada bunga segar di kamarnya setiap pagi.\"", 30);
+    delayPrint(L"Weiss: \"Begitu. Pasti sebuah tanggung jawab besar memastikan bunganya selalu prima. Tidak perlu terlalu tegang begitu di dekatku. Anggap saja aku teman mengobrol di taman. Bagaimana kesan pertamamu bekerja di mansion ini?\"", 30);
+    delayPrint(L"Irene: (Sedikit ragu) \"Mansion ini... sangat besar dan megah, Tuan Muda. Dan... semua orang tampak sangat sibuk dan profesional. Saya masih berusaha menyesuaikan diri dengan semua peraturannya.\"", 30);
+    delayPrint(L"Weiss: \"Aku mengerti. Awalnya memang bisa terasa begitu. Tapi aku yakin kau akan segera terbiasa. Nikmati saja prosesnya, dan keindahan taman ini selagi bisa. Ini tempat yang baik untuk menenangkan pikiran.\"", 30);
+    delayPrint(L"Irene: (Mengangguk pelan, ada sedikit senyum di wajahnya) \"Baik, Tuan Muda. Terima kasih atas kata-kata Anda. Saya akan berusaha.\"", 30);
+    delayPrint(L"Weiss: \"Bagus. Sampai jumpa lagi, Irene.\"", 30);
+    delayPrint(L"Irene: \"S-sampai jumpa, Tuan Muda.\"", 30);
+    delayPrint(L"Kamu melihat bahunya sedikit lebih rileks saat kamu berbalik. Setidaknya, dia tidak lagi terlihat ingin lari. Sebuah kemajuan kecil.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel2() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 2 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Irene, selamat pagi. Kebetulan sekali bertemu denganmu di sini lagi. Udara pagi ini sangat menyegarkan, bukan?\"", 30);
+    delayPrint(L"Irene: (Menoleh, senyumnya lebih natural kali ini) \"Selamat pagi, Tuan Muda Weiss! Iya, sangat segar. Saya baru saja selesai menyiram anggrek di dekat paviliun. Mereka tampak sangat haus pagi ini.\"", 30);
+    delayPrint(L"Weiss: \"Anggrek-anggrek itu memang butuh perhatian ekstra, ya? Aku dengar perawatannya cukup sulit. Apa kau menikmati merawat tanaman secara umum?\"", 30);
+    delayPrint(L"Irene: \"Sangat menikmati, Tuan Muda. Rasanya seperti merawat kehidupan. Selain anggrek, saya juga ditugaskan merapikan koleksi herbal Nyonya Astra. Itu cukup menantang tapi menarik.\"", 30);
+    delayPrint(L"Weiss: \"Koleksi herbal? Itu terdengar menarik. Bagaimana sejauh ini pekerjaanmu di mansion secara keseluruhan? Apakah ada kesulitan yang kau hadapi?\"", 30);
+    delayPrint(L"Irene: \"Sejauh ini berjalan cukup baik, Tuan Muda. Para pelayan senior sangat membantu dan sabar. Kepala Pelayan Ruigerd juga sering memberikan arahan yang jelas. Saya paling menikmati saat ditugaskan di perpustakaan atau taman seperti ini, tempatnya lebih tenang.\"", 30);
+    delayPrint(L"Weiss: \"Perpustakaan, ya? Tempat itu memang salah satu favoritku juga. Banyak buku menarik di sana. Syukurlah kalau kau merasa nyaman. Jangan ragu memberitahu jika ada sesuatu yang mengganggumu. Kami ingin semua merasa betah.\"", 30);
+    delayPrint(L"Irene: \"Terima kasih banyak atas perhatian Anda, Tuan Muda. Saya akan mengingatnya. Saya... saya senang bisa berkontribusi di mansion ini, sekecil apapun peran saya.\"", 30);
+    delayPrint(L"Weiss: \"Setiap peran penting, Irene. Dan kau melakukannya dengan baik. Lanjutkan kerja bagusmu.\"", 30);
+    delayPrint(L"Irene: (Pipinya sedikit merona) \"Baik, Tuan Muda! Terima kasih!\"", 30);
+    delayPrint(L"Dia tampak sedikit terkejut dengan pujian langsung itu, tapi rona bahagia terlihat jelas di wajahnya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel3() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 3 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Irene: \"Permisi, Tuan Muda Weiss. Saya lihat Anda sedang membaca buku yang cukup tebal. Sepertinya sangat menarik? Sampulnya terlihat seperti peta dunia kuno.\"", 30);
+    delayPrint(L"Weiss: (Menurunkan bukunya) \"Oh, Irene. Ya, ini salah satu seri fantasi klasik. Penuh dengan naga, sihir, dan kerajaan yang hilang. Kau sendiri, apa kau juga suka membaca di waktu luang?\"", 30);
+    delayPrint(L"Irene: \"S-saya sangat suka membaca, Tuan Muda! Terutama cerita-cerita petualangan dan legenda kuno. Itu seperti membawa saya ke dunia lain, melupakan sejenak rutinitas.\"", 30);
+    delayPrint(L"Weiss: \"Benarkah? Genre apa yang paling kau nikmati? Mungkin aku punya beberapa rekomendasi untukmu, atau sebaliknya. Aku selalu mencari judul baru.\"", 30);
+    delayPrint(L"Irene: (Dengan antusias) \"Saya paling suka kisah-kisah tentang ksatria yang membela kebenaran, atau penyihir yang mempelajari rahasia alam semesta! Penulis seperti Master Valerius atau Lady Evangeline selalu jadi favorit saya! 'Balada Ksatria Fajar' karya Master Valerius sangat menginspirasi!\"", 30);
+    delayPrint(L"Weiss: \"Lady Evangeline! 'The Starlight Chronicles' karyanya luar biasa! Aku tidak menyangka kau juga membacanya. Kita benar-benar harus bertukar daftar bacaan kapan-kapan. Bagaimana menurutmu tentang akhir dari buku ketiganya? Agak menggantung, bukan?\"", 30);
+    delayPrint(L"Irene: \"Sangat menggantung, Tuan Muda! Saya sampai tidak sabar menunggu kelanjutannya! Jika Anda tidak keberatan, saya akan sangat senang jika kita bisa berdiskusi lebih banyak tentang buku ini atau buku lainnya. Saya punya banyak pertanyaan tentang sistem sihir di 'Starlight Chronicles'.\"", 30);
+    delayPrint(L"Weiss: \"Tentu saja, Irene! Aku justru mencari teman diskusi yang seantusias dirimu. Mungkin kita bisa mulai dengan buku itu? Aku punya beberapa teori menarik tentang artefak yang hilang itu.\"", 30);
+    delayPrint(L"Irene: (Matanya berbinar) \"Dengan senang hati, Tuan Muda! Kapan saja Anda ada waktu! Saya juga penasaran dengan teori Anda!\"", 30);
+    delayPrint(L"Weiss: \"Bagaimana kalau besok sore, di waktu istirahatmu? Kita bisa bertemu di gazebo ini lagi.\"", 30);
+    delayPrint(L"Irene: \"Sempurna, Tuan Muda! Saya akan pastikan semua pekerjaan saya selesai tepat waktu!\"", 30);
+    delayPrint(L"Kalian berdua tertawa ringan. Sepertinya hobi yang sama ini akan menjadi jembatan yang kuat untuk hubungan kalian.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel4() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 4 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Irene, lihat ke sana! Di atas bunga matahari itu!\" (Menunjuk dengan antusias)", 30);
+    delayPrint(L"Irene: (Mengikuti arah pandang Weiss) \"Ada apa, Tuan Muda? Oh! Seekor kepik dengan tujuh bintang! Saya sudah lama tidak melihatnya! Cantik sekali warnanya!\"", 30);
+    delayPrint(L"Weiss: \"Konon katanya membawa keberuntungan, bukan? Dia tampak nyaman sekali di sana, menikmati sinar matahari. Apa kau percaya hal-hal seperti itu, Irene?\"", 30);
+    delayPrint(L"Irene: \"Orang tua di desa saya dulu sering berkata begitu, Tuan Muda. Mereka bilang jika kepik hinggap padamu, itu pertanda baik. Saya tidak tahu pasti kebenarannya, tapi rasanya menyenangkan untuk mempercayai hal-hal kecil yang membawa harapan. Ah, dia terbang!\"", 30);
+    delayPrint(L"Weiss: \"Sayang sekali. Tapi setidaknya kita sempat melihatnya. Hal-hal kecil seperti ini yang kadang membuat hari jadi lebih berwarna. Kau sendiri, apa ada pemandangan favoritmu di taman ini?\"", 30);
+    delayPrint(L"Irene: (Tersenyum) \"Anda benar sekali, Tuan Muda. Keindahan seringkali tersembunyi dalam kesederhanaan. Saya paling suka melihat embun pagi di jaring laba-laba, berkilau seperti berlian. Terima kasih sudah menunjukkannya pada saya. Saya hampir melewatkannya karena terlalu fokus bekerja.\"", 30);
+    delayPrint(L"Weiss: \"Tidak masalah, Irene. Terkadang kita semua butuh pengingat untuk berhenti sejenak dan menikmati sekitar. Apa kau punya cerita menarik lain dari desamu tentang pertanda alam atau makhluk kecil lainnya?\"", 30);
+    delayPrint(L"Irene: (Berpikir sejenak, matanya menerawang) \"Ada beberapa, Tuan Muda. Misalnya, jika burung layang-layang terbang rendah, itu tandanya akan segera turun hujan. Atau jika kunang-kunang berkumpul banyak di malam hari, itu pertanda udara akan sangat cerah keesokan harinya.\"", 30);
+    delayPrint(L"Weiss: \"Menarik sekali. Kearifan lokal seperti itu selalu punya pesonanya sendiri. Terima kasih sudah berbagi, Irene.\"", 30);
+    delayPrint(L"Irene: \"Sama-sama, Tuan Muda. Saya senang bisa berbincang dengan Anda.\"", 30);
+    delayPrint(L"Percakapan ringan berlanjut, diwarnai cerita-cerita kecil yang membuat suasana semakin akrab. Kamu merasa senang bisa berbagi momen seperti ini dengannya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel5() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 5 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Irene: (Menghampirimu yang sedang memijat pelipis di bangku taman) \"Permisi, Tuan Muda Weiss. Maaf mengganggu. Apakah Anda merasa tidak enak badan? Wajah Anda terlihat sedikit lelah dari biasanya.\"", 30);
+    delayPrint(L"Weiss: \"Oh, Irene. Tidak apa-apa. Hanya sedikit pusing karena kurang tidur semalam. Terlalu banyak laporan keuangan yang harus kuperiksa dan pahami. Angka-angka itu membuat kepalaku berputar.\"", 30);
+    delayPrint(L"Irene: \"Astaga, pasti sangat melelahkan. Saya bisa membayangkan betapa rumitnya. Emm... Tuan Muda, jika Anda tidak keberatan, saya bisa membuatkan minuman hangat. Mungkin teh herbal dengan campuran mint dan lavender? Itu sangat baik untuk meredakan sakit kepala dan membuat rileks.\"", 30);
+    delayPrint(L"Weiss: \"Lavender? Aku belum pernah mencobanya dalam teh. Apakah rasanya tidak terlalu kuat atau seperti parfum?\"", 30);
+    delayPrint(L"Irene: (Tersenyum menenangkan) \"Sama sekali tidak, Tuan Muda. Jika diracik dengan benar, aromanya justru sangat lembut dan menenangkan. Nenek saya di desa dulu sering membuatnya jika ada yang sulit tidur atau merasa cemas. Atau, jika Anda lebih suka, saya bisa mengambilkan air putih dingin dengan irisan lemon dan sedikit jahe untuk menyegarkan?\"", 30);
+    delayPrint(L"Weiss: \"Hmm, penjelasanmu tentang teh herbal itu membuatku penasaran. Baiklah, jika tidak merepotkanmu, aku mau mencobanya. Siapa tahu memang bisa membantu.\"", 30);
+    delayPrint(L"Irene: (Wajahnya berseri) \"Tentu saja tidak merepotkan, Tuan Muda! Saya akan segera menyiapkannya! Semoga bisa membantu meringankan pusing Anda. Saya akan tambahkan sedikit madu hutan, itu juga baik untuk stamina.\" Ia bergegas pergi.", 30);
+    delayPrint(L"Kamu tersenyum sendiri. Perhatiannya yang tulus dan inisiatifnya untuk menawarkan bantuan spesifik benar-benar menghangatkan hati. Dia tidak lagi hanya melihatmu sebagai majikan, tapi sebagai seseorang yang benar-benar ia pedulikan.", 30);
+    delayPrint(L"Tak lama, Irene kembali dengan secangkir teh yang aromanya memang sangat menenangkan. \"Silakan dicoba, Tuan Muda. Hati-hati, masih panas.\"", 30);
+    delayPrint(L"Weiss: (Menyesapnya perlahan) \"Ini... ini sungguh nikmat, Irene. Aromanya unik dan rasanya... menenangkan. Terima kasih banyak. Kau benar, rasanya kepalaku sedikit lebih ringan.\"", 30);
+    delayPrint(L"Irene: \"Syukurlah jika Anda menyukainya dan merasa lebih baik, Tuan Muda. Jika Anda membutuhkan sesuatu lagi, jangan ragu memanggil saya.\"", 30);
+    delayPrint(L"Weiss: \"Akan kuingat itu. Terima kasih sekali lagi, Irene.\"", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel6() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 6 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Irene, kau sedang melamun menatap air mancur itu? Pemandangan matahari terbenam yang terpantul di airnya memang indah, ya?\"", 30);
+    delayPrint(L"Irene: (Sedikit tersentak dari lamunannya, lalu tersenyum) \"Ah, Tuan Muda Weiss. Maaf, saya tidak melihat Anda datang. Iya, sangat indah. Warna langitnya mengingatkan saya pada lukisan cat air yang pernah saya lihat di buku.\"", 30);
+    delayPrint(L"Weiss: \"Kadang pemandangan seperti ini membuatku berpikir... Apa kau sering merindukan kampung halamanmu, Irene? Bagaimana suasana di sana?\"", 30);
+    delayPrint(L"Irene: \"Tentu, Tuan Muda. Hampir setiap hari. Desa saya kecil, dikelilingi perbukitan hijau dan sungai yang jernih tempat anak-anak sering bermain. Saya merindukan suara gemericik air, aroma masakan ibu saya yang sederhana namun lezat, dan tawa riang adik-adik saya.\"", 30);
+    delayPrint(L"Weiss: \"Kedengarannya sangat damai. Pasti sebuah pengorbanan besar bagimu untuk bekerja jauh dari mereka.\"", 30);
+    delayPrint(L"Irene: \"Memang, Tuan Muda. Tapi saya melakukannya demi masa depan mereka. Dan... sejujurnya, Mansion Astra ini, dengan segala kesibukannya, juga mulai memberikan rasa nyaman tersendiri. Terutama karena orang-orang di dalamnya.\"", 30);
+    delayPrint(L"Weiss: \"Aku mengerti. Terkadang... aku juga merasa seperti jauh dari 'rumah' yang sesungguhnya, meskipun secara fisik aku berada di sini. Dunia ini terasa... berbeda dari yang kuingat, atau mungkin dari yang kuharapkan.\"", 30);
+    delayPrint(L"Irene: (Menatapmu dengan penuh perhatian dan kelembutan) \"Saya mungkin tidak sepenuhnya mengerti apa yang Anda rasakan, Tuan Muda. Tapi saya percaya, 'rumah' bukan hanya tentang tempat fisik. Tapi juga tentang rasa aman, diterima, dan dipedulikan oleh orang-orang di sekitar kita. Dan saya lihat, Anda sedang berusaha menciptakan 'rumah' itu di sini.\"", 30);
+    delayPrint(L"Weiss: \"Kau ada benarnya, Irene. Kata-katamu selalu menenangkan. Dan kau adalah salah satu orang yang membuat mansion ini terasa lebih... bersahabat dan hangat bagiku.\"", 30);
+    delayPrint(L"Irene: (Tersipu, namun senyumnya tulus) \"Saya... saya merasa terhormat mendengarnya, Tuan Muda. Saya juga merasa Mansion Astra ini sudah seperti rumah kedua, berkat kebaikan Anda dan yang lainnya. Kita semua adalah bagian dari keluarga besar di sini, bukan?\"", 30);
+    delayPrint(L"Weiss: \"Ya, kau benar. Keluarga besar yang terkadang rumit, tapi tetap keluarga.\" (Tersenyum kecil)", 30);
+    delayPrint(L"Irene: \"Saya setuju, Tuan Muda.\"", 30);
+    delayPrint(L"Percakapan ini terasa lebih dalam dan personal dari biasanya, sebuah tanda bahwa kepercayaan di antara kalian semakin menguat.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel7() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 7 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Irene: (Berlari kecil menghampirimu, wajahnya bersemu karena antusias dan napasnya sedikit terengah) \"Tuan Muda Weiss! Tuan Muda! Saya baru saja dari perpustakaan dan menemukan edisi terbatas dari 'Syair Para Bintang'! Ini buku yang kita diskusikan minggu lalu, bukan? Yang katanya sangat sulit dicari itu!\"", 30);
+    delayPrint(L"Weiss: (Terkejut dan senang, langsung berdiri) \"Benarkah, Irene? Luar biasa! Aku sudah mencarinya di beberapa toko buku di kota tapi selalu kehabisan. Bagaimana kau bisa menemukannya? Apa Pak Theodore yang membantumu?\"", 30);
+    delayPrint(L"Irene: \"Betul, Tuan Muda! Saya bertanya pada Pak Theodore, pustakawan. Awalnya beliau bilang tidak ada. Tapi setelah saya bilang kita sering berdiskusi tentang buku dan sangat ingin membacanya, beliau teringat ada satu salinan yang disimpan khusus di ruang arsip! Beliau mengizinkan saya meminjamnya untuk Anda!\"", 30);
+    delayPrint(L"Weiss: \"Kau luar biasa, Irene! Terima kasih banyak! Ini sangat berarti. Bagaimana kalau kita membacanya bersama di gazebo nanti sore, jika kau tidak sibuk? Kita bisa mulai dari bab pertama.\"", 30);
+    delayPrint(L"Irene: \"Ide yang sangat bagus, Tuan Muda! Saya akan pastikan semua pekerjaan saya selesai. Tapi, sebelum itu, saya penasaran, apa pendapat Anda tentang prolognya? Saya sudah sempat membacanya sekilas, ramalan tentang Pangeran Cahaya dan Putri Bayangan itu... sangat puitis sekaligus misterius!\"", 30);
+    delayPrint(L"Weiss: \"Oh, prolog itu memang salah satu yang terbaik! Aku punya interpretasi sendiri tentang siapa sebenarnya Putri Bayangan itu. Banyak yang salah mengira. Aku pikir...\" Kalian pun langsung terlibat dalam diskusi yang seru dan panjang, saling melempar argumen dan teori dengan semangat.", 30);
+    delayPrint(L"Irene: \"Wah, teori Anda sangat menarik, Tuan Muda! Saya tidak pernah terpikir dari sudut pandang itu! Tapi, bagaimana dengan simbol naga berkepala tiga yang disebut dalam ramalan? Apakah itu merujuk pada tiga kerajaan yang bertikai?\"", 30);
+    delayPrint(L"Weiss: \"Bisa jadi! Atau mungkin itu metafora untuk tiga cobaan besar yang harus dihadapi Pangeran Cahaya. Lady Evangeline memang suka menggunakan simbolisme berlapis.\"", 30);
+    delayPrint(L"Irene: (Tertawa riang) \"Sepertinya kita punya banyak bahan diskusi untuk nanti sore ya, Tuan Muda! Saya jadi semakin tidak sabar!\"", 30);
+    delayPrint(L"Weiss: \"Tepat sekali! Aku sangat menikmati bertukar pikiran denganmu, Irene. Kau punya wawasan yang tajam dan antusiasme yang menular. Jadi, nanti sore di gazebo, ya? Aku akan membawa teh dan camilan spesial.\"", 30);
+    delayPrint(L"Irene: \"Siap, Tuan Muda! Ini akan menjadi sore yang sangat menyenangkan! Terima kasih sekali lagi sudah mau berdiskusi dengan saya!\"", 30);
+    delayPrint(L"Weiss: \"Akulah yang berterima kasih, Irene.\"", 30);
+    delayPrint(L"Kegembiraan kalian berdua karena menemukan teman diskusi yang sepadan terasa begitu nyata, mempererat ikatan persahabatan kalian hingga ke level yang baru.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel8() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 8 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Irene: \"Tuan Muda Weiss, bolehkah saya duduk sebentar? Ada sesuatu yang ingin saya sampaikan secara pribadi, jika Anda tidak keberatan. Ini sudah lama ingin saya utarakan.\"", 30);
+    delayPrint(L"Weiss: \"Tentu, Irene. Silakan. Ada apa? Kau terlihat lebih serius dari biasanya. Apakah ada masalah?\"", 30);
+    delayPrint(L"Irene: (Menghela napas pelan, mengumpulkan kata-kata) \"Tidak ada masalah, Tuan Muda. Justru sebaliknya. Ini tentang... Anda. Dan perubahan besar yang saya, dan juga staf lain, lihat dalam diri Anda sejak saya mulai bekerja di sini.\"", 30);
+    delayPrint(L"Weiss: \"Oh? Perubahan seperti apa yang kau maksud? Aku harap ini perubahan ke arah yang baik.\"", 30);
+    delayPrint(L"Irene: \"Sangat baik, Tuan Muda. Dulu, saat awal-awal, saya akui saya dan beberapa pelayan lain merasa sedikit... waspada dan, terus terang, takut. Rumor tentang sikap Tuan Muda yang terdahulu cukup membuat kami semua menjaga jarak dan hanya melakukan pekerjaan kami tanpa berani banyak bicara.\"", 30);
+    delayPrint(L"Irene: \"Tetapi, semakin hari, kami melihat sisi yang sangat berbeda dari Anda. Anda mulai menyapa kami dengan ramah, menanyakan kabar kami, bahkan hal-hal kecil seperti mengingat nama anak-anak kami atau hari ulang tahun kami. Anda juga sering membantu saat ada kesulitan kecil tanpa diminta.\"", 30);
+    delayPrint(L"Irene: \"Saya ingat dengan jelas suatu kali ketika salah satu pelayan dapur, Lily, tidak sengaja menjatuhkan nampan berisi porselen mahal milik Nyonya Astra. Kami semua sudah membayangkan dia akan dipecat atau setidaknya mendapat hukuman berat. Tapi Anda justru menghampirinya, menanyakan dengan tenang apakah dia terluka, dan mengatakan bahwa porselen bisa diganti, tapi keselamatan staf lebih utama. Anda bahkan membantu membereskannya tanpa sepatah kata marah pun. Momen itu... itu sangat mengejutkan dan menyentuh kami semua, Tuan Muda. Dengan cara yang sangat, sangat baik.\"", 30);
+    delayPrint(L"Weiss: (Terdiam sejenak, mengingat kejadian itu dengan jelas. Saat itu, dia hanya bertindak berdasarkan naluri barunya) \"Aku... aku hanya melakukan apa yang kurasa benar pada saat itu, Irene. Tidak ada gunanya marah untuk kesalahan yang tidak disengaja. Lily pasti sudah cukup takut dan merasa bersalah waktu itu.\"", 30);
+    delayPrint(L"Irene: \"Mungkin bagi Anda itu hal sederhana, Tuan Muda. Tapi bagi kami, itu adalah tanda kebesaran hati dan kepedulian yang tulus. Anda telah menunjukkan bahwa Anda menghargai kami bukan hanya sebagai pekerja, tapi sebagai manusia. Dan bukan hanya saya, tapi banyak staf lain yang merasakan hal yang sama. Suasana di mansion ini jadi jauh lebih hangat, lebih penuh senyum, dan lebih menyenangkan berkat Anda.\"", 30);
+    delayPrint(L"Weiss: \"Mendengar itu darimu... sungguh sangat berarti, Irene. Sejujurnya, aku sendiri masih berjuang setiap hari untuk menjadi orang yang lebih baik dari diriku di masa lalu. Pengakuanmu ini memberiku semacam... validasi dan kekuatan bahwa aku berada di jalan yang benar, bahwa perubahanku ini bermakna.\"", 30);
+    delayPrint(L"Irene: (Tersenyum tulus, matanya berkaca-kaca) \"Anda sudah lebih dari baik, Tuan Muda. Anda adalah inspirasi bagi kami. Dan kami semua, dengan tulus, mendukung Anda. Terima kasih telah menjadi Tuan Muda yang seperti ini.\"", 30);
+    delayPrint(L"Weiss: \"Justru aku yang harus berterima kasih, Irene. Atas kejujuranmu, atas dukunganmu, dan atas persahabatanmu. Itu semua memberiku semangat.\"", 30);
+    delayPrint(L"Irene: \"Kapan pun Anda butuh teman bicara atau sekadar didengarkan, saya selalu ada, Tuan Muda.\"", 30);
+    delayPrint(L"Kepercayaan dan rasa hormat yang terpancar dari mata Irene membuat hatimu terasa hangat dan damai. Kamu merasa usahamu untuk berubah tidak sia-sia dan telah menyentuh banyak hati.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel9() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 9 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Kalian duduk di bangku taman langganan, menikmati semilir angin senja yang membawa aroma bunga melati dan suara jangkrik yang mulai terdengar. Keheningan di antara kalian terasa nyaman, bukan canggung, dipenuhi pemahaman.", 30);
+    delayPrint(L"Weiss: \"Entah mengapa, Irene, akhir-akhir ini aku sering merenung. Tentang takdir, tentang pilihan-pilihan besar dalam hidup... tentang apakah kita benar-benar bisa mengubah alur cerita yang seolah sudah ditetapkan untuk kita.\"", 30);
+    delayPrint(L"Irene: (Menatapmu dengan pandangan yang dalam dan penuh perhatian) \"Saya percaya kita semua memiliki peran penting dalam menentukan jalan hidup kita sendiri, Tuan Muda. Mungkin ada hal-hal besar di luar kendali kita, seperti badai atau musim. Tapi bagaimana kita merespons, bagaimana kita memilih untuk bertindak dalam situasi tersebut... itu sepenuhnya ada di tangan kita. Kita adalah nakhoda bagi kapal kita sendiri, meskipun lautan terkadang ganas.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah analogi yang indah, Irene. Tapi terkadang, menjadi nakhoda itu terasa sangat sepi dan bebannya berat. Apalagi jika masa lalu terus menciptakan gelombang yang mencoba menenggelamkan kapal itu.\"", 30);
+    delayPrint(L"Irene: \"Masa lalu adalah pelajaran berharga, Tuan Muda, bukan sebuah jangkar yang harus terus menyeret kita ke dasar. Anda telah membuktikan bahwa perubahan itu mungkin, bahwa kapal bisa diarahkan ke tujuan yang baru dan lebih baik. Anda telah memilih jalan yang berbeda, jalan yang dipenuhi kebaikan dan keberanian. Dan lihatlah sekeliling Anda, lihatlah bagaimana pilihan itu membawa dampak positif bagi banyak orang, termasuk saya.\"", 30);
+    delayPrint(L"Weiss: \"Kau selalu tahu cara membuatku melihat sisi terangnya, ya, Irene? Kata-katamu seperti mercusuar di tengah kabut. Persahabatanmu ini seperti oasis di tengah gurun yang tandus bagiku. Sesuatu yang tidak pernah kuduga akan kutemukan di kehidupan keduaku ini.\"", 30);
+    delayPrint(L"Irene: (Tersenyum lembut, pipinya sedikit merona namun tatapannya mantap) \"Bagi saya pun begitu, Tuan Muda Weiss. Anda telah menunjukkan arti persahabatan yang tulus, yang melampaui batasan status atau latar belakang. Anda membuat saya merasa dihargai bukan hanya sebagai pelayan, tapi sebagai seorang individu, sebagai seorang teman yang setara. Itu adalah hadiah yang tak ternilai.\"", 30);
+    delayPrint(L"Irene: \"Karena itu, ketahuilah, Tuan Muda, apapun yang terjadi di masa depan, serumit apapun tantangan yang mungkin menghadang, Anda tidak akan pernah menghadapinya sendirian. Kesetiaan dan dukungan saya akan selalu menyertai Anda. Saya akan menjadi perisai Anda jika perlu, dan penasihat Anda jika diminta.\"", 30);
+    delayPrint(L"Weiss: (Menatap Irene dengan rasa terima kasih yang mendalam, suaranya sedikit bergetar) \"Kata-katamu itu... lebih berharga dari semua harta di dunia ini, Irene. Aku benar-benar beruntung memilikimu sebagai sahabat. Dan aku juga akan selalu ada untukmu, sebagai temanmu, sebagai saudaramu. Selalu.\"", 30);
+    delayPrint(L"Irene: \"Saya tahu, Tuan Muda. Dan kepercayaan itu adalah segalanya bagi saya. Kita akan saling menjaga, bukan?\"", 30);
+    delayPrint(L"Weiss: \"Tentu saja, Irene. Kita akan saling menjaga.\"", 30);
+    delayPrint(L"Ada ikrar tak terucap yang lebih kuat dari sumpah manapun dalam tatapan kalian, sebuah janji kesetiaan dan dukungan timbal balik yang melampaui kata-kata. Kamu merasa aman, diterima, dan memiliki sekutu sejati, sebuah perasaan yang langka dan sangat berharga bagimu.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneIreneLevel10() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Irene - Maid ✦ Level 10 ✦ Taman Belakang Mansion ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Irene: (Menghampirimu dengan ekspresi yang sangat khidmat dan sedikit gugup, membawa sebuah kotak kayu kecil yang diukir dengan motif bunga lili yang sangat halus) \"Tuan Muda Weiss, bolehkah saya meminta sedikit waktu Anda? Ada sesuatu yang sangat istimewa yang ingin saya sampaikan dan berikan kepada Anda hari ini. Ini adalah... ungkapan terima kasih saya yang terdalam atas semua yang telah Anda lakukan, atas persahabatan kita yang luar biasa.\"", 30);
+    delayPrint(L"Weiss: \"Tentu saja, Irene. Seluruh waktuku untukmu. Ada apa? Kau terlihat sangat... khidmat dan sedikit berbeda hari ini. Apakah semuanya baik-baik saja?\"", 30);
+    delayPrint(L"Irene: (Mengambil napas dalam-dalam) \"Semuanya lebih dari baik, Tuan Muda. Dengan tangan yang sedikit gemetar karena haru namun penuh keyakinan, dia membuka kotak itu perlahan, memperlihatkan sebuah jam saku perak antik dengan ukiran inisial 'WVA' yang sangat halus dan elegan di penutupnya. Rantainya terbuat dari perak murni yang berkilau lembut.\"", 30);
+    delayPrint(L"Irene: \"Ini... ini adalah jam saku peninggalan kakek buyut saya, Tuan Muda. Beliau adalah seorang cendekiawan dan penasihat raja yang sangat dihormati pada masanya. Beliau sangat menjunjung tinggi integritas, kebijaksanaan, dan keberanian untuk melakukan hal yang benar, bahkan ketika itu sulit.\"", 30);
+    delayPrint(L"Irene: \"Sebelum beliau wafat, beliau berpesan kepada keluarga kami agar jam ini dijaga baik-baik dan suatu hari nanti diwariskan kepada seseorang di luar garis keturunan kami, seseorang yang benar-benar mencerminkan nilai-nilai luhur yang beliau anut. Seseorang yang memiliki potensi untuk membawa perubahan besar yang positif bagi banyak orang. Selama ini, jam ini menjadi pusaka keluarga kami, menunggu orang yang tepat itu.\"", 30);
+    delayPrint(L"Irene: \"Dan setelah mengenal Anda, Tuan Muda Weiss, setelah melihat transformasi luar biasa dalam diri Anda, setelah merasakan kebaikan hati dan kebijaksanaan Anda yang tulus... saya dan keluarga saya berdiskusi, dan kami semua setuju. Orang itu... adalah Anda.\"", 30);
+    delayPrint(L"Weiss: (Terpana, tak bisa berkata-kata, menerima kotak berisi jam saku itu dengan kedua tangan gemetar. Beratnya terasa lebih dari sekadar logam mulia) \"Irene... aku... aku tidak tahu harus berkata apa. Ini... ini adalah sebuah kehormatan yang tak terhingga. Sebuah warisan yang begitu berharga... Aku merasa... aku belum pantas menerimanya.\"", 30);
+    delayPrint(L"Irene: (Menggeleng lembut, matanya berkaca-kaca namun senyumnya penuh keyakinan) \"Anda lebih dari pantas, Tuan Muda. Anda telah menunjukkan semua kualitas yang kakek buyut saya kagumi dan hargai. Anggaplah ini sebagai simbol bahwa waktu selalu berharga, dan setiap detik adalah kesempatan untuk terus tumbuh, belajar, dan menjadi lebih baik, seperti yang telah Anda buktikan kepada kami semua tanpa henti.\"", 30);
+    delayPrint(L"Irene: \"Lebih dari itu, Tuan Muda, ini adalah janji kesetiaan abadi dari saya dan keluarga saya. Selama jarum jam ini masih berdetak, selama itu pula dukungan, doa, dan persahabatan kami akan selalu menyertai Anda, dalam suka maupun duka, dalam setiap keputusan dan langkah yang Anda ambil. Anda tidak akan pernah berjalan sendirian.\"", 30);
+    delayPrint(L"Weiss: (Menggenggam jam saku itu erat, suaranya serak karena emosi yang meluap) \"Irene... hadiah ini, dan kepercayaan yang kau dan keluargamu berikan padaku... adalah kehormatan terbesar dalam hidupku. Aku bersumpah akan menjaganya seperti aku menjaga nyawaku sendiri, dan seperti aku menjaga persahabatan kita yang tak ternilai harganya. Kau bukan hanya pelayan, bukan hanya teman. Kau adalah saudari, bagian dari jiwaku, bagian dari keluargaku sekarang.\"", 30);
+    delayPrint(L"Irene: (Meneteskan air mata bahagia yang tak terbendung, namun senyumnya begitu tulus dan cerah) \"Bagi saya pun begitu, Tuan Muda. Anda adalah kakak, pelindung, dan sahabat terbaik yang pernah saya miliki. Dan saya akan selalu bangga menjadi bagian dari perjalanan hidup Anda, menjadi saksi dari semua hal hebat yang akan Anda capai.\"", 30);
+    delayPrint(L"Weiss: \"Terima kasih, Irene. Terima kasih untuk segalanya. Kita akan melalui apapun yang datang di depan, bersama-sama. Selalu.\"", 30);
+    delayPrint(L"Irene: \"Selalu, Tuan Muda Weiss. Selalu.\"", 30);
+    delayPrint(L"Di bawah langit taman yang menjadi saksi bisu perjalanan persahabatan mereka, sebuah ikatan yang tak terukur nilainya, lebih berharga dari semua harta dunia, telah terjalin abadi. Jam saku itu bukan sekadar penunjuk waktu, melainkan simbol harapan, perubahan, kesetiaan, dan cinta persaudaraan yang akan selalu mereka kenang dan pegang teguh.", 30);
+
+    // applySocialLinkBonus("Irene"); // Misal: "Irene's Everlasting Loyalty" (Passive buff: Significant boost to all stats, or a unique accessory "Lili's Timeless Grace" that grants a powerful once-per-battle protective ability or a significant heal)
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel1() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 1 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Masuk ke Cross Guild yang ramai dengan lalu-lalang petualang) \"Permisi, apakah Anda Nona Ella, pemilik Cross Guild ini?\"", 30);
+    delayPrint(L"Ella: (Mengalihkan pandangan dari setumpuk perkamen di mejanya, menatap Weiss dengan tatapan menilai) \"Benar. Saya Ella. Ada urusan apa Tuan Muda dari keluarga Astra datang ke tempat seperti ini? Jarang sekali bangsawan mampir.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya ingin melihat langsung bagaimana sebuah guild petualang beroperasi. Keluarga Astra memiliki kepentingan dalam stabilitas kota, dan guild Anda memainkan peran penting dalam hal itu, bukan?\"", 30);
+    delayPrint(L"Ella: \"Peran penting, ya? Kami hanya menyediakan platform bagi mereka yang mencari pekerjaan dan mereka yang membutuhkan jasa. Simbiosis mutualisme, Tuan Muda. Apakah Anda mencari quest tertentu? Atau sekadar... observasi?\"", 30);
+    delayPrint(L"Weiss: \"Untuk saat ini, lebih ke observasi. Saya ingin memahami dinamika dan jenis-jenis permintaan yang biasa masuk. Mungkin ada cara keluarga kami bisa berkontribusi lebih efektif.\"", 30);
+    delayPrint(L"Ella: (Mengangkat sebelah alisnya, sedikit skeptis namun tetap profesional) \"Kontribusi dari keluarga Astra selalu diterima, selama itu menguntungkan kedua belah pihak. Silakan melihat-lihat. Papan quest ada di sebelah sana. Jangan membuat keributan, anak-anak buah saya terkadang sedikit... bersemangat.\"", 30);
+    delayPrint(L"Weiss: \"Saya mengerti. Terima kasih atas waktu Anda, Nona Ella. Saya akan berusaha tidak mengganggu.\"", 30);
+    delayPrint(L"Ella: \"Hm. Jika ada pertanyaan spesifik, tanyakan saja pada Griz, wakil saya. Dia lebih punya banyak waktu luang.\" (Kembali fokus pada perkamennya)", 30);
+    delayPrint(L"Weiss: \"Baik. Terima kasih atas informasinya.\"", 30);
+    delayPrint(L"Ella: \"Sama-sama, Tuan Muda.\"", 30);
+    delayPrint(L"Kesan pertama, Ella adalah wanita yang tegas, praktis, dan tidak suka basa-basi. Kamu merasa ini akan menjadi hubungan yang menarik untuk dijalin.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel2() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 2 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Nona Ella, saya kembali. Saya sudah melihat-lihat papan quest. Cukup beragam ya, mulai dari pengawalan pedagang hingga perburuan monster.\"", 30);
+    delayPrint(L"Ella: (Mendongak dari catatannya, sedikit kurang terkejut melihatmu kali ini) \"Tuan Muda Astra. Selamat datang kembali. Ya, kebutuhan kota ini memang beragam. Apa ada yang menarik perhatian Anda secara khusus?\"", 30);
+    delayPrint(L"Weiss: \"Saya perhatikan ada beberapa permintaan investigasi kasus pencurian kecil di distrik pengrajin. Apakah kasus seperti itu sering terjadi dan ditangani oleh guild? Bukankah itu tugas penjaga kota?\"", 30);
+    delayPrint(L"Ella: \"Penjaga kota punya prioritas mereka sendiri, Tuan Muda. Terkadang sumber daya mereka terbatas. Untuk kasus-kasus yang dianggap 'kecil', warga lebih suka menyewa petualang dari guild. Lebih cepat, dan terkadang lebih... efektif dalam menemukan barang yang hilang, jika Anda mengerti maksud saya.\"", 30);
+    delayPrint(L"Weiss: \"Saya mulai mengerti. Jadi guild Anda mengisi celah yang tidak terjangkau oleh aparat resmi. Apakah ada kesulitan dalam menangani jenis quest seperti itu? Mungkin terkait bukti atau yurisdiksi?\"", 30);
+    delayPrint(L"Ella: \"Selalu ada tantangan. Kami punya aturan main sendiri di sini. Selama tidak melanggar hukum besar kerajaan dan semua pihak sepakat, kami jalan terus. Petualang kami juga punya kode etik... setidaknya sebagian besar dari mereka.\", (tersenyum miring)", 30);
+    delayPrint(L"Weiss: \"Sebuah sistem yang menarik, meskipun mungkin sedikit... abu-abu. Apakah Anda sendiri yang menyeleksi quest yang masuk atau ada tim khusus?\"", 30);
+    delayPrint(L"Ella: \"Untuk quest dengan risiko tinggi atau bayaran besar, saya akan meninjaunya langsung. Sisanya, Griz dan beberapa staf senior yang menangani. Kami harus memastikan quest itu layak dan tidak membahayakan reputasi guild secara keseluruhan.\"", 30);
+    delayPrint(L"Weiss: \"Manajemen risiko yang cermat. Saya menghargai keterbukaan Anda dalam menjelaskan, Nona Ella.\"", 30);
+    delayPrint(L"Ella: \"Anggap saja ini bagian dari transparansi, Tuan Muda. Semakin Anda mengerti cara kerja kami, semakin baik potensi 'kontribusi' yang Anda sebutkan tempo hari, bukan?\"", 30);
+    delayPrint(L"Weiss: \"Anda benar. Saya akan terus belajar. Terima kasih.\"", 30);
+    delayPrint(L"Ella hanya mengangguk singkat, tapi kamu merasa ada sedikit rasa hormat yang mulai tumbuh di matanya terhadap keseriusanmu.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel3() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 3 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Suasana guild hari ini tampak lebih ramai dari biasanya, Nona Ella. Apakah ada event khusus atau permintaan besar yang masuk?\"", 30);
+    delayPrint(L"Ella: (Menyesap cangkir tehnya, memandang ke arah kerumunan petualang) \"Tidak ada event khusus, Tuan Muda. Hanya saja, musim berburu monster di Hutan Merah baru saja dibuka kembali setelah badai minggu lalu. Banyak yang antusias mencari peruntungan.\"", 30);
+    delayPrint(L"Weiss: \"Ah, Hutan Merah. Saya dengar medannya cukup berbahaya. Apakah guild sering menerima permintaan terkait area tersebut?\"", 30);
+    delayPrint(L"Ella: \"Sangat sering. Mulai dari mengumpulkan bahan langka, menyelamatkan petualang yang tersesat, hingga mengendalikan populasi monster tertentu yang mulai meresahkan desa-desa di perbatasan hutan. Itu salah satu sumber pendapatan utama guild, sekaligus yang paling berisiko.\"", 30);
+    delayPrint(L"Weiss: \"Pasti tidak mudah mengelola begitu banyak petualang dengan berbagai tingkat keahlian dan temperamen. Bagaimana Anda memastikan semuanya berjalan sesuai aturan dan tidak ada konflik internal yang besar?\"", 30);
+    delayPrint(L"Ella: (Tersenyum tipis, ada kilat geli di matanya) \"Aturan dibuat untuk dilanggar, Tuan Muda, terutama oleh para petualang. Tapi ya, kami punya sistem peringkat, kontrak yang jelas, dan... beberapa 'penegak disiplin' tidak resmi yang memastikan semua orang tahu batasnya. Konflik kecil itu biasa, seperti bumbu dalam masakan. Selama tidak meledakkan seluruh dapur, saya biarkan saja.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah pendekatan yang sangat pragmatis. Apakah Anda tidak pernah merasa lelah dengan semua drama dan potensi masalah ini setiap hari?\"", 30);
+    delayPrint(L"Ella: \"Lelah itu pasti, Tuan Muda. Tapi ada kepuasan tersendiri saat melihat sebuah quest berhasil diselesaikan, atau saat petualang muda yang dulu ceroboh kini tumbuh jadi veteran yang dihormati. Guild ini lebih dari sekadar bisnis bagi saya. Ini... semacam keluarga besar yang kacau balau.\"", 30);
+    delayPrint(L"Weiss: \"Saya bisa melihat dedikasi Anda, Nona Ella. Dan saya mulai mengerti mengapa guild ini begitu dihormati di Arcadia.\"", 30);
+    delayPrint(L"Ella: \"Hormat itu harus diperoleh, Tuan Muda, bukan diberikan. Sama seperti reputasi Anda sendiri yang sedang Anda bangun kembali, bukan?\", (Menatap Weiss dengan tajam namun tidak permusuhan)", 30);
+    delayPrint(L"Weiss: (Sedikit terkejut dengan observasinya yang menusuk, namun mengangguk) \"Anda benar, Nona Ella. Saya sedang berusaha.\"", 30);
+    delayPrint(L"Ella: \"Teruslah berusaha. Kota ini membutuhkan lebih banyak orang seperti Anda yang mau turun tangan, bukan hanya duduk di menara gading.\"", 30);
+    delayPrint(L"Kamu merasa ada sedikit pengakuan dalam kata-katanya. Dia mulai melihatmu lebih dari sekadar nama besar keluarga Astra.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel4() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 4 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Saat Weiss sedang berbicara dengan Ella di konternya, tiba-tiba terdengar keributan dari area papan quest. Dua petualang tampak berdebat sengit.", 30);
+    delayPrint(L"Petualang A: \"Quest ini jelas milik timku! Kami yang melihatnya pertama!\"", 30);
+    delayPrint(L"Petualang B: \"Melihat bukan berarti mengambil, Bodoh! Timku yang sudah mendaftarkannya pada Griz!\"", 30);
+    delayPrint(L"Ella: (Menghela napas panjang, memijat pelipisnya) \"Setiap hari selalu ada saja. Sepertinya ini akan jadi pagi yang panjang.\"", 30);
+    delayPrint(L"Weiss: \"Apakah ini sering terjadi, Nona Ella? Perebutan quest seperti ini?\"", 30);
+    delayPrint(L"Ella: \"Lebih sering dari yang Anda bayangkan, Tuan Muda. Terutama untuk quest dengan imbalan besar atau item langka. Terkadang mereka seperti anak-anak yang berebut mainan baru.\"", 30);
+    delayPrint(L"Ella kemudian bangkit dan berjalan menuju keributan itu dengan langkah tenang namun berwibawa. \"Ada masalah apa di sini? Jangan membuat keributan di guild-ku pagi-pagi begini.\", (nadanya dingin dan tegas)", 30);
+    delayPrint(L"Kedua petualang itu langsung terdiam, tampak sedikit gentar. Setelah mendengar penjelasan singkat, Ella mengambil keputusan dengan cepat.", 30);
+    delayPrint(L"Ella: \"Quest ini akan diberikan kepada tim yang pertama kali mendaftarkannya secara resmi. Itu aturannya. Tim lain, cari quest lain atau tunggu giliran. Tidak ada diskusi lagi.\"", 30);
+    delayPrint(L"Para petualang itu menggerutu, tapi akhirnya membubarkan diri. Ella kembali ke konter.", 30);
+    delayPrint(L"Weiss: \"Penyelesaian yang cepat dan tegas. Saya terkesan.\"", 30);
+    delayPrint(L"Ella: \"Ketegasan itu perlu, Tuan Muda. Jika tidak, tempat ini akan jadi pasar malam. Tapi terkadang, saya berharap mereka bisa sedikit lebih dewasa. Anda sendiri, apakah di dunia bangsawan juga sering ada 'perebutan quest' semacam ini, mungkin dalam bentuk yang berbeda?\"", 30);
+    delayPrint(L"Weiss: (Tersenyum tipis) \"Oh, tentu saja, Nona Ella. Perebutan pengaruh, harta, dan kehormatan. Hanya saja, medannya berbeda dan senjatanya terkadang lebih... halus namun mematikan.\"", 30);
+    delayPrint(L"Ella: (Tertawa kecil, tawa yang mengejutkanmu karena terdengar cukup tulus) \"Saya bisa membayangkannya. Setidaknya di sini, jika ada masalah, kami bisa menyelesaikannya dengan adu jotos di arena belakang. Lebih sederhana.\"", 30);
+    delayPrint(L"Weiss: \"Setiap dunia punya caranya sendiri, sepertinya. Tapi saya setuju, kesederhanaan terkadang lebih baik.\"", 30);
+    delayPrint(L"Kamu merasa ada sedikit keakraban yang terjalin setelah insiden kecil itu. Humor sarkastis Ella ternyata cukup menarik.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel5() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 5 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Nona Ella, saya perhatikan banyak petualang yang mengeluhkan tentang kurangnya informasi detail pada beberapa quest pengintaian. Mereka sering membuang waktu karena target atau lokasi yang kurang jelas.\"", 30);
+    delayPrint(L"Ella: (Mengangkat sebelah alis) \"Oh ya? Keluhan itu belum sampai ke telinga saya secara langsung. Tapi saya tidak heran. Klien terkadang pelit informasi atau memang tidak tahu detailnya. Apa Anda punya usulan, Tuan Muda Astra yang penuh perhatian?\", (nadanya sedikit menyindir, tapi ada rasa ingin tahu)", 30);
+    delayPrint(L"Weiss: \"Saya hanya berpikir, mungkin Guild bisa membuat semacam formulir standar yang lebih detail untuk klien saat mengajukan quest investigasi. Pertanyaan spesifik tentang ciri-ciri target, waktu terakhir terlihat, area yang dicurigai. Mungkin juga ada insentif kecil bagi klien yang memberikan informasi paling akurat?\"", 30);
+    delayPrint(L"Ella: (Tertegun sejenak, memandang Weiss dengan tatapan baru) \"Formulir standar... Insentif untuk informasi akurat... Itu... sebenarnya bukan ide yang buruk, Tuan Muda. Sangat tidak buruk. Bisa mengurangi risiko kegagalan quest dan perselisihan.\"", 30);
+    delayPrint(L"Weiss: \"Hanya sebuah pemikiran. Anda yang lebih memahami seluk-beluk operasional guild ini. Mungkin bisa disesuaikan.\"", 30);
+    delayPrint(L"Ella: \"Saya akan memikirkannya. Serius. Mungkin saya akan meminta Griz untuk merancang draf formulirnya. Terima kasih atas masukannya, Tuan Muda. Saya tidak menyangka seorang bangsawan punya perhatian sampai ke detail operasional seperti ini.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya ingin melihat semua pihak mendapatkan hasil yang optimal, Nona Ella. Efisiensi itu baik untuk semua, bukan? Termasuk reputasi Guild.\"", 30);
+    delayPrint(L"Ella: \"Anda benar. Reputasi adalah aset terbesar kami. Baiklah, Tuan Muda, sebagai ucapan terima kasih atas ide brilian Anda, bagaimana kalau secangkir kopi terbaik dari kedai seberang? Saya yang traktir.\"", 30);
+    delayPrint(L"Weiss: (Sedikit terkejut dengan tawaran itu) \"Sebuah kehormatan, Nona Ella. Saya terima dengan senang hati.\"", 30);
+    delayPrint(L"Ella: \"Bagus. Jarang-jarang saya menemukan seseorang yang bisa memberikan masukan berguna selain keluhan. Anda mulai membuat saya terkesan, Tuan Muda.\"", 30);
+    delayPrint(L"Kamu merasa ada perubahan signifikan dalam cara Ella memandangmu. Bukan lagi sekadar bangsawan yang penasaran, tapi seseorang yang punya ide dan bisa diajak berpikir.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel6() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 6 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Suatu sore, Weiss menemukan Ella sedang memandangi sebuah peta tua wilayah sekitar Arcadia yang terpajang di dinding kantornya, ekspresinya tampak serius.", 30);
+    delayPrint(L"Weiss: \"Peta yang menarik, Nona Ella. Sepertinya jauh lebih detail daripada peta resmi yang dikeluarkan balai kota. Apakah ini peta khusus milik guild?\"", 30);
+    delayPrint(L"Ella: (Menoleh, senyum tipis tersungging) \"Ah, Tuan Muda. Ya, ini peta hasil kompilasi laporan dari para petualang kami selama bertahun-tahun. Lebih banyak menandai jalur tikus, sarang monster, dan reruntuhan tersembunyi daripada jalan utama.\"", 30);
+    delayPrint(L"Weiss: \"Pasti sangat berharga. Saya lihat Anda menandai area di sekitar Pegunungan Naga Merah. Apakah ada sesuatu yang terjadi di sana?\"", 30);
+    delayPrint(L"Ella: \"Selalu ada sesuatu yang terjadi di Pegunungan Naga Merah, Tuan Muda.\" (Menghela napas) \"Beberapa tahun lalu, ada wabah aneh yang menyerang hewan ternak di desa-desa kaki gunung. Banyak yang mengira itu kutukan. Kami mengirim tim terbaik kami untuk menyelidikinya.\"", 30);
+    delayPrint(L"Ella: \"Ternyata itu disebabkan oleh tanaman beracun langka yang tumbuh subur setelah musim hujan ekstrem, mencemari sumber air. Para petualang kami, setelah melalui banyak rintangan dan kehilangan beberapa rekan, berhasil menemukan sumbernya dan cara menetralisirnya. Itu salah satu quest tersulit sekaligus paling memuaskan yang pernah ditangani guild ini.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah kisah kepahlawanan yang luar biasa. Para petualang itu pasti sangat berani dan berdedikasi. Apakah guild memberikan penghargaan khusus untuk mereka?\"", 30);
+    delayPrint(L"Ella: \"Imbalan materi sudah pasti. Tapi yang lebih penting, nama mereka terukir di Aula Kehormatan Guild. Dan yang terpenting, mereka menyelamatkan banyak nyawa. Itulah esensi sejati dari Cross Guild ini, Tuan Muda. Bukan hanya uang atau ketenaran, tapi membantu mereka yang membutuhkan, menjaga keseimbangan.\"", 30);
+    delayPrint(L"Weiss: \"Saya semakin memahami dalamnya dedikasi Anda pada guild ini dan orang-orangnya, Nona Ella. Ini lebih dari sekadar pekerjaan bagi Anda.\"", 30);
+    delayPrint(L"Ella: \"Guild ini adalah hidup saya, Tuan Muda. Sejak saya mengambil alih dari ayah saya. Ada banyak suka dan duka, tapi saya tidak akan menukarnya dengan apapun. Nah, cukup dengan cerita lama. Apa ada yang bisa saya bantu hari ini?\"", 30);
+    delayPrint(L"Weiss: \"Tidak ada, Nona Ella. Saya hanya senang mendengar cerita Anda. Itu memberi saya banyak inspirasi.\"", 30);
+    delayPrint(L"Ella: \"Kapan saja, Tuan Muda. Pintu kantor saya selalu terbuka jika Anda ingin mendengar dongeng sebelum tidur dari seorang Guild Master tua.\" (Mengedipkan sebelah mata)", 30);
+    delayPrint(L"Kamu tertawa. Sisi humoris dan hangat Ella semakin terlihat, di balik fasadnya yang tegas.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel7() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 7 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Nona Ella, saya butuh pendapat Anda mengenai suatu masalah. Ini sedikit di luar urusan guild, tapi saya merasa insting dan pengalaman Anda di kota ini bisa memberikan pencerahan.\"", 30);
+    delayPrint(L"Ella: (Meletakkan penanya, menatap Weiss dengan penuh perhatian) \"Oh? Tumben sekali Anda meminta pendapat saya, Tuan Muda. Biasanya Anda yang memberi masukan. Ada apa? Silakan ceritakan.\"", 30);
+    delayPrint(L"Weiss: \"Saya mendengar desas-desus tentang adanya kelompok penyelundup yang mulai aktif di area dermaga. Mereka katanya mendatangkan barang-barang terlarang. Pihak penjaga kota sepertinya belum berhasil melacak mereka. Saya khawatir ini bisa berdampak buruk pada keamanan Arcadia.\"", 30);
+    delayPrint(L"Ella: (Mengangguk pelan, ekspresinya serius) \"Penyelundupan di dermaga, ya? Bukan hal baru, tapi jika skalanya besar, itu memang mengkhawatirkan. Jaringan informasi saya juga menangkap beberapa sinyal aneh dari sana. Apa yang ingin Anda ketahui dari saya?\"", 30);
+    delayPrint(L"Weiss: \"Menurut Anda, siapa kira-kira pemain besar di balik ini? Dan bagaimana cara terbaik untuk mendapatkan informasi lebih lanjut tanpa menimbulkan kecurigaan besar? Saya tidak ingin gegabah dan membuat situasi semakin rumit.\"", 30);
+    delayPrint(L"Ella: (Berpikir sejenak, jemarinya mengetuk-ngetuk meja) \"Pemain besar di dermaga biasanya ada beberapa faksi lama. Tapi jika ini barang terlarang skala besar, mungkin ada pemain baru yang lebih licin. Untuk informasi, Anda bisa mencoba mendekati beberapa informan lepas yang sering mangkal di kedai 'Saucy Siren'. Tapi hati-hati, Tuan Muda, mereka seperti belut, licin dan hanya setia pada koin emas.\"", 30);
+    delayPrint(L"Ella: \"Pastikan Anda tidak pergi sendirian dan membawa 'sesuatu' untuk melancarkan pembicaraan. Dan jangan pernah menyebut nama saya atau guild. Kami berusaha menjaga netralitas dalam hal seperti ini, kecuali jika sudah sangat mengancam stabilitas umum.\"", 30);
+    delayPrint(L"Weiss: \"Informasi yang sangat berharga, Nona Ella. 'Saucy Siren', ya? Saya akan mengingatnya. Dan tentu saja, saya akan sangat berhati-hati. Apakah ada hal lain yang perlu saya waspadai?\"", 30);
+    delayPrint(L"Ella: \"Selalu waspada pada bayangan Anda sendiri, Tuan Muda. Dermaga itu tempat yang keras. Dan jika Anda memang serius ingin memberantas ini, pastikan Anda punya rencana cadangan. Penyelundup kelas kakap tidak akan segan-segan menyingkirkan pengganggu.\"", 30);
+    delayPrint(L"Weiss: \"Saya mengerti. Terima kasih banyak atas nasihat dan peringatan Anda, Nona Ella. Ini sangat membantu saya menyusun langkah selanjutnya.\"", 30);
+    delayPrint(L"Ella: \"Gunakan informasi itu dengan bijak, Tuan Muda. Dan jika situasinya memburuk dan Anda butuh bantuan 'non-resmi', Anda tahu di mana mencari saya. Tapi ingat, ada harga untuk segalanya.\", (tersenyum penuh arti)", 30);
+    delayPrint(L"Weiss: \"Akan saya ingat itu. Terima kasih.\"", 30);
+    delayPrint(L"Kamu merasa Ella mulai mempercayaimu dengan informasi yang lebih sensitif. Dia melihatmu sebagai seseorang yang bisa bertindak, bukan hanya berbicara.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel8() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 8 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Ella: \"Tuan Muda Astra, ada waktu sebentar? Saya baru saja menyelesaikan laporan keuangan bulanan guild, dan nama Anda beberapa kali muncul sebagai donatur untuk misi-misi kemanusiaan kecil yang kami tangani. Saya tidak menyangka.\"", 30);
+    delayPrint(L"Weiss: \"Oh, itu... hanya sumbangan kecil, Nona Ella. Saya merasa terpanggil untuk membantu jika ada kesempatan. Terutama untuk misi yang berkaitan dengan panti asuhan atau bantuan bencana alam di desa terpencil.\"", 30);
+    delayPrint(L"Ella: (Menatap Weiss dengan ekspresi yang sulit diartikan, campuran antara terkejut dan... hormat?) \"Sumbangan kecil katamu? Jumlah itu cukup untuk memberi makan seluruh panti asuhan selama sebulan. Anda tahu, Tuan Muda, saya sudah berurusan dengan banyak bangsawan selama bertahun-tahun. Sebagian besar dari mereka hanya peduli pada reputasi dan keuntungan pribadi.\"", 30);
+    delayPrint(L"Ella: \"Tapi Anda... Anda berbeda. Anda datang ke sini, mencoba memahami kami, memberikan masukan, bahkan diam-diam berdonasi tanpa mencari publisitas. Anda bukan tipikal bangsawan manja yang saya bayangkan saat pertama kali Anda masuk ke guild ini.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya berusaha menjadi orang yang berguna, Nona Ella. Harta dan status tidak akan berarti jika tidak bisa membawa kebaikan bagi orang lain. Saya belajar itu dengan cara yang... cukup keras.\"", 30);
+    delayPrint(L"Ella: \"Apapun pelajaran itu, sepertinya itu pelajaran yang sangat berharga. Kota ini, bahkan guild ini, beruntung memiliki seseorang seperti Anda yang mulai peduli. Dulu, saya pikir keluarga Astra hanya akan menambah beban birokrasi.\"", 30);
+    delayPrint(L"Weiss: \"Saya harap saya bisa terus membuktikan bahwa saya berbeda dari stereotip itu. Dan saya juga berterima kasih pada Anda, Nona Ella. Anda telah banyak mengajari saya tentang sisi lain kota ini, tentang realitas yang tidak pernah saya lihat dari balik tembok mansion.\"", 30);
+    delayPrint(L"Ella: \"Anggap saja ini pertukaran yang adil, Tuan Muda. Anda memberi kami perspektif baru, kami memberi Anda sedikit pelajaran tentang kerasnya dunia.\" (tersenyum tipis) \"Tapi serius, tindakan Anda itu... mengesankan. Jangan berhenti melakukannya.\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak akan berhenti, Nona Ella. Selama saya mampu.\"", 30);
+    delayPrint(L"Ella: \"Bagus. Karena dunia ini butuh lebih banyak orang seperti itu. Sekarang, bagaimana kalau kita membahas proposal Anda tentang patroli keamanan gabungan di distrik pasar? Saya punya beberapa ide tambahan.\"", 30);
+    delayPrint(L"Weiss: \"Dengan senang hati, Nona Ella.\"", 30);
+    delayPrint(L"Kamu merasa telah mendapatkan rasa hormat yang tulus dari Ella. Dia tidak lagi melihatmu hanya sebagai 'Tuan Muda Astra', tapi sebagai Weiss, seseorang yang punya prinsip dan tindakan nyata.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel9() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 9 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Menemukan Ella sedang menatap keluar jendela kantornya, memandang hiruk pikuk kota di bawah dengan ekspresi termenung) \"Pemandangan yang cukup menarik dari sini, Nona Ella. Seluruh aktivitas kota terlihat seperti miniatur.\"", 30);
+    delayPrint(L"Ella: (Menoleh, senyum lelah namun tulus terukir) \"Tuan Muda Weiss. Ya, dari sini saya bisa melihat denyut nadi Arcadia. Setiap hari, ada harapan baru, ada kekecewaan, ada perjuangan. Kota ini tidak pernah tidur.\"", 30);
+    delayPrint(L"Weiss: \"Dan guild Anda adalah salah satu jantungnya, memastikan denyut itu tetap stabil. Akhir-akhir ini, saya mendengar beberapa keluhan dari para pedagang kecil tentang adanya pungutan liar oleh preman-preman di pasar malam. Ini meresahkan mereka.\"", 30);
+    delayPrint(L"Ella: (Menghela napas, rahangnya sedikit mengeras) \"Saya juga sudah mendengar desas-desus itu. Kelompok tikus-tikus got yang mencoba mengambil keuntungan dari yang lemah. Ini bukan yang pertama kali, dan mungkin bukan yang terakhir. Hal seperti ini mencoreng nama baik kota dan merugikan banyak orang.\"", 30);
+    delayPrint(L"Weiss: \"Saya setuju. Saya sedang mempertimbangkan untuk meminta penjaga kota meningkatkan patroli, tapi saya khawatir itu tidak akan cukup efektif untuk menangkap biang keladinya. Apakah guild punya cara untuk membantu mengatasi ini, mungkin secara tidak langsung?\"", 30);
+    delayPrint(L"Ella: \"Kami memang bukan aparat penegak hukum resmi, Tuan Muda. Tapi kami punya 'telinga' dan 'mata' di banyak tempat. Jika Anda serius ingin membereskan ini, mungkin kita bisa 'mendorong' beberapa informasi ke arah yang benar, atau memberikan 'dukungan tak terduga' kepada pihak yang berwenang.\"", 30);
+    delayPrint(L"Ella: \"Saya juga punya kepentingan pribadi dalam hal ini. Banyak anggota guild saya yang keluarganya bergantung pada kelancaran pasar malam. Saya tidak akan tinggal diam jika ada yang mencoba mengganggu periuk nasi mereka. Kita berada di pihak yang sama dalam masalah ini, Tuan Muda.\"", 30);
+    delayPrint(L"Weiss: \"Saya senang mendengarnya, Nona Ella. Mengetahui kita punya tujuan yang sama membuat saya lebih optimis. Bagaimana kalau kita diskusikan strategi yang mungkin? Saya punya beberapa ide awal.\"", 30);
+    delayPrint(L"Ella: \"Silakan. Saya siap mendengarkan. Dua kepala lebih baik dari satu, terutama jika salah satunya adalah kepala bangsawan yang cerdas dan satunya lagi adalah kepala guild yang... yah, cukup berpengalaman dengan tikus got.\" (tersenyum miring)", 30);
+    delayPrint(L"Weiss: (Tersenyum membalas) \"Kombinasi yang menarik, saya rasa. Mari kita mulai.\"", 30);
+    delayPrint(L"Ella: \"Dengan senang hati. Mari kita buat para pedagang itu bisa tidur nyenyak lagi.\"", 30);
+    delayPrint(L"Kamu merasakan adanya semangat kemitraan yang kuat antara dirimu dan Ella. Kalian berdua memiliki kepedulian yang sama terhadap kesejahteraan kota, meskipun dengan cara pendekatan yang mungkin berbeda. Ini adalah awal dari sebuah aliansi yang berharga.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneEllaLevel10() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Ella - Guild Master ✦ Level 10 ✦ Cross Guild, Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Ella: \"Tuan Muda Weiss, silakan masuk ke ruangan pribadi saya. Ada sesuatu yang ingin saya diskusikan dan tunjukkan kepada Anda, sesuatu yang hanya diketahui oleh segelintir orang.\", (nadanya serius namun ada nada bangga)", 30);
+    delayPrint(L"Weiss: (Mengikuti Ella ke sebuah ruangan yang lebih kecil dan lebih privat di belakang kantor utamanya, dindingnya dipenuhi rak buku dan beberapa artefak menarik) \"Ruangan yang nyaman, Nona Ella. Apa gerangan yang begitu rahasia?\"", 30);
+    delayPrint(L"Ella: (Berdiri di depan sebuah lemari kayu ek yang besar dan terkunci) \"Selama ini, Anda telah menunjukkan integritas, kecerdasan, dan kepedulian yang tulus terhadap kota ini dan orang-orangnya, termasuk para petualang di guild saya. Anda telah membuktikan diri sebagai sekutu yang bisa diandalkan, jauh melebihi ekspektasi awal saya terhadap seorang bangsawan Astra.\"", 30);
+    delayPrint(L"Ella membuka lemari itu, memperlihatkan sebuah piagam kuno berbingkai perak dan sebuah lencana berbentuk perisai dengan simbol singa dan pedang bersilang.", 30);
+    delayPrint(L"Ella: \"Ini adalah Piagam Pendirian Asli Cross Guild, yang ditandatangani oleh para pendiri pertama, termasuk kakek buyut saya. Dan ini... adalah Lencana Kehormatan Guild Tertinggi, 'Aegis Arcadia'. Lencana ini hanya diberikan kepada individu di luar guild yang telah memberikan kontribusi luar biasa bagi keamanan dan kesejahteraan kota, serta menunjukkan dukungan tak tergoyahkan kepada prinsip-prinsip Cross Guild.\"", 30);
+    delayPrint(L"Ella: \"Sejak guild ini berdiri, baru ada tiga orang yang menerimanya. Dan hari ini, Tuan Muda Weiss von Astra, saya, sebagai Guild Master Cross Guild saat ini, dengan bangga dan penuh keyakinan, menganugerahkan Lencana Kehormatan ini kepada Anda.\"", 30);
+    delayPrint(L"Weiss: (Benar-benar terkejut dan terharu, menatap lencana itu dengan tak percaya) \"Nona Ella... saya... saya tidak tahu harus berkata apa. Ini... ini adalah sebuah kehormatan yang tak terbayangkan. Saya merasa... belum cukup pantas menerimanya.\"", 30);
+    delayPrint(L"Ella: (Tersenyum tulus, senyum yang jarang sekali ia perlihatkan) \"Anda lebih dari pantas, Weiss. Jangan merendah. Lencana ini bukan hanya pengakuan atas apa yang telah Anda lakukan, tapi juga simbol kepercayaan penuh saya dan guild ini kepada Anda. Dengan lencana ini, Anda akan selalu memiliki akses khusus ke sumber daya guild, informasi prioritas, dan yang terpenting, dukungan penuh dari kami dalam setiap upaya Anda untuk kebaikan Arcadia.\"", 30);
+    delayPrint(L"Ella: \"Saya mendirikan guild ini, melanjutkan warisan ayah saya, bukan hanya untuk bisnis, Weiss. Tapi karena saya percaya bahwa setiap orang, tidak peduli latar belakangnya, berhak mendapatkan kesempatan dan perlindungan. Dan saya melihat semangat yang sama dalam diri Anda. Kita mungkin berasal dari dunia yang berbeda, tapi tujuan kita selaras.\"", 30);
+    delayPrint(L"Weiss: (Menerima lencana itu dengan tangan gemetar, rasa haru dan tanggung jawab memenuhi hatinya) \"Ella... terima kasih. Terima kasih atas kepercayaan ini. Saya bersumpah akan menjaga kehormatan lencana ini dan akan selalu menjadi mitra setia Cross Guild dan kota Arcadia. Anda telah memberi saya lebih dari sekadar lencana, Anda memberi saya keluarga baru dan tujuan yang lebih besar.\"", 30);
+    delayPrint(L"Ella: \"Anggap saja kita adalah dua sisi dari koin yang sama, Weiss. Bangsawan yang peduli dan Guild Master yang pragmatis. Kombinasi yang cukup ampuh, bukan?\" (Mengulurkan tangannya)", 30);
+    delayPrint(L"Weiss: (Menjabat tangan Ella dengan erat) \"Sangat ampuh, Ella. Sangat ampuh. Mari kita jaga kota ini bersama-sama.\"", 30);
+    delayPrint(L"Ella: \"Dengan senang hati, partner.\" (Mengedipkan sebelah mata)", 30);
+    delayPrint(L"Di ruangan pribadi itu, sebuah aliansi yang kuat dan tulus telah termeterai. Bukan lagi antara Tuan Muda Astra dan Guild Master, tapi antara Weiss dan Ella, dua individu yang berbagi visi dan siap berjuang bersama untuk masa depan Arcadia yang lebih baik.", 30);
+
+    // applySocialLinkBonus("Ella"); // Misal: "Ella's Guild Pact" (Passive buff: Discounts for guild services, access to higher-ranked quests earlier, or a unique guild-issued gear/item, or ability to call for guild support in certain situations).
+
+    printLine();
+    waitForEnter();
+}
+
+
+void sceneCharlotteLevel1() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 1 ✦ Depan Balai Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Baru saja keluar dari pertemuan di Balai Kota, dihampiri oleh seorang wanita muda yang energik dengan buku catatan dan pena di tangan)", 30);
+    delayPrint(L"Charlotte: \"Permisi, Tuan Muda Weiss von Astra, bukan? Saya Charlotte, dari Harian Arcadia Chronicle. Bolehkah saya meminta waktu Anda sebentar untuk beberapa pertanyaan?\"", 30);
+    delayPrint(L"Weiss: \"Charlotte dari Arcadia Chronicle? Tentu. Ada apa yang bisa saya bantu, Nona Charlotte?\"", 30);
+    delayPrint(L"Charlotte: \"Kami mendengar Anda akhir-akhir ini cukup aktif terlibat dalam beberapa inisiatif kota. Apa yang mendorong seorang bangsawan muda seperti Anda untuk turun langsung ke masyarakat? Apakah ini terkait dengan posisi keluarga Astra?\"", 30);
+    delayPrint(L"Weiss: \"Saya percaya bahwa setiap warga, termasuk bangsawan, memiliki tanggung jawab untuk berkontribusi pada kemajuan kotanya. Ini bukan hanya tentang nama keluarga, tapi tentang keinginan tulus untuk melihat Arcadia menjadi tempat yang lebih baik.\"", 30);
+    delayPrint(L"Charlotte: (Mencatat dengan cepat) \"Keinginan tulus, ya? Menarik. Apa ada program spesifik yang sedang Anda fokuskan saat ini, Tuan Muda? Mungkin terkait perbaikan fasilitas umum atau dukungan untuk pengrajin lokal yang sempat Anda kunjungi?\"", 30);
+    delayPrint(L"Weiss: \"Beberapa hal sedang dalam tahap diskusi dan perencanaan. Saya lebih suka berbicara tentang hasil nyata daripada janji-janji. Tapi, ya, dukungan untuk ekonomi lokal adalah salah satu perhatian saya.\"", 30);
+    delayPrint(L"Charlotte: \"Saya mengerti. Pendekatan yang hati-hati. Terima kasih atas waktu Anda, Tuan Muda. Mungkin saya akan menghubungi Anda lagi jika ada perkembangan menarik terkait inisiatif Anda.\"", 30);
+    delayPrint(L"Weiss: \"Silakan, Nona Charlotte. Semoga hari Anda lancar.\"", 30);
+    delayPrint(L"Charlotte: \"Anda juga, Tuan Muda.\" (Ia tersenyum sekilas, lalu bergegas pergi, mungkin mengejar berita lain di sekitar Balai Kota).", 30);
+    delayPrint(L"Kamu merasakan tatapan matanya yang tajam dan analitis. Charlotte tampak seperti wartawan yang gigih dan tidak mudah percaya pada kata-kata manis.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel2() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 2 ✦ Lobi Balai Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Sedang menunggu giliran untuk bertemu salah satu anggota dewan, melihat Charlotte sedang berbicara dengan seorang staf administrasi di meja resepsionis Balai Kota) \"Nona Charlotte? Bertemu lagi kita.\"", 30);
+    delayPrint(L"Charlotte: (Menoleh, sedikit terkejut) \"Oh, Tuan Muda Astra. Selamat siang. Sepertinya Balai Kota ini jadi tempat pertemuan kita yang baru ya?\" (Tersenyum tipis) \"Anda sendiri, ada urusan penting dengan dewan?\"", 30);
+    delayPrint(L"Weiss: \"Hanya beberapa diskusi rutin terkait program pengembangan kota. Anda sendiri, sepertinya sedang mengejar berita lagi? Apakah ada perkembangan dari insiden di dermaga yang Anda sebutkan tempo hari?\"", 30);
+    delayPrint(L"Charlotte: \"Tepat sekali, Tuan Muda. Saya sedang mencoba mendapatkan akses ke beberapa laporan publik terkait keamanan dermaga dari staf di sini. Guild Master Ella sangat rapat menutup mulutnya, jadi saya coba jalur resmi. Sayangnya, birokrasi di sini terkadang lebih alot dari daging panggang gosong.\"", 30);
+    delayPrint(L"Weiss: \"Saya bisa membayangkan. Kesabaran ekstra memang dibutuhkan di sini. Apakah Anda punya metode khusus untuk mendapatkan informasi yang akurat di tengah semua formalitas ini?\"", 30);
+    delayPrint(L"Charlotte: \"Kegigihan, Tuan Muda. Dan kemampuan membangun jaringan. Bahkan staf administrasi tingkat rendah pun terkadang punya informasi berharga jika didekati dengan cara yang tepat. Selain itu, insting seorang jurnalis tidak boleh diremehkan. Terkadang, apa yang mereka coba sembunyikan justru menjadi petunjuk terbesar.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah keahlian yang mengesankan dan butuh dedikasi. Saya jadi bertanya-tanya, apa yang membuat Anda memilih profesi yang penuh tantangan dan terkadang membuat frustrasi ini, Nona Charlotte? Pasti ada dorongan yang kuat.\"", 30);
+    delayPrint(L"Charlotte: (Menatap sekeliling lobi Balai Kota yang sibuk sejenak) \"Saya percaya pada kekuatan informasi, Tuan Muda. Pada hak publik untuk tahu apa yang sebenarnya terjadi di kota mereka. Dan... mungkin ada sedikit jiwa idealis dalam diri saya yang tidak suka melihat ketidakadilan atau kebenaran ditutup-tutupi hanya karena kepentingan segelintir orang.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah motivasi yang sangat mulia. Saya menghargainya. Semoga Anda berhasil mendapatkan laporan yang Anda butuhkan hari ini.\"", 30);
+    delayPrint(L"Charlotte: \"Terima kasih, Tuan Muda. Kegigihan biasanya membuahkan hasil. Oh, sepertinya giliran Anda sudah dipanggil. Sampai jumpa lagi.\"", 30);
+    delayPrint(L"Weiss: \"Sampai jumpa, Nona Charlotte.\"", 30);
+    delayPrint(L"Dia kembali fokus pada usahanya, buku catatannya siap di tangan. Kamu mulai melihat sisi lain dari Charlotte, di balik profesionalismenya ada idealisme yang kuat dan semangat yang tak mudah padam.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel3() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 3 ✦ Ruang Tunggu Kantor Urusan Perizinan, Balai Kota ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Melihat Charlotte sedang duduk dengan ekspresi sedikit kesal di ruang tunggu, tampaknya menunggu sesuatu) \"Nona Charlotte, sepertinya Anda sedang kurang beruntung hari ini? Antrean panjang atau birokrasi yang berbelit?\"", 30);
+    delayPrint(L"Charlotte: (Menoleh, sedikit terkejut lalu menghela napas) \"Tuan Muda Astra. Kombinasi keduanya, sepertinya. Saya sedang mencoba mendapatkan izin liputan untuk acara peletakan batu pertama pasar baru, tapi formulirnya entah di mana dan petugasnya sedang istirahat makan siang yang 'diperpanjang'. Sementara itu, saya mendengar keluhan dari beberapa pedagang yang izin usahanya dipersulit tanpa alasan jelas.\"", 30);
+    delayPrint(L"Weiss: \"Itu berita yang kurang menyenangkan. Saya juga mendengar beberapa keluhan serupa dari penyewa properti keluarga Astra di distrik pasar lama. Apakah Anda sudah mendapatkan petunjuk mengapa izin mereka dipersulit?\"", 30);
+    delayPrint(L"Charlotte: \"Masih simpang siur, Tuan Muda. Ada yang bilang karena 'peraturan baru' yang tidak jelas, ada yang curiga ini ada hubungannya dengan rencana relokasi paksa. Saya sedang mencoba mengumpulkan kesaksian. Ini bukan sekadar masalah izin, tapi menyangkut hajat hidup banyak orang kecil.\"", 30);
+    delayPrint(L"Weiss: \"Hmm, jika ini menyangkut nasib para pedagang kecil, ini juga menjadi perhatian saya. Begini, Nona Charlotte, saya kebetulan beberapa hari lalu tidak sengaja mendengar percakapan antara dua staf Balai Kota di koridor. Mereka menyebut-nyebut tentang 'kontribusi khusus' untuk memperlancar izin di area pasar. Mungkin tidak ada hubungannya, tapi siapa tahu bisa jadi petunjuk awal untuk Anda?\"", 30);
+    delayPrint(L"Charlotte: (Mengangkat sebelah alisnya, matanya menatap Weiss dengan tajam) \"'Kontribusi khusus'? Itu istilah yang sangat... diplomatis untuk pungli, Tuan Muda. Di koridor mana Anda mendengarnya? Dan siapa staf yang terlibat, jika Anda sempat melihatnya?\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak begitu jelas siapa, hanya siluet dari kejauhan. Tapi itu di dekat sayap barat, dekat kantor perencanaan tata kota. Saya hanya menyampaikan apa yang saya dengar, semoga bisa berguna.\"", 30);
+    delayPrint(L"Charlotte: (Setelah terdiam sejenak, senyum tipis namun penuh arti muncul di bibirnya) \"Anda... benar-benar berbeda dari yang saya bayangkan, Tuan Muda Astra. Seorang bangsawan yang mau berbagi 'gosip koridor'? Terima kasih atas informasinya. Ini bisa jadi benang merah yang saya cari. Saya akan mencoba menyelidikinya dengan hati-hati.\"", 30);
+    delayPrint(L"Weiss: \"Saya percaya pada transparansi, Nona Charlotte. Dan saya yakin Harian Arcadia Chronicle bisa membawa masalah ini ke perhatian publik yang lebih luas. Jika ada perkembangan, atau jika Anda butuh 'saksi' yang kebetulan mendengar sesuatu, Anda tahu di mana mencari saya.\"", 30);
+    delayPrint(L"Charlotte: \"Akan saya ingat itu, Tuan Muda. Anda mungkin akan terkejut betapa seringnya saya akan 'mengingat' tawaran itu.\" (Mengedipkan mata sekilas sebelum kembali memasang wajah serius menunggu petugas).", 30);
+    delayPrint(L"Weiss: \"Saya menantikannya, Nona Charlotte. Semoga urusan izin Anda segera beres.\"", 30);
+    delayPrint(L"Charlotte: \"Harapan yang sama untuk Anda, Tuan Muda.\"", 30);
+    delayPrint(L"Sepertinya tindakanmu memberikan 'tip' kecil ini mulai membangun jembatan kepercayaan antara dirimu dan wartawan yang gigih ini. Dia mulai melihatmu sebagai potensi sumber, bukan hanya subjek berita.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel4() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 4 ✦ Ruang Pers Balai Kota Arcadia (Kosong) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Selesai rapat dan berjalan melewati Ruang Pers Balai Kota yang biasanya ramai, namun kini kosong kecuali satu sosok, Charlotte, yang sedang membentur-benturkan kepalanya pelan ke meja dengan frustrasi, dikelilingi kertas-kertas.)", 30);
+    delayPrint(L"Weiss: \"Nona Charlotte? Apakah Anda baik-baik saja? Meja itu sepertinya tidak bersalah.\"", 30);
+    delayPrint(L"Charlotte: (Mendongak kaget, wajahnya kusut dan ada lingkaran hitam di bawah matanya) \"Tuan Muda Astra! Maaf, saya tidak menyadari ada orang. Saya hanya... sedang mencapai batas kesabaran saya dengan artikel ini. Rasanya semua jalan buntu!\"", 30);
+    delayPrint(L"Weiss: \"Artikel tentang 'kontribusi khusus' yang kita bicarakan tempo hari? Apakah ada masalah dengan penyelidikan Anda?\"", 30);
+    delayPrint(L"Charlotte: \"Masalah besar! Saya berhasil menemukan beberapa korban yang mau bicara, tapi secara anonim. Saya juga melacak aliran dana ke salah satu pejabat rendahan di kantor perencanaan. Tapi atasannya... dia seperti belut! Selalu berhasil berkelit dan punya alibi kuat. Dan sekarang, sumber internal saya tiba-tiba bungkam, sepertinya dia ketakutan.\"", 30);
+    delayPrint(L"Weiss: \"Saya bisa membayangkan betapa membuat frustrasinya. Birokrasi dan orang-orang yang saling melindungi memang tembok yang sulit ditembus. Apakah tidak ada celah sama sekali?\"", 30);
+    delayPrint(L"Charlotte: (Menghela napas panjang) \"Saya sudah mencoba semua sudut, Tuan Muda. Rasanya seperti melawan naga berkepala tujuh sendirian dengan tusuk gigi. Tapi jika saya menyerah sekarang, mereka akan menang. Para pedagang kecil itu akan terus diperas. Saya tidak bisa membiarkannya.\"", 30);
+    delayPrint(L"Weiss: \"Semangat Anda itu yang luar biasa, Nona Charlotte. Jangan biarkan frustrasi memadamkannya. Mungkin... Anda butuh perspektif baru? Atau mungkin ada detail kecil yang terlewat? Terkadang saat kita terlalu fokus, kita justru melewatkan hal yang jelas.\"", 30);
+    delayPrint(L"Charlotte: \"Perspektif baru?\" (Menatap Weiss dengan penuh pertimbangan) \"Anda benar. Saya mungkin terlalu terpaku pada satu alur. Tuan Muda, Anda punya akses ke lingkaran sosial yang berbeda dari saya. Pernahkah Anda mendengar desas-desus atau keluhan tentang pejabat tertentu di kantor perencanaan itu dari kolega bangsawan Anda? Sesuatu yang mungkin tampak tidak relevan tapi bisa jadi petunjuk?\"", 30);
+    delayPrint(L"Weiss: \"Saya akan coba mengingat-ingat dan bertanya secara tidak langsung kepada beberapa kontak saya. Tidak janji, tapi akan saya usahakan. Sementara itu, jangan terlalu memaksakan diri. Istirahatlah sejenak, mungkin ide baru akan muncul.\"", 30);
+    delayPrint(L"Charlotte: (Senyum lelah namun penuh rasa terima kasih muncul di wajahnya) \"Terima kasih, Tuan Muda. Atas perhatian dan tawaran bantuannya. Anda benar-benar... berbeda. Mungkin secangkir teh panas dan tidur sebentar bisa membantu. Besok saya akan coba lagi dengan semangat baru.\"", 30);
+    delayPrint(L"Weiss: \"Itu rencana yang bagus. Jika ada yang bisa saya bantu lebih lanjut, Anda tahu di mana mencari saya. Jangan menyerah, Charlotte.\"", 30);
+    delayPrint(L"Charlotte: \"Tidak akan, Tuan Muda. Terima kasih.\" (Dia mulai merapikan kertas-kertasnya dengan energi baru).", 30);
+    delayPrint(L"Kamu melihat semangat juang yang tak kenal lelah dalam diri Charlotte. Dia mungkin terlihat sinis di permukaan, tapi hatinya ada di tempat yang benar, dan dia mulai melihatmu sebagai seseorang yang bisa diajak bicara, bahkan mungkin dipercaya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel5() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 5 ✦ Arsip Balai Kota Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Sedang meneliti beberapa dokumen lama keluarga Astra di ruang arsip Balai Kota, menemukan Charlotte juga di sana, terbenam di antara tumpukan gulungan peta dan buku besar berdebu).", 30);
+    delayPrint(L"Weiss: \"Nona Charlotte, sepertinya kita punya tujuan yang sama hari ini: menggali masa lalu. Sedang mencari harta karun terpendam di antara dokumen-dokumen ini?\"", 30);
+    delayPrint(L"Charlotte: (Mendongak, wajahnya sedikit berdebu tapi matanya berbinar) \"Tuan Muda Astra! Bisa dibilang begitu. Saya sedang mencoba melacak sejarah kepemilikan beberapa properti di distrik pasar yang terkait dengan kasus pungli itu. Saya curiga ada pola pengambilalihan lahan secara tidak wajar sejak beberapa dekade lalu.\"", 30);
+    delayPrint(L"Weiss: \"Penyelidikan yang sangat mendalam. Apakah Anda menemukan sesuatu yang signifikan? Saya sendiri juga sedang menelusuri beberapa transaksi properti keluarga saya dari era yang sama, mencari anomali.\"", 30);
+    delayPrint(L"Charlotte: \"Saya menemukan beberapa transaksi jual beli paksa dengan harga sangat rendah yang melibatkan perusahaan bernama 'Arcadia Land Development', yang ternyata adalah perusahaan cangkang milik beberapa pejabat kota saat itu. Sangat mencurigakan. Bagaimana dengan Anda, Tuan Muda?\"", 30);
+    delayPrint(L"Weiss: \"Saya menemukan beberapa catatan harian kakek saya yang menyebutkan 'tekanan halus' dari beberapa 'rekan berpengaruh' untuk menjual beberapa properti komersial di area tersebut dengan harga di bawah pasar. Beliau menolaknya, tapi sepertinya tidak semua orang seberuntung itu. Mungkin kita bisa mencocokkan temuan kita?\"", 30);
+    delayPrint(L"Charlotte: (Matanya membelalak) \"Catatan harian kakek Anda? Itu bisa jadi bukti yang sangat kuat, Tuan Muda! Jika Anda bersedia membagikannya, tentu saja dengan kerahasiaan penuh, saya bisa mencocokkannya dengan daftar transaksi yang saya temukan. Ini bisa jadi 'bom' untuk artikel saya!\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak keberatan membagikan bagian yang relevan, Charlotte. Tujuan kita sama, bukan? Mengungkap kebenaran dan membawa keadilan. Sebagai gantinya, mungkin Anda bisa memberitahu saya jika nama 'Arcadia Land Development' itu muncul lagi dalam penyelidikan Anda yang lain?\"", 30);
+    delayPrint(L"Charlotte: (Mengangguk cepat) \"Tentu saja! Ini pertukaran informasi yang sangat adil! Saya akan siapkan salinan temuan saya untuk Anda. Ini... ini adalah kemajuan besar! Terima kasih, Tuan Muda. Anda benar-benar sekutu yang tak ternilai.\"", 30);
+    delayPrint(L"Weiss: \"Kita adalah tim dalam hal ini, Charlotte. Mari kita lihat kemana petunjuk ini membawa kita. Kapan Anda ada waktu untuk membahas ini lebih detail?\"", 30);
+    delayPrint(L"Charlotte: \"Bagaimana kalau besok pagi, sebelum Balai Kota terlalu ramai? Kita bisa bertemu di taman belakang Balai Kota, lebih privat. Saya akan bawa semua yang saya punya.\"", 30);
+    delayPrint(L"Weiss: \"Sepakat. Sampai besok, Charlotte. Dan hati-hati dengan debu arsip ini.\" (Tersenyum)", 30);
+    delayPrint(L"Charlotte: \"Anda juga, Tuan Muda. Semoga kita menemukan 'emas' di antara tumpukan kertas tua ini.\"", 30);
+    delayPrint(L"Hubungan kalian mulai bergeser menjadi kemitraan investigatif yang didasari rasa saling percaya dan tujuan bersama. Masing-masing membawa aset unik ke meja perundingan.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel6() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 6 ✦ Taman Belakang Balai Kota (Sore Hari) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Menunggu Charlotte di taman belakang Balai Kota yang sepi. Charlotte datang dengan langkah cepat, membawa tas penuh dokumen).", 30);
+    delayPrint(L"Charlotte: \"Maaf membuat Anda menunggu, Weiss.\" (Dia mulai memanggilmu Weiss secara informal saat tidak ada orang lain) \"Saya terjebak wawancara dadakan dengan salah satu anggota dewan yang tiba-tiba ingin 'klarifikasi' soal artikel saya minggu lalu.\"", 30);
+    delayPrint(L"Weiss: \"Tidak masalah, Charlotte. Saya mengerti kesibukan Anda. Apakah ada tekanan lebih lanjut setelah artikel tentang 'Arcadia Land Development' mulai beredar samar-samar?\"", 30);
+    delayPrint(L"Charlotte: \"Ada beberapa 'peringatan halus' dari pihak-pihak yang tidak ingin namanya disebut. Tapi itu sudah biasa. Yang lebih penting, berkat catatan harian kakek Anda dan data transaksi yang kita gabungkan, saya hampir menyelesaikan draf artikel yang jauh lebih kuat. Ini bisa mengungkap jaringan korupsi lahan yang sudah berlangsung puluhan tahun!\"", 30);
+    delayPrint(L"Weiss: \"Luar biasa! Tapi apakah kita sudah punya cukup bukti untuk menghadapi serangan balik mereka? Orang-orang ini pasti punya banyak cara untuk membela diri atau bahkan menyerang balik kredibilitas Anda.\"", 30);
+    delayPrint(L"Charlotte: \"Itulah kekhawatiran saya. Saya punya banyak bukti tidak langsung dan beberapa kesaksian kunci, tapi mereka bisa saja menyangkal atau memutarbalikkan fakta. Idealnya, kita butuh pengakuan dari seseorang di dalam lingkaran mereka, atau bukti transaksi keuangan yang tak terbantahkan.\"", 30);
+    delayPrint(L"Weiss: \"Pengakuan internal itu sulit. Tapi bagaimana dengan transaksi keuangan? Saya punya beberapa kontak di sektor perbankan yang mungkin bisa membantu melacak aliran dana mencurigakan jika kita punya nama perusahaan atau individu target yang lebih spesifik. Tentu saja, ini harus dilakukan dengan sangat rahasia.\"", 30);
+    delayPrint(L"Charlotte: (Matanya berbinar) \"Anda serius, Weiss? Itu... itu bisa menjadi terobosan besar! Saya punya beberapa nama direksi 'Arcadia Land Development' dan perusahaan afiliasinya yang aliran dananya sangat janggal. Jika kita bisa membuktikan uang hasil penjualan paksa lahan itu mengalir ke kantong pribadi mereka... permainan selesai.\"", 30);
+    delayPrint(L"Weiss: \"Berikan saya nama-namanya. Saya akan coba jalur saya. Tapi ini akan butuh waktu dan sangat berisiko. Anda juga harus sangat berhati-hati. Jangan mengambil langkah gegabah sebelum kita punya semua amunisi.\"", 30);
+    delayPrint(L"Charlotte: \"Saya mengerti. Saya akan fokus menyusun narasi dan mengumpulkan kesaksian pendukung selagi Anda bekerja dari sisi itu. Kita seperti dua detektif yang bekerja dalam kasus besar, ya?\" (Tersenyum, ada semangat petualangan di matanya)", 30);
+    delayPrint(L"Weiss: \"Anggap saja begitu. Dan semoga 'penjahatnya' segera tertangkap. Jaga diri Anda baik-baik, Charlotte. Kabari saya jika ada perkembangan atau jika Anda butuh bantuan.\"", 30);
+    delayPrint(L"Charlotte: \"Pasti, Weiss. Anda juga. Terima kasih sudah mau sejauh ini. Saya tidak tahu apa jadinya tanpa bantuan Anda.\"", 30);
+    delayPrint(L"Weiss: \"Kita lakukan ini bersama. Demi Arcadia.\"", 30);
+    delayPrint(L"Kalian berdua kini terlibat lebih dalam dalam sebuah investigasi yang berisiko. Rasa saling percaya dan ketergantungan satu sama lain semakin menguat. Ini bukan lagi hanya tentang berita, tapi tentang keadilan.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel7() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 7 ✦ Ruang Rapat Kecil Tak Terpakai, Balai Kota ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Charlotte: (Mengajak Weiss bertemu di sebuah ruang rapat kecil yang jarang digunakan di Balai Kota, suasananya tegang) \"Weiss, terima kasih sudah datang secepat ini. Saya punya kabar... baik dan buruk.\"", 30);
+    delayPrint(L"Weiss: \"Ada apa, Charlotte? Kau terlihat sangat cemas. Apakah ada masalah dengan penyelidikan kita?\"", 30);
+    delayPrint(L"Charlotte: \"Kabar baiknya, salah satu kontak perbankan Anda berhasil! Dia menemukan bukti transfer dana dalam jumlah besar dari rekening 'Arcadia Land Development' ke rekening pribadi di luar negeri milik salah satu pejabat tinggi kota yang namanya sering kita diskusikan! Ini 'senjata berasap' yang kita butuhkan!\"", 30);
+    delayPrint(L"Weiss: \"Itu luar biasa, Charlotte! Ini bisa menjatuhkan mereka semua! Lalu... apa kabar buruknya?\"", 30);
+    delayPrint(L"Charlotte: (Menghela napas berat) \"Kabar buruknya... sepertinya mereka tahu kita sudah terlalu dekat. Sumber saya yang memberikan data awal tentang 'Arcadia Land Development' tiba-tiba menghilang. Rumahnya kosong, dan tidak ada yang tahu dia ke mana. Saya khawatir mereka sudah mencapainya.\"", 30);
+    delayPrint(L"Weiss: \"Ini gawat. Keselamatan sumber adalah prioritas. Apakah Anda sudah mencoba menghubunginya melalui jalur lain?\"", 30);
+    delayPrint(L"Charlotte: \"Sudah, tapi tidak ada jawaban. Dan pagi ini, saya menerima 'kunjungan' dari dua orang berbadan tegap yang 'menyarankan' saya untuk berhenti mengorek-ngorek urusan tertentu jika tidak ingin 'celaka'. Ancaman yang cukup jelas.\"", 30);
+    delayPrint(L"Weiss: (Rahangnya mengeras) \"Mereka sudah mulai bermain kotor. Ini tidak bisa dibiarkan. Charlotte, keselamatanmu juga terancam. Mungkin sudah saatnya kita menyerahkan semua bukti ini ke Tuan Albright, ketua komite investigasi yang kita percayai? Dengan bukti transfer ini, dia tidak bisa lagi mengabaikannya.\"", 30);
+    delayPrint(L"Charlotte: \"Saya setuju. Tapi kita harus melakukannya dengan sangat hati-hati. Kita tidak tahu siapa lagi yang terlibat di dalam Balai Kota. Bagaimana jika Tuan Albright juga ditekan atau bahkan... bagian dari mereka?\"", 30);
+    delayPrint(L"Weiss: \"Itu risiko yang harus kita ambil, tapi kita bisa meminimalisirnya. Saya akan meminta pertemuan pribadi dengannya di tempat netral, mungkin di kediaman saya. Saya akan membawa beberapa pengawal terpercaya. Anda bisa ikut jika merasa aman, atau serahkan buktinya pada saya. Yang penting, bukti ini sampai ke tangannya tanpa bisa dicegat.\"", 30);
+    delayPrint(L"Charlotte: \"Tidak, Weiss. Saya akan ikut. Saya yang memulai ini, saya harus melihatnya sampai akhir. Kita akan hadapi ini bersama. Saya sudah menyiapkan salinan digital semua bukti, terenkripsi. Kita akan berikan itu padanya. Kapan Anda bisa mengatur pertemuan?\"", 30);
+    delayPrint(L"Weiss: \"Secepatnya. Mungkin besok pagi. Saya akan menghubunginya sekarang juga. Charlotte... tetaplah waspada. Jangan sendirian malam ini. Jika perlu, menginaplah di salah satu properti keluarga Astra yang aman.\"", 30);
+    delayPrint(L"Charlotte: (Menatap Weiss dengan campuran rasa takut dan terima kasih) \"Terima kasih atas perhatianmu, Weiss. Saya akan baik-baik saja. Saya lebih khawatir tentang Anda. Anda yang akan berhadapan langsung dengan Albright.\"", 30);
+    delayPrint(L"Weiss: \"Kita berdua sama-sama dalam bahaya. Tapi bersama, kita lebih kuat. Percayalah.\"", 30);
+    delayPrint(L"Situasi semakin genting dan berbahaya. Namun, di tengah ancaman, ikatan kalian sebagai rekan seperjuangan semakin erat, ditempa oleh tujuan bersama untuk mengungkap kebenaran.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel8() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 8 ✦ Kantor Sementara Weiss di Balai Kota ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Beberapa hari setelah pertemuan dengan Tuan Albright, Weiss menggunakan pengaruhnya untuk mendapatkan ruang kerja sementara di Balai Kota untuk memantau perkembangan kasus. Charlotte datang mengunjunginya.", 30);
+    delayPrint(L"Charlotte: \"Ruangan yang cukup strategis, Weiss. Dekat dengan pusat informasi dan jauh dari telinga-telinga yang tidak diinginkan.\" (Melirik ke luar jendela yang menghadap taman Balai Kota)", 30);
+    delayPrint(L"Weiss: \"Sengaja kupilih. Bagaimana perkembangan dari sisi Anda? Apakah ada tekanan lebih lanjut setelah kita menyerahkan bukti kepada Tuan Albright?\"", 30);
+    delayPrint(L"Charlotte: \"Tekanan itu selalu ada, seperti udara yang kita hirup di kota ini.\" (Tersenyum masam) \"Tapi sepertinya Tuan Albright benar-benar bergerak. Saya dengar beberapa aset 'Golden Serpent' mulai dibekukan, dan beberapa pejabat yang namanya ada di daftar kita dipanggil untuk 'wawancara mendalam'. Artikel lanjutan saya yang lebih berani juga mendapat respons besar dari publik. Banyak yang mulai menuntut transparansi.\"", 30);
+    delayPrint(L"Weiss: \"Itu kabar yang sangat baik. Artinya kita berada di jalur yang benar. Tapi kita belum menang. Mereka pasti tidak akan menyerah begitu saja. Apakah sumber Anda yang hilang sudah ada kabar?\"", 30);
+    delayPrint(L"Charlotte: (Ekspresinya berubah sedih) \"Belum, Weiss. Saya sudah mencoba semua cara. Saya khawatir yang terburuk sudah terjadi padanya. Ini... ini adalah pengingat betapa berbahayanya pekerjaan yang kita lakukan. Terkadang saya bertanya-tanya, apakah semua ini sepadan dengan risikonya?\"", 30);
+    delayPrint(L"Weiss: (Meletakkan tangannya di bahu Charlotte dengan lembut) \"Saya mengerti perasaanmu, Charlotte. Kehilangan sumber, apalagi karena dia mencoba membantu kita, adalah pukulan berat. Tapi perjuangannya tidak akan sia-sia jika kita berhasil mengungkap kebenaran ini sampai tuntas. Keadilan untuknya, dan untuk semua korban mereka, itu yang harus jadi tujuan kita.\"", 30);
+    delayPrint(L"Charlotte: (Menghela napas, lalu menatap Weiss dengan tekad baru) \"Anda benar. Kita tidak boleh membiarkan pengorbanannya sia-sia. Kita harus lebih pintar dan lebih kuat dari mereka. Ngomong-ngomong, Weiss, saya ingin mengatakan sesuatu yang mungkin terdengar aneh.\"", 30);
+    delayPrint(L"Weiss: \"Apa itu?\"", 30);
+    delayPrint(L"Charlotte: \"Selama ini, saya selalu memandang bangsawan sebagai kelompok elite yang terpisah dari kenyataan, yang hanya peduli pada kekuasaan dan harta. Tapi Anda... Anda telah mengubah pandangan saya sepenuhnya. Anda rela mempertaruhkan nama baik keluarga, bahkan keselamatan Anda sendiri, demi sesuatu yang Anda yakini benar, demi orang-orang yang bahkan tidak Anda kenal secara pribadi. Itu... itu adalah sesuatu yang sangat langka dan berharga.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya melakukan apa yang seharusnya dilakukan, Charlotte. Mungkin saya memang berasal dari dunia yang berbeda, tapi hati nurani kita berbicara bahasa yang sama, bukan? Dan Anda, dengan keberanian dan kegigihan Anda, telah mengajari saya banyak hal tentang arti perjuangan yang sesungguhnya.\"", 30);
+    delayPrint(L"Charlotte: (Tersenyum tulus) \"Kita saling belajar, sepertinya. Dan itu membuat tim kita semakin kuat. Terima kasih, Weiss. Karena telah menjadi lebih dari sekadar 'Tuan Muda Astra' bagi saya.\"", 30);
+    delayPrint(L"Weiss: \"Dan terima kasih telah menjadi lebih dari sekadar 'wartawan pencari berita', Charlotte. Kau adalah sahabat.\"", 30);
+    delayPrint(L"Di tengah ketegangan penyelidikan, sebuah pengakuan tulus mempererat hubungan kalian. Kalian bukan lagi sekadar mitra, tapi dua sahabat yang saling menguatkan dalam menghadapi badai.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel9() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 9 ✦ Diskusi di Balai Kota & Transisi ke Gudang ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss dan Charlotte bertemu di ruang kerja sementara Weiss di Balai Kota, wajah mereka tegang namun penuh antisipasi.", 30);
+    delayPrint(L"Charlotte: \"Informasi dari kontak perbankanmu sangat akurat, Weiss! Saya berhasil melacak bahwa akan ada serah terima 'pembayaran terakhir' untuk membungkam saksi kunci di gudang tua dermaga malam ini. Ini kesempatan kita untuk menangkap basah mereka dengan bukti yang tak terbantahkan!\"", 30);
+    delayPrint(L"Weiss: \"Gudang yang sama dengan yang pernah kuberitahukan padamu dulu? Mereka benar-benar ceroboh atau terlalu percaya diri. Ini kesempatan emas, tapi juga sangat berbahaya. Kita tidak tahu berapa banyak orang yang akan ada di sana.\"", 30);
+    delayPrint(L"Charlotte: \"Saya tahu risikonya. Tapi jika kita berhasil mendapatkan rekaman transaksi itu, ditambah dengan semua bukti yang sudah kita kumpulkan, Tuan Albright tidak akan bisa lagi menunda penangkapan besar-besaran. Ini bisa jadi akhir dari jaringan 'Golden Serpent'. Apakah Anda siap untuk ini, Weiss?\"", 30);
+    delayPrint(L"Weiss: \"Aku siap jika kau siap, Charlotte. Tapi kita harus punya rencana yang matang. Aku akan membawa beberapa orang kepercayaanku untuk berjaga di sekitar area, tapi kita tidak boleh melibatkan mereka secara langsung kecuali darurat. Fokus kita adalah mendapatkan bukti tanpa memicu konfrontasi besar.\"", 30);
+    delayPrint(L"Charlotte: \"Saya setuju. Saya sudah menyiapkan kamera tersembunyi dan perekam suara. Tugas saya adalah dokumentasi. Tugas Anda... memastikan kita bisa keluar dari sana dengan selamat jika keadaan memburuk. Bisakah saya mempercayakan itu padamu?\"", 30);
+    delayPrint(L"Weiss: (Menggenggam tangan Charlotte dengan mantap) \"Kau bisa mempercayakan nyawamu padaku, Charlotte. Kita akan melalui ini bersama. Setelah semua ini selesai, kita akan merayakannya dengan berita utama terbesar yang pernah ada di Arcadia Chronicle.\"", 30);
+    delayPrint(L"Charlotte: (Tersenyum, ada keyakinan di matanya) \"Saya menantikannya. Mari kita persiapkan semuanya. Malam ini, kita akan menulis sejarah.\"", 30);
+    delayPrint(L"--- TRANSISI KE MALAM HARI DI GUDANG DERMAGA ---", 50);
+    delayPrint(L"Weiss dan Charlotte bersembunyi dalam kegelapan, mengamati aktivitas mencurigakan di gudang tua. Mereka berhasil mendapatkan informasi bahwa akan ada transaksi besar malam ini.", 30);
+    delayPrint(L"Charlotte: (Berbisik, sambil mengarahkan kamera kecilnya) \"Itu dia target kita. Pria berjas abu-abu yang baru datang dengan koper itu... dia adalah tangan kanan dari salah satu direktur 'Golden Serpent'. Dan orang-orang yang menyambutnya... mereka adalah anggota geng penyelundup yang terkenal sadis.\"", 30);
+    delayPrint(L"Weiss: (Mengamati dengan seksama) \"Transaksi serah terima barang bukti, sepertinya. Koper itu kemungkinan berisi uang suap atau dokumen penting. Kita harus mendapatkan bukti visual yang jelas tanpa ketahuan. Apakah kamera Anda bisa menangkap gambar dalam kondisi minim cahaya seperti ini?\"", 30);
+    delayPrint(L"Charlotte: \"Ini kamera khusus untuk investigasi malam hari, Weiss. Kualitasnya cukup baik. Tapi kita harus sangat berhati-hati. Satu suara saja bisa membuat mereka waspada. Apakah Anda yakin dengan rencana 'pengalihan perhatian' jika situasinya memburuk?\"", 30);
+    delayPrint(L"Weiss: \"Saya sudah menyiapkan semuanya. Beberapa anak buah setia keluarga Astra ada di sekitar area ini, siap membuat keributan kecil di ujung jalan jika saya memberi sinyal. Itu akan memberi kita waktu untuk melarikan diri jika diperlukan. Fokus Anda adalah mendapatkan gambarnya, Charlotte.\"", 30);
+    delayPrint(L"Charlotte: \"Saya mengerti. Jantung saya berdebar kencang sekali. Rasanya seperti di tengah-tengah cerita detektif yang saya tulis.\" (Tersenyum tegang)", 30);
+    delayPrint(L"Weiss: \"Anggap saja begitu. Tapi ini nyata, dan risikonya juga nyata. Tetap fokus. Saya akan mengawasi punggung Anda.\"", 30);
+    delayPrint(L"Saat transaksi mulai terjadi, Charlotte dengan cekatan mengambil beberapa foto dan rekaman video singkat. Tiba-tiba, salah satu penjaga tampak curiga dan mulai berjalan ke arah persembunyian mereka.", 30);
+    delayPrint(L"Weiss: (Berbisik cepat) \"Kita ketahuan! Sinyal sekarang! Charlotte, lari ke arah selatan, temui orangku di sana! Aku akan menahan mereka sebentar!\"", 30);
+    delayPrint(L"Charlotte: \"Weiss, tidak! Ini terlalu berbahaya untukmu! Kita pergi bersama!\"", 30);
+    delayPrint(L"Weiss: \"Tidak ada waktu untuk berdebat! Bukti ini lebih penting! Pergi! Aku akan menyusul!\" Tanpa menunggu jawaban, Weiss keluar dari persembunyian, membuat suara untuk menarik perhatian para penjaga.", 30);
+    delayPrint(L"Charlotte, meskipun ragu, akhirnya berlari sesuai instruksi Weiss, membawa bukti yang sangat berharga. Kamu berhasil mengulur waktu cukup lama hingga Charlotte aman, sebelum akhirnya kamu sendiri berhasil meloloskan diri dengan sedikit susah payah.", 30);
+    delayPrint(L"--- KEMBALI KE BALAI KOTA (KANTOR WEISS, DINI HARI) ---", 50);
+    delayPrint(L"Charlotte: (Masuk dengan napas terengah, langsung memeluk Weiss dengan erat, suaranya bergetar) \"Weiss! Syukurlah kau baik-baik saja! Aku sangat khawatir! Jangan pernah melakukan hal senekat itu lagi! Itu tadi... itu tadi gila!\"", 30);
+    delayPrint(L"Weiss: (Membalas pelukannya, berusaha menenangkan) \"Aku baik-baik saja, Charlotte. Hanya sedikit lecet. Yang penting, apakah kau berhasil mendapatkan buktinya? Apakah semuanya aman?\"", 30);
+    delayPrint(L"Charlotte: (Mengangguk, air mata haru dan lega mengalir) \"Ya. Semuanya terekam jelas. Ini... ini akan menjatuhkan mereka semua. Ini adalah akhir dari 'Golden Serpent'. Berkat keberanianmu, Weiss. Berkat pengorbananmu.\"", 30);
+    delayPrint(L"Weiss: \"Keberanian kita berdua, Charlotte. Kita adalah tim. Dan kita berhasil. Sekarang, serahkan ini pada Tuan Albright. Biarkan hukum yang bekerja.\"", 30);
+    delayPrint(L"Charlotte: \"Pagi ini juga. Dan setelah itu... mungkin kita benar-benar bisa merayakannya. Dengan tidur, mungkin?\"", 30);
+    delayPrint(L"Weiss: (Tertawa lelah) \"Tidur terdengar seperti hadiah terbaik saat ini.\"", 30);
+    delayPrint(L"Malam itu, di tengah bahaya, ikatan kalian sebagai rekan seperjuangan menjadi tak terpatahkan. Kalian telah mempertaruhkan nyawa bersama demi kebenaran, dan berhasil.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneCharlotteLevel10() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Charlotte - Wartawan ✦ Level 10 ✦ Depan Balai Kota Arcadia (Setelah Konferensi Pers) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Beberapa minggu setelah penyerahan bukti, Tuan Albright mengadakan konferensi pers besar di Balai Kota, mengumumkan penangkapan para petinggi 'Golden Serpent Trading' dan beberapa pejabat kota yang terlibat korupsi. Harian Arcadia Chronicle menjadi media utama yang meliputnya dengan detail.", 30);
+    delayPrint(L"Weiss: (Menemui Charlotte yang baru saja selesai diwawancarai oleh beberapa wartawan junior) \"Liputan yang luar biasa, Charlotte. Anda menjadi bintang hari ini. Seluruh kota membicarakan keberanian Arcadia Chronicle.\"", 30);
+    delayPrint(L"Charlotte: (Tersenyum lebar, wajahnya berseri meskipun masih ada sisa kelelahan) \"Weiss! Ini semua tidak akan terjadi tanpamu! Kita berhasil! Keadilan akhirnya ditegakkan! Rasanya... luar biasa! Seperti mimpi yang jadi kenyataan!\"", 30);
+    delayPrint(L"Weiss: \"Ini adalah buah dari kerja keras dan kegigihanmu selama bertahun-tahun, Charlotte. Saya hanya beruntung bisa menjadi bagian kecil dari perjuanganmu di saat yang tepat. Ayahmu pasti sangat bangga melihatmu hari ini.\"", 30);
+    delayPrint(L"Charlotte: (Matanya berkaca-kaca, menatap ke arah langit) \"Saya harap begitu, Weiss. Saya harap begitu. Beliau selalu mengajarkan saya untuk tidak pernah takut pada kebenaran, seberapapun sulitnya. Dan Anda... Anda mengingatkan saya pada semangat beliau itu.\"", 30);
+    delayPrint(L"Charlotte: \"Kau tahu, Weiss, awalnya saya mendekati Anda karena menganggap Anda 'berita'. Seorang bangsawan muda yang mencoba mengubah citra. Tapi seiring waktu, saya melihat lebih dari itu. Saya melihat ketulusan, keberanian, dan keinginan untuk melakukan hal yang benar, bahkan ketika itu berisiko. Anda telah mengembalikan kepercayaan saya bahwa masih ada orang-orang baik dan berprinsip di dunia ini, bahkan di kalangan elite sekalipun.\"", 30);
+    delayPrint(L"Weiss: \"Dan Anda, Charlotte, telah menunjukkan pada saya kekuatan sesungguhnya dari sebuah pena dan integritas jurnalistik. Anda adalah suara bagi mereka yang tak bersuara, dan penjaga kebenaran di kota ini. Saya sangat menghormati Anda.\"", 30);
+    delayPrint(L"Charlotte: \"Sebagai tanda terima kasih dan persahabatan abadi kita, saya ingin memberimu ini.\" (Dia menyerahkan sebuah pena perak yang sangat elegan dengan ukiran inisial 'C & W' dan simbol gulungan perkamen serta timbangan keadilan) \"Ini adalah 'Pena Saksi Kebenaran'. Dibuat khusus. Semoga ini selalu mengingatkanmu bahwa kata-kata punya kekuatan untuk mengubah dunia, dan bahwa kebenaran, meskipun terkadang pahit, akan selalu menemukan jalannya.\"", 30);
+    delayPrint(L"Weiss: (Menerima pena itu dengan haru dan rasa hormat) \"Charlotte... ini... ini adalah hadiah yang sangat indah dan penuh makna. Saya akan menyimpannya dan menggunakannya selalu. Ini akan menjadi pengingat abadi akan perjuangan kita bersama, dan persahabatan kita yang tak ternilai.\"", 30);
+    delayPrint(L"Charlotte: \"Tepat sekali. Dan ketahuilah, Weiss, 'Arcadia Chronicle' dan saya pribadi akan selalu menjadi sekutumu dalam memperjuangkan transparansi, kebenaran, dan keadilan di kota ini. Kapanpun Anda butuh sesuatu untuk 'disuarakan', atau membutuhkan informasi yang 'sulit didapat' untuk tujuan yang baik, pintu saya selalu terbuka. Kita adalah partner, bukan?\"", 30);
+    delayPrint(L"Weiss: \"Sebuah kehormatan yang tak ternilai, Charlotte. Dan Anda juga akan selalu mendapatkan dukunganku, baik sebagai Weiss von Astra maupun sebagai teman. Kita akan terus memastikan Arcadia menjadi tempat yang lebih baik, satu berita dan satu tindakan pada satu waktu. Bagaimana kalau kita mulai dengan mengungkap mengapa harga roti di pasar utara tiba-tiba naik?\" (Mengedipkan mata)", 30);
+    delayPrint(L"Charlotte: (Tertawa lepas, semangatnya kembali menyala) \"Anda benar-benar tidak bisa diam ya, Weiss? Baiklah, partner! Itu akan jadi investigasi kita selanjutnya! Tapi setelah kita merayakan kemenangan besar ini dengan makan siang terenak di Arcadia. Saya yang traktir! Anda pantas mendapatkannya!\"", 30);
+    delayPrint(L"Weiss: (Tersenyum lebar) \"Saya tidak akan menolak tawaran itu, Charlotte! Ayo!\"", 30);
+    delayPrint(L"Di tengah keriuhan kota yang merayakan terungkapnya skandal besar, Weiss dan Charlotte berjalan berdampingan, bukan lagi hanya sebagai bangsawan dan wartawan, tapi sebagai dua sahabat, dua sekutu, yang telah membuktikan bahwa bersama, mereka bisa membawa perubahan. Pena dan pengaruh, ketika digabungkan dengan niat baik, memang bisa menjadi kekuatan yang luar biasa.", 30);
+
+    // applySocialLinkBonus("Charlotte"); // Misal: "Charlotte's Press Pass" (Passive: Easier to get information from NPCs, certain dialogue options open up, access to exclusive news that might become quests, or a special "expose" ability in certain social/political conflicts).
+
+    printLine();
+    waitForEnter();
+}
+
+
+void sceneMarsLevel1() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 1 ✦ Pos Hutan Merah ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Menghampiri Pos Hutan yang sederhana namun kokoh, seorang pria bertubuh tegap dengan seragam penjaga hutan sedang mengasah kapaknya). \"Permisi, apakah Anda Penjaga Mars? Saya Weiss von Astra.\"", 30);
+    delayPrint(L"Mars: (Menghentikan pekerjaannya, menatap Weiss dengan tatapan tajam dan menilai dari atas ke bawah) \"Benar. Saya Mars. Ada keperluan apa Tuan Muda von Astra datang ke pos jaga di pinggir hutan belantara ini? Ini bukan tempat biasa untuk bangsawan berjalan-jalan.\"", 30);
+    delayPrint(L"Weiss: \"Saya memiliki ketertarikan pada Hutan Merah, Penjaga Mars. Keluarga Astra juga memiliki beberapa kepentingan terkait sumber daya dan keamanan di sekitar area ini. Saya ingin memahami lebih baik kondisi hutan dan tantangan yang Anda hadapi.\"", 30);
+    delayPrint(L"Mars: \"Ketertarikan, ya? Hutan ini bukan taman bermain, Tuan Muda. Isinya penuh bahaya, mulai dari binatang buas hingga medan yang sulit. Tugas kami di sini adalah memastikan batas hutan aman dan melaporkan aktivitas mencurigakan. Itu saja.\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak meremehkan bahayanya, Penjaga. Justru karena itu saya ingin belajar dari ahlinya. Apakah ada laporan khusus atau area tertentu yang perlu perhatian lebih saat ini?\"", 30);
+    delayPrint(L"Mars: (Menyipitkan matanya sedikit) \"Hutan selalu punya rahasianya sendiri, Tuan Muda. Laporan rutin saya serahkan ke Balai Kota. Jika Anda benar-benar tertarik, Anda bisa membacanya di sana. Untuk saat ini, area sekitar Sungai Merah arusnya sedang deras pasca hujan, beberapa jalur setapak mungkin terputus.\"", 30);
+    delayPrint(L"Weiss: \"Informasi yang berguna. Terima kasih. Saya tidak akan mengganggu pekerjaan Anda lebih lama. Mungkin lain kali saya bisa bertanya lebih banyak tentang flora dan fauna unik di hutan ini?\"", 30);
+    delayPrint(L"Mars: \"Jika saya sedang tidak sibuk patroli, silakan saja. Tapi ingat, hutan menuntut rasa hormat. Jangan masuk terlalu dalam sendirian jika tidak punya pengalaman.\"", 30);
+    delayPrint(L"Weiss: \"Akan saya ingat nasihat Anda, Penjaga Mars. Sampai jumpa.\"", 30);
+    delayPrint(L"Mars: \"Hati-hati di jalan, Tuan Muda.\", (Kembali melanjutkan mengasah kapaknya).", 30);
+    delayPrint(L"Mars tampak seperti pria yang tidak banyak bicara dan sangat mengutamakan tugasnya. Mendapatkan kepercayaannya sepertinya akan membutuhkan lebih dari sekadar kata-kata.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMarsLevel2() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 2 ✦ Pos Hutan Merah ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Kembali ke Pos Hutan, Mars sedang memeriksa peta wilayah yang terpasang di dinding) \"Penjaga Mars, selamat siang. Apakah ini waktu yang kurang tepat?\"", 30);
+    delayPrint(L"Mars: (Menoleh, ekspresinya masih datar namun sedikit kurang kaku dari pertemuan pertama) \"Tuan Muda Astra. Tidak masalah. Saya hanya sedang meninjau rute patroli untuk minggu ini. Ada yang bisa saya bantu?\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya ingin menindaklanjuti pembicaraan kita tempo hari. Saya sudah membaca beberapa laporan Anda di Balai Kota. Tampaknya aktivitas perburuan liar masih menjadi masalah utama di sektor utara?\"", 30);
+    delayPrint(L"Mars: \"Selalu menjadi masalah, Tuan Muda. Para pemburu itu licin seperti belut dan mengenal hutan lebih baik dari kebanyakan penjaga baru. Kami sudah meningkatkan patroli, tapi Hutan Merah ini luas. Menangkap mereka bukan perkara mudah.\"", 30);
+    delayPrint(L"Weiss: \"Saya bisa membayangkan frustrasinya. Apakah ada jenis hewan tertentu yang menjadi target utama mereka? Atau mereka mengambil apa saja yang berharga?\"", 30);
+    delayPrint(L"Mars: \"Biasanya Rusa Ekor Perak untuk tanduk dan dagingnya, atau Beruang Cakar Besi untuk empedu dan cakarnya yang konon punya khasiat obat. Praktik yang merusak ekosistem. Kami berusaha keras melindunginya.\"", 30);
+    delayPrint(L"Weiss: \"Dedikasi Anda dan tim penjaga lainnya patut diacungi jempol. Apakah ada dukungan atau peralatan tambahan yang menurut Anda bisa membantu efektivitas patroli? Mungkin keluarga saya bisa membantu mengusulkannya ke dewan kota.\"", 30);
+    delayPrint(L"Mars: (Menatap Weiss sejenak, menilai) \"Peralatan komunikasi yang lebih baik antar pos jaga dan mungkin beberapa perangkap non-mematikan untuk menangkap pemburu tanpa konfrontasi besar akan sangat membantu. Tapi usulan seperti itu biasanya butuh waktu lama untuk disetujui birokrasi.\"", 30);
+    delayPrint(L"Weiss: \"Saya akan coba bicarakan ini dengan beberapa kontak saya. Tidak ada salahnya mencoba mempercepat prosesnya. Keamanan hutan ini penting bagi kita semua.\"", 30);
+    delayPrint(L"Mars: \"Saya hargai niat baik Anda, Tuan Muda. Setiap bantuan, sekecil apapun, akan berarti. Tapi jangan terlalu berharap banyak pada politisi di kota.\"", 30);
+    delayPrint(L"Weiss: \"Saya akan tetap berusaha. Terima kasih atas informasinya, Penjaga Mars. Saya belajar banyak hari ini.\"", 30);
+    delayPrint(L"Mars: \"Hutan adalah guru terbaik, Tuan Muda. Selama Anda mau mendengarkan bisikannya.\"", 30);
+    delayPrint(L"Meskipun masih menjaga jarak profesional, kamu merasa Mars mulai sedikit melunak dan menghargai ketertarikanmu yang tulus.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMarsLevel3() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 3 ✦ Pos Hutan Merah ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Menemukan Mars sedang membersihkan jejak lumpur dari sepatunya di depan pos) \"Baru kembali dari patroli, Penjaga Mars? Medannya pasti berat setelah hujan semalam.\"", 30);
+    delayPrint(L"Mars: (Mengangguk) \"Tuan Muda Astra. Benar. Beberapa jalur tergenang, dan tanah jadi sangat licin. Tapi tidak ada laporan insiden berarti, syukurlah. Hanya menemukan beberapa jejak babi hutan yang tidak biasa besarnya di dekat Air Terjun Kembar.\"", 30);
+    delayPrint(L"Weiss: \"Babi hutan sebesar apa? Apakah itu normal untuk area tersebut? Saya pernah dengar cerita tentang 'Raja Babi Hutan' dari para penebang kayu.\"", 30);
+    delayPrint(L"Mars: (Sedikit tersenyum, senyum yang langka) \"Cerita penebang kayu memang sering dilebih-lebihkan, Tuan Muda. Tapi jejak ini memang lebih besar dari rata-rata. Mungkin hanya individu alfa yang sedang mencari teritori baru. Hutan ini selalu punya kejutan.\"", 30);
+    delayPrint(L"Weiss: \"Kejutan yang terkadang bisa berbahaya, saya bayangkan. Selain binatang buas, apa lagi yang biasanya menjadi tantangan sehari-hari bagi penjaga hutan seperti Anda?\"", 30);
+    delayPrint(L"Mars: \"Cuaca yang tidak menentu, Tuan Muda. Terkadang badai datang tiba-tiba. Lalu ada juga pencari jamur atau herbal yang tersesat karena nekat masuk terlalu dalam tanpa pemandu. Menemukan mereka bisa memakan waktu berhari-hari.\"", 30);
+    delayPrint(L"Weiss: \"Pekerjaan yang benar-benar menuntut kesigapan dan pengetahuan medan yang luar biasa. Apakah Anda pernah tersesat di hutan ini selama bertugas?\"", 30);
+    delayPrint(L"Mars: (Terkekeh pelan) \"Sekali atau dua kali saat masih muda dan terlalu percaya diri, Tuan Muda. Tapi hutan selalu mengajarkan kerendahan hati. Sekarang, saya lebih percaya pada peta, kompas, dan tanda-tanda alam. Dan insting, tentu saja.\"", 30);
+    delayPrint(L"Weiss: \"Insting yang terasah oleh pengalaman bertahun-tahun, saya yakin. Saya jadi semakin menghargai peran Anda dalam menjaga keseimbangan Hutan Merah ini.\"", 30);
+    delayPrint(L"Mars: \"Hutan ini adalah rumah saya, Tuan Muda. Menjaganya adalah panggilan jiwa. Apakah Anda punya rencana untuk menjelajahi bagian hutan yang lebih aman hari ini? Ada jalur edukasi di dekat sini yang baru kami buka.\"", 30);
+    delayPrint(L"Weiss: \"Oh, benarkah? Itu ide yang bagus. Mungkin saya akan mencobanya. Terima kasih atas sarannya, Penjaga Mars.\"", 30);
+    delayPrint(L"Mars: \"Sama-sama. Bawa air yang cukup dan perhatikan tanda jalur.\"", 30);
+    delayPrint(L"Kamu merasa percakapan kalian semakin santai. Mars mulai berbagi lebih banyak cerita dan pengalamannya, menunjukkan sisi manusianya di balik seragam penjaga yang tegas.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMarsLevel4() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 4 ✦ Pos Hutan Merah ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: \"Penjaga Mars, saya membawa beberapa buah apel dari kebun mansion. Sebagai ucapan terima kasih atas semua informasi yang telah Anda berikan. Semoga Anda menyukainya.\"", 30);
+    delayPrint(L"Mars: (Menerima keranjang kecil itu dengan sedikit canggung namun menghargai) \"Tidak perlu repot-repot, Tuan Muda Astra. Tapi... terima kasih. Ini sangat baik dari Anda. Apel segar selalu jadi kemewahan di sini.\"", 30);
+    delayPrint(L"Weiss: \"Sama-sama. Ngomong-ngomong, saya baru saja kembali dari jalur edukasi yang Anda sarankan. Sangat menarik. Saya melihat beberapa tanaman obat yang belum pernah saya lihat sebelumnya. Misalnya, yang daunnya berbentuk hati dengan bintik ungu itu, apa namanya dan apa khasiatnya?\"", 30);
+    delayPrint(L"Mars: (Mengambil sebatang ranting dari meja, mulai menggambar bentuk daun di tanah) \"Ah, Anda pasti maksud Daun Jantung Ungu. Penduduk desa menyebutnya begitu. Getahnya bisa untuk mengobati luka bakar ringan atau gigitan serangga. Tapi harus diolah dengan benar, jika tidak malah bisa menyebabkan iritasi.\"", 30);
+    delayPrint(L"Weiss: \"Pengetahuan yang sangat berguna. Apakah semua penjaga hutan diwajibkan mempelajari tentang tanaman obat seperti ini? Atau ini keahlian khusus Anda?\"", 30);
+    delayPrint(L"Mars: \"Dasar-dasarnya kami pelajari, Tuan Muda. Untuk pertolongan pertama di hutan. Tapi pengetahuan mendalam biasanya diwariskan turun-temurun atau dipelajari dari para tabib desa. Saya sendiri belajar banyak dari kakek saya, beliau juga penjaga hutan.\"", 30);
+    delayPrint(L"Weiss: \"Jadi ini semacam tradisi keluarga? Itu sangat mengagumkan. Apakah ada tanaman lain di Hutan Merah yang punya legenda atau mitos menarik di baliknya?\"", 30);
+    delayPrint(L"Mars: (Berpikir sejenak, matanya menerawang) \"Ada cerita tentang Bunga Bulan Perak, Tuan Muda. Konon hanya mekar di malam bulan purnama tertentu di tempat yang sangat tersembunyi. Cahayanya bisa menyembuhkan segala penyakit, tapi dijaga oleh roh hutan. Tentu saja, itu hanya legenda.\"", 30);
+    delayPrint(L"Weiss: \"Legenda yang sangat puitis. Meskipun hanya cerita, itu menambah pesona hutan ini. Terima kasih sudah berbagi, Penjaga Mars. Saya selalu belajar hal baru setiap kali berbicara dengan Anda.\"", 30);
+    delayPrint(L"Mars: \"Hutan ini penuh dengan pengetahuan bagi mereka yang mau mencari, Tuan Muda. Saya senang Anda punya ketertarikan yang tulus. Sekarang, jika Anda tidak keberatan, saya harus bersiap untuk patroli senja.\"", 30);
+    delayPrint(L"Weiss: \"Tentu. Jangan biarkan saya menahan Anda. Hati-hati di jalan.\"", 30);
+    delayPrint(L"Mars: \"Selalu, Tuan Muda. Dan terima kasih sekali lagi untuk apelnya.\"", 30);
+    delayPrint(L"Mars tampak lebih ramah dan terbuka. Dia mulai menghargai ketulusanmu dan kesediaanmu untuk belajar tentang dunianya, dunia hutan yang liar namun penuh kearifan.", 30);
+
+    printLine();
+    waitForEnter();;
+}
+
+void sceneMarsLevel5() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 5 ✦ Pos Hutan Merah ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Suatu hari, Weiss datang ke Pos Hutan dan menemukan Mars sedang memperbaiki pagar kayu yang rusak akibat diseruduk binatang.", 30);
+    delayPrint(L"Weiss: \"Pekerjaan yang berat, Penjaga Mars. Perlu bantuan? Saya mungkin tidak seahli Anda, tapi setidaknya saya bisa memegangi kayunya.\"", 30);
+    delayPrint(L"Mars: (Menoleh, sedikit terkejut dengan tawaran itu, lalu menyeka keringat di dahinya) \"Tuan Muda Astra. Tidak kusangka seorang bangsawan mau mengotori tangannya. Tapi tawaran Anda saya hargai. Sebenarnya, tambahan sepasang tangan akan sangat membantu.\"", 30);
+    delayPrint(L"Weiss pun ikut membantu, memegangi tiang kayu sementara Mars memalunya. Pekerjaan itu cukup berat dan memakan waktu.", 30);
+    delayPrint(L"Mars: \"Anda... cukup kuat juga, Tuan Muda. Tidak seperti bangsawan lain yang pernah saya temui, yang biasanya hanya memberi perintah dari jauh.\", (Sambil mengambil napas)", 30);
+    delayPrint(L"Weiss: \"Saya percaya setiap pekerjaan punya nilainya sendiri, Penjaga. Dan saya tidak keberatan bekerja keras jika itu untuk tujuan yang baik. Lagipula, pagar ini penting untuk keamanan pos, bukan?\"", 30);
+    delayPrint(L"Mars: \"Sangat penting. Terutama untuk menghalau hewan liar yang lebih kecil atau pencuri kayu skala kecil. Anda benar-benar berbeda dari Tuan Muda Astra yang dulu sering saya dengar ceritanya dari para pedagang. Mereka bilang Anda angkuh dan tidak peduli.\"", 30);
+    delayPrint(L"Weiss: (Sedikit tersenyum getir) \"Orang bisa berubah, Penjaga Mars. Saya harap perubahan saya ke arah yang lebih baik. Apa yang Anda dengar tentang saya dulu, apakah sangat buruk?\"", 30);
+    delayPrint(L"Mars: \"Cukup buruk hingga membuat saya waspada saat Anda pertama kali datang ke sini. Tapi tindakan Anda berbicara lebih keras daripada rumor. Anda menunjukkan ketertarikan tulus pada hutan, menghargai pekerjaan kami, bahkan mau membantu seperti ini. Itu... mengesankan.\"", 30);
+    delayPrint(L"Setelah pagar selesai diperbaiki, Mars menawarkan Weiss segelas air dari tempayan tanah liat.", 30);
+    delayPrint(L"Mars: \"Ini, Tuan Muda. Anda pasti haus. Air dari mata air hutan, sangat segar.\" (Menyodorkan gelas kayu).", 30);
+    delayPrint(L"Weiss: (Menerima dan meminumnya) \"Terima kasih, Penjaga Mars. Ini benar-benar menyegarkan. Dan terima kasih atas kejujuran Anda. Saya menghargainya.\"", 30);
+    delayPrint(L"Mars: \"Sama-sama, Tuan Muda. Saya juga menghargai bantuan Anda hari ini. Jarang sekali saya punya 'asisten' sekaliber Anda.\" (Ada sedikit nada bercanda dalam suaranya).", 30);
+    delayPrint(L"Weiss: \"Kapan saja jika Anda butuh bantuan lagi, selama saya ada waktu. Anggap saja ini bagian dari kontribusi saya untuk Hutan Merah.\"", 30);
+    delayPrint(L"Mars: \"Akan saya ingat itu. Sekarang, sebaiknya Anda membersihkan diri. Saya tidak mau Nyonya Astra mengira saya membuat putranya jadi kuli bangunan.\" (Tersenyum tipis).", 30);
+    delayPrint(L"Kamu merasa ada dinding formalitas yang runtuh hari ini. Mars mulai melihatmu sebagai individu, bukan hanya sebagai gelar bangsawannya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMarsLevel6() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 6 ✦ Pos Hutan Merah (Malam, Hujan Deras) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss terjebak hujan deras saat sedang dalam perjalanan kembali dari desa dekat hutan dan memutuskan berteduh di Pos Hutan. Mars menyambutnya dengan secangkir teh herbal hangat.", 30);
+    delayPrint(L"Weiss: \"Terima kasih sudah mengizinkan saya berteduh, Penjaga Mars. Dan untuk tehnya. Saya tidak menyangka hujannya akan sebesar ini.\"", 30);
+    delayPrint(L"Mars: \"Tidak masalah, Tuan Muda Astra. Hujan di Hutan Merah memang seringkali tak terduga. Duduklah dekat perapian, hangatkan diri Anda. Berbahaya melanjutkan perjalanan dalam cuaca seperti ini.\"", 30);
+    delayPrint(L"Suara hujan deras dan gemuruh petir sesekali terdengar di luar. Mereka duduk dalam keheningan yang nyaman sejenak.", 30);
+    delayPrint(L"Mars: (Menatap ke luar jendela yang basah) \"Hujan seperti ini selalu membuat saya khawatir, Tuan Muda. Khawatir akan longsor di lereng utara, atau banjir bandang di Sungai Merah yang bisa merendam desa-desa di hilir.\"", 30);
+    delayPrint(L"Weiss: \"Apakah sering terjadi bencana alam seperti itu di sini? Saya jarang mendengar beritanya sampai ke kota.\"", 30);
+    delayPrint(L"Mars: \"Cukup sering, terutama di musim penghujan. Skalanya mungkin tidak selalu besar hingga jadi berita kota, tapi dampaknya sangat terasa bagi penduduk desa sekitar hutan. Tahun lalu, jembatan utama ke Desa Pinus hanyut terbawa banjir. Butuh waktu berminggu-minggu untuk membangun jembatan darurat.\"", 30);
+    delayPrint(L"Weiss: \"Itu pasti sangat menyulitkan mereka. Apakah ada sistem peringatan dini atau upaya mitigasi bencana yang dilakukan?\"", 30);
+    delayPrint(L"Mars: \"Kami para penjaga hutan selalu berusaha memantau ketinggian air sungai dan kondisi lereng, lalu memberi peringatan ke kepala desa. Tapi sumber daya kami terbatas. Kami butuh lebih banyak pos pantau dan peralatan yang lebih baik. Proposal sudah sering diajukan ke Balai Kota, tapi responsnya lambat.\"", 30);
+    delayPrint(L"Weiss: (Mengangguk prihatin) \"Ini masalah serius, Mars.\" (Weiss mulai memanggilnya Mars secara lebih akrab) \"Mungkin saya bisa membantu mendorong proposal itu. Dengan data yang akurat tentang dampak dan kebutuhan mendesak, saya bisa berbicara dengan beberapa anggota dewan yang berpengaruh. Keselamatan warga adalah prioritas utama.\"", 30);
+    delayPrint(L"Mars: (Menatap Weiss dengan sorot mata yang menunjukkan harapan baru) \"Anda... Anda bersedia melakukan itu, Tuan Muda? Itu akan sangat berarti bagi kami semua di sini. Selama ini, suara kami dari pinggir hutan seringkali tidak terdengar sampai ke pusat kekuasaan.\"", 30);
+    delayPrint(L"Weiss: \"Anggap saja ini tanggung jawab kita bersama, Mars. Hutan dan orang-orang di sekitarnya adalah bagian dari wilayah yang harus kita jaga. Berikan saya semua data yang Anda miliki. Saya akan mempelajarinya dan menyusun argumen yang kuat.\"", 30);
+    delayPrint(L"Mars: \"Akan saya siapkan semuanya besok pagi, Tuan Muda. Terima kasih. Terima kasih yang sebesar-besarnya. Anda telah memberikan kami harapan baru.\"", 30);
+    delayPrint(L"Weiss: \"Kita berjuang bersama untuk ini, Mars.\"", 30);
+    delayPrint(L"Di tengah badai di luar, sebuah percakapan penting telah terjadi. Kamu dan Mars kini berbagi kepedulian yang sama terhadap nasib hutan dan penduduknya, membangun fondasi untuk kerjasama yang lebih erat.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMarsLevel7() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 7 ✦ Pos Hutan Merah ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Beberapa minggu setelah Weiss membantu mendorong proposal ke dewan kota, Mars menyambutnya dengan antusias di Pos Hutan.", 30);
+    delayPrint(L"Mars: \"Tuan Muda Weiss! Kabar baik! Proposal kita untuk pos pantau tambahan dan peralatan mitigasi bencana disetujui oleh dewan kota! Bahkan mereka menambahkan anggaran untuk pelatihan penjaga hutan dalam penanganan darurat! Ini semua berkat bantuan Anda!\"", 30);
+    delayPrint(L"Weiss: (Tersenyum lega) \"Syukurlah, Mars! Saya senang usaha kita membuahkan hasil. Ini bukan hanya bantuan saya, tapi juga kegigihan Anda dalam menyediakan data dan argumen yang kuat. Kita tim yang baik, bukan?\"", 30);
+    delayPrint(L"Mars: \"Lebih dari baik, Tuan Muda! Anda telah melakukan apa yang tidak bisa kami lakukan selama bertahun-tahun. Para kepala desa mengirimkan salam hormat dan terima kasih mereka untuk Anda. Mereka bilang, akhirnya ada bangsawan yang benar-benar peduli pada nasib mereka.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya menjalankan kewajiban saya. Tapi, Mars, dengan adanya persetujuan ini, tantangan selanjutnya adalah implementasi. Apakah Anda sudah punya rencana bagaimana pos pantau itu akan dibangun dan siapa yang akan mengelolanya?\"", 30);
+    delayPrint(L"Mars: \"Kami sudah melakukan survei lokasi potensial, Tuan Muda. Ada beberapa titik strategis di sepanjang Sungai Merah dan lereng utara. Untuk pengelolaan, kami akan membentuk tim patroli khusus yang sudah dilatih. Tapi, kami mungkin butuh sedikit bantuan logistik untuk pengangkutan material ke area yang sulit dijangkau.\"", 30);
+    delayPrint(L"Weiss: \"Saya mengerti. Bagaimana jika keluarga Astra membantu menyediakan beberapa gerobak tambahan dan tenaga angkut dari pekerja perkebunan kami yang sedang tidak terlalu sibuk? Itu bisa mempercepat prosesnya. Anggap saja ini kelanjutan dari dukungan kami.\"", 30);
+    delayPrint(L"Mars: (Tertegun sejenak, lalu tersenyum lebar) \"Tuan Muda... Anda benar-benar tidak ada habisnya memberi kejutan baik. Tawaran itu akan sangat, sangat membantu kami. Dengan begitu, pos pantau bisa beroperasi lebih cepat sebelum musim hujan berikutnya mencapai puncaknya.\"", 30);
+    delayPrint(L"Weiss: \"Itulah tujuannya. Segera koordinasikan dengan kepala pekerja perkebunan saya. Saya akan memberinya instruksi. Selain itu, apakah ada hal lain yang bisa saya bantu untuk memastikan program ini berjalan lancar?\"", 30);
+    delayPrint(L"Mars: \"Untuk saat ini, itu sudah lebih dari cukup, Tuan Muda. Anda telah memberikan kami alat dan harapan. Sisanya, serahkan pada kami para penjaga hutan. Kami akan memastikan setiap koin dari anggaran itu digunakan dengan benar dan setiap pos pantau berfungsi maksimal.\"", 30);
+    delayPrint(L"Weiss: \"Saya percaya penuh pada Anda dan tim Anda, Mars. Kabari saya jika ada perkembangan atau kendala. Kita akan terus mengawal ini bersama.\"", 30);
+    delayPrint(L"Mars: \"Siap, Tuan Muda! Sekali lagi, atas nama seluruh penjaga Hutan Merah dan masyarakat sekitar, terima kasih. Anda adalah sahabat sejati hutan ini.\"", 30);
+    delayPrint(L"Weiss: \"Dan Anda adalah penjaga setianya, Mars. Sebuah kehormatan bisa bekerja sama dengan Anda.\"", 30);
+    delayPrint(L"Rasa hormat dan kemitraan antara kalian semakin dalam. Bukan lagi sekadar Tuan Muda dan Penjaga Hutan, tapi dua individu yang bekerja bahu-membahu demi kebaikan bersama.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMarsLevel8() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 8 ✦ Pos Hutan Merah (Api Unggun Malam Hari) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss mengunjungi Mars di malam hari. Mereka duduk di dekat api unggun kecil di depan pos, menikmati keheningan hutan malam yang hanya dipecah oleh suara jangkrik dan gemerisik daun.", 30);
+    delayPrint(L"Weiss: \"Malam yang tenang, Mars. Berbeda sekali dengan kebisingan kota. Terkadang aku iri dengan kedamaian yang kau miliki di sini.\"", 30);
+    delayPrint(L"Mars: (Tersenyum tipis sambil menatap api) \"Hutan memang punya caranya sendiri untuk menenangkan jiwa, Tuan Muda. Tapi kedamaian ini juga harus dijaga. Setiap malam, selalu ada kewaspadaan. Kita tidak pernah tahu apa yang bersembunyi di balik bayang-bayang.\"", 30);
+    delayPrint(L"Weiss: \"Kau sudah berapa lama menjadi penjaga hutan, Mars? Sepertinya kau sudah sangat menyatu dengan tempat ini.\"", 30);
+    delayPrint(L"Mars: \"Hampir dua puluh tahun, Tuan Muda. Sejak saya masih sangat muda, mengikuti jejak ayah dan kakek saya. Hutan ini sudah seperti darah daging bagi saya. Saya mengenal setiap pohon, setiap suara binatang, setiap perubahan angin.\"", 30);
+    delayPrint(L"Mars: \"Saya ingat dulu, saat pertama kali patroli sendirian, saya tersesat selama dua hari. Hanya berbekal pisau dan sedikit pengetahuan bertahan hidup. Saat itu saya benar-benar takut. Tapi hutan justru mengajari saya banyak hal. Tentang kerendahan hati, tentang pentingnya mengamati, dan tentang bagaimana cara 'mendengarkan' alam.\"", 30);
+    delayPrint(L"Weiss: \"Pengalaman yang pasti sangat membentuk dirimu. Apakah ada momen paling berkesan atau paling berbahaya yang pernah kau alami selama bertugas?\"", 30);
+    delayPrint(L"Mars: (Terpekur sejenak, matanya menatap jauh ke dalam api) \"Ada satu malam, bertahun-tahun lalu. Saya berhadapan langsung dengan seekor Beruang Cakar Besi raksasa yang sedang mengamuk karena anaknya terperangkap jerat pemburu. Ukurannya luar biasa besar, dan matanya merah menyala penuh amarah.\"", 30);
+    delayPrint(L"Mars: \"Saya pikir itu akan jadi malam terakhir saya. Tapi entah bagaimana, saya berhasil tetap tenang, tidak menunjukkan rasa takut. Saya berbicara padanya dengan suara pelan, mencoba meyakinkannya bahwa saya tidak bermaksud jahat. Perlahan, saya berhasil membebaskan anaknya. Dan beruang itu... dia hanya menatap saya sejenak, lalu pergi menghilang ke dalam hutan bersama anaknya tanpa menyakiti saya sedikit pun.\"", 30);
+    delayPrint(L"Weiss: (Mendengarkan dengan napas tertahan) \"Luar biasa... Itu... itu seperti cerita dari legenda. Kau benar-benar pemberani, Mars.\"", 30);
+    delayPrint(L"Mars: \"Bukan keberanian, Tuan Muda. Mungkin lebih ke... pemahaman. Saya percaya bahwa setiap makhluk di hutan ini punya jiwa dan alasan untuk bertindak. Jika kita menghormati mereka, mereka juga akan menghormati kita. Hutan ini punya hukumnya sendiri, hukum keseimbangan alam. Tugas kita adalah menjaganya, bukan merusaknya.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah filosofi yang sangat mendalam. Saya semakin mengerti mengapa kau begitu berdedikasi pada tempat ini. Hutan Merah beruntung memiliki penjaga sepertimu.\"", 30);
+    delayPrint(L"Mars: \"Dan saya beruntung memiliki teman seperti Anda, Tuan Muda, yang mau mendengarkan cerita seorang penjaga hutan tua dan memahami pentingnya menjaga warisan ini.\" (Menatap Weiss dengan tulus)", 30);
+    delayPrint(L"Weiss: \"Kehormatan ada di pihak saya, Mars.\"", 30);
+    delayPrint(L"Di bawah langit malam berbintang, diiringi suara alam, kamu merasa sebuah ikatan persahabatan yang kuat dan tulus telah terjalin dengan Mars. Sebuah persahabatan yang didasari rasa hormat dan pemahaman yang mendalam.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMarsLevel9() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 9 ✦ Pos Hutan Merah & Area Hutan Sekitar ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Mars: (Dengan wajah cemas) \"Tuan Muda Weiss, ada masalah. Salah satu tim patroli belum kembali dari sektor barat laut. Mereka seharusnya sudah melapor dua jam yang lalu. Komunikasi radio juga tidak berhasil.\"", 30);
+    delayPrint(L"Weiss: \"Sektor barat laut? Bukankah itu area yang medannya cukup sulit dan berkabut tebal akhir-akhir ini? Apa perkiraan terakhir posisi mereka?\"", 30);
+    delayPrint(L"Mars: \"Benar. Mereka sedang menyelidiki laporan tentang adanya aktivitas penebangan liar di sana. Posisi terakhir mereka sekitar tiga kilometer dari Pos Jaga Lembah Serigala. Saya khawatir terjadi sesuatu. Saya akan memimpin tim pencari sekarang juga.\"", 30);
+    delayPrint(L"Weiss: \"Saya ikut dengan Anda, Mars. Saya mungkin tidak sehebat Anda dalam melacak jejak, tapi saya bisa membantu membawa peralatan tambahan atau memberikan pertolongan pertama jika diperlukan. Anggap saya sebagai anggota tim Anda hari ini.\"", 30);
+    delayPrint(L"Mars: (Menatap Weiss dengan sedikit ragu, lalu mengangguk mantap) \"Baiklah, Tuan Muda. Keberanian Anda selalu mengejutkan saya. Tapi ingat, ikuti instruksi saya dengan saksama. Hutan tidak memberi ampun pada kecerobohan. Bawa perlengkapan hujan dan penerangan tambahan.\"", 30);
+    delayPrint(L"Mereka berdua, bersama beberapa penjaga lain, segera berangkat menembus hutan yang mulai diselimuti kabut senja.", 30);
+    delayPrint(L"Setelah beberapa jam pencarian yang menegangkan, mengikuti jejak samar dan sesekali memanggil, mereka akhirnya menemukan tim patroli yang hilang. Salah satu dari mereka kakinya terkilir dan radio mereka rusak terkena air.", 30);
+    delayPrint(L"Weiss dengan sigap membantu memberikan pertolongan pertama pada penjaga yang terluka, menggunakan pengetahuan medis dasar yang pernah ia pelajari.", 30);
+    delayPrint(L"Mars: (Setelah memastikan semua anak buahnya aman dan mulai mengatur perjalanan kembali) \"Kerja bagus, Tuan Muda. Kehadiran dan bantuan Anda sangat berarti hari ini. Anda tetap tenang di bawah tekanan dan tindakan Anda cepat. Anda punya bakat alami seorang pemimpin.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya melakukan apa yang bisa saya lakukan, Mars. Yang penting semua orang selamat. Ini adalah pengingat betapa berbahayanya pekerjaan Anda setiap hari.\"", 30);
+    delayPrint(L"Penjaga yang Terluka: \"Terima kasih banyak, Tuan Muda Astra, Penjaga Mars. Kami sempat putus asa tadi.\"", 30);
+    delayPrint(L"Mars: \"Istirahatlah. Kita akan segera kembali ke pos. Dan Tuan Muda... terima kasih. Anda telah membuktikan diri bukan hanya sebagai teman hutan, tapi juga sebagai rekan yang bisa diandalkan dalam situasi sulit.\"", 30);
+    delayPrint(L"Weiss: \"Kapan saja, Mars. Kapan saja. Kita adalah tim.\"", 30);
+    delayPrint(L"Malam itu, saat kembali ke pos dengan selamat, kamu merasakan kelelahan namun juga kepuasan. Pengalaman menghadapi kesulitan bersama telah menempa ikatanmu dengan Mars menjadi semakin kuat, sebuah persaudaraan yang lahir dari hutan.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMarsLevel10() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Mars - Penjaga Pos Hutan ✦ Level 10 ✦ Puncak Bukit Pengamatan, Hutan Merah ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Mars mengajak Weiss ke sebuah bukit pengamatan yang jarang diketahui orang, yang menyuguhkan pemandangan Hutan Merah yang luar biasa luas dan indah saat matahari terbit.", 30);
+    delayPrint(L"Mars: \"Bagaimana menurut Anda pemandangan dari sini, Tuan Muda Weiss? Ini adalah tempat favorit saya di seluruh Hutan Merah. Dari sini, saya bisa melihat hampir seluruh wilayah jelajah saya.\"", 30);
+    delayPrint(L"Weiss: (Terpesona oleh keindahan di hadapannya) \"Luar biasa, Mars... Sungguh menakjubkan. Saya tidak pernah membayangkan Hutan Merah bisa seindah dan semegah ini. Rasanya seperti melihat jantung dunia berdetak.\"", 30);
+    delayPrint(L"Mars: \"Inilah yang saya jaga setiap hari, Tuan Muda. Inilah warisan yang ingin saya tinggalkan untuk generasi mendatang. Sebuah hutan yang sehat, lestari, dan penuh kehidupan.\"", 30);
+    delayPrint(L"Mars: \"Selama ini, Anda telah menunjukkan kepedulian yang tulus, keberanian yang nyata, dan dukungan yang tak ternilai bagi Hutan Merah dan kami para penjaganya. Anda bukan lagi sekadar Tuan Muda von Astra bagi saya. Anda adalah Weiss, sahabat hutan, pelindung alam, dan rekan seperjuangan saya.\"", 30);
+    delayPrint(L"Mars kemudian mengeluarkan sebuah kalung sederhana dengan liontin kayu berbentuk ukiran serigala yang sangat detail dan artistik.", 30);
+    delayPrint(L"Mars: \"Ini adalah 'Taring Serigala Penjaga'. Serigala adalah simbol penjaga yang setia, cerdas, dan bekerja dalam tim di hutan ini. Saya mengukirnya sendiri dari kayu Jati Merah keramat. Saya ingin memberikannya kepada Anda sebagai tanda persahabatan abadi kita, dan sebagai pengakuan bahwa Anda adalah salah satu dari kami, seorang Penjaga Hutan dalam hati.\"", 30);
+    delayPrint(L"Weiss: (Menerima kalung itu dengan penuh rasa haru dan hormat) \"Mars... ini... ini adalah kehormatan terbesar yang pernah saya terima. Ukiran ini sangat indah dan penuh makna. Saya akan memakainya selalu sebagai pengingat akan persahabatan kita dan tanggung jawab kita bersama terhadap hutan ini.\"", 30);
+    delayPrint(L"Mars: \"Saya tahu Anda akan menjaganya dengan baik. Ingatlah selalu, Weiss, bahwa hutan ini akan selalu menyambut Anda sebagai bagian darinya. Dan saya, Mars, akan selalu menjadi saudara Anda, siap bertarung di sisi Anda kapan pun dibutuhkan, baik untuk melindungi hutan ini maupun untuk hal lain yang Anda anggap benar.\"", 30);
+    delayPrint(L"Weiss: \"Dan Anda juga akan selalu menjadi saudara bagi saya, Mars. Seorang mentor, sahabat, dan penjaga sejati. Mari kita terus jaga Hutan Merah ini bersama-sama, demi masa depan Arcadia dan generasi yang akan datang. Apakah ada proyek konservasi baru yang bisa kita mulai?\"", 30);
+    delayPrint(L"Mars: (Tertawa senang, matanya berbinar menatap matahari terbit) \"Anda benar-benar tidak bisa diam ya, Weiss? Selalu ada ide baru! Tentu saja ada! Saya punya rencana untuk program reboisasi di area bekas kebakaran. Dan saya tahu persis siapa yang akan jadi mitra terbaik saya dalam proyek itu!\"", 30);
+    delayPrint(L"Weiss: (Tersenyum lebar) \"Saya siap, Komandan Mars! Mari kita mulai!\"", 30);
+    delayPrint(L"Mars: \"Ayo! Tapi setelah kita menikmati secangkir kopi panas dan sarapan sederhana di pos. Perut juga butuh dijaga, bukan?\"", 30);
+    delayPrint(L"Di puncak bukit itu, dengan Hutan Merah terbentang di bawah mereka sebagai saksi, sebuah persahabatan yang kokoh dan penuh makna telah mencapai puncaknya. Weiss dan Mars, dua jiwa dari dunia yang berbeda, kini bersatu dalam semangat dan dedikasi untuk menjaga alam dan memperjuangkan kebaikan.", 30);
+
+    // applySocialLinkBonus("Mars"); // Misal: "Mars's Forest Warden Pact" (Passive: Easier travel/less encounters in Hutan Merah, ability to gather rare herbs/materials, unlock special survival skills, or a powerful nature-themed accessory/weapon).
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel1() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 1 ✦ Camp Avernix, Goa Avernix ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Menghampiri area Camp Avernix yang berdebu, seorang pria berperawakan keras dengan wajah lelah dan waspada sedang memeriksa peralatan tambang). \"Permisi, apakah Anda Penjaga Kinich yang bertanggung jawab atas keamanan area tambang ini? Saya Weiss von Astra.\"", 30);
+    delayPrint(L"Kinich: (Meletakkan beliungnya, menatap Weiss dengan tatapan menyelidik, tidak ramah namun juga tidak langsung bermusuhan) \"Benar. Saya Kinich. Ada urusan apa seorang von Astra sampai ke tempat terpencil dan berbahaya seperti Goa Avernix ini? Kami jarang menerima kunjungan dari kaum Anda.\"", 30);
+    delayPrint(L"Weiss: \"Keluarga Astra memiliki sebagian saham dalam operasi penambangan di sini, Penjaga Kinich. Saya datang untuk melihat langsung kondisi lapangan, memahami tantangan operasional, dan memastikan semuanya berjalan sesuai standar keamanan yang ditetapkan.\"", 30);
+    delayPrint(L"Kinich: (Mengangguk pelan, ekspresinya masih skeptis) \"Standar keamanan, ya? Di atas kertas mungkin terlihat bagus, Tuan Muda. Tapi kenyataan di dalam perut bumi ini berbeda. Setiap hari adalah pertaruhan nyawa. Apa yang ingin Anda lihat secara spesifik?\"", 30);
+    delayPrint(L"Weiss: \"Untuk hari ini, saya hanya ingin mendapatkan gambaran umum tentang aktivitas di camp dan area pintu masuk tambang. Mungkin Anda bisa menjelaskan secara singkat tentang jenis mineral utama yang ditambang dan potensi bahaya yang paling sering dihadapi para penambang?\"", 30);
+    delayPrint(L"Kinich: \"Mineral utama di sini adalah Bijih Besi Merah dan Kristal Kegelapan. Bahaya utama? Longsoran batu, gas beracun di lorong-lorong dalam, dan tentu saja... makhluk-makhluk yang menghuni kegelapan abadi di bawah sana. Bukan tempat untuk mereka yang bernyali kecil.\"", 30);
+    delayPrint(L"Weiss: \"Saya mengerti. Kedengarannya memang bukan pekerjaan yang mudah. Terima kasih atas penjelasan awalnya, Penjaga Kinich. Saya akan mengamati dari area yang aman untuk saat ini.\"", 30);
+    delayPrint(L"Kinich: \"Itu keputusan yang bijak, Tuan Muda. Pastikan Anda tidak melewati batas aman tanpa pengawalan. Saya punya banyak pekerjaan yang harus diurus.\" (Kembali memeriksa peralatannya).", 30);
+    delayPrint(L"Weiss: \"Saya akan berhati-hati. Mungkin lain kali saya bisa bertanya lebih banyak tentang sistem peringatan dini atau prosedur evakuasi di sini?\"", 30);
+    delayPrint(L"Kinich: \"Jika Anda memang serius ingin tahu dan tidak hanya sekadar 'tur wisata', saya akan luangkan waktu. Tapi jangan berharap saya akan memanjakan Anda.\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak mengharapkannya, Penjaga. Terima kasih.\"", 30);
+    delayPrint(L"Kinich hanya menggeram pelan sebagai jawaban. Jelas bahwa mendapatkan rasa hormat dari pria keras seperti dia akan menjadi sebuah tantangan tersendiri.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel2() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 2 ✦ Area Logistik Camp Avernix ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Menemukan Kinich sedang mengawasi pembongkaran pasokan baru untuk para penambang – makanan, air, dan beberapa peralatan) \"Penjaga Kinich, selamat siang. Sepertinya pasokan baru sudah tiba?\"", 30);
+    delayPrint(L"Kinich: (Menoleh, wajahnya masih berdebu seperti biasa) \"Tuan Muda Astra. Ya, datang lebih lambat dari jadwal seharusnya. Jalan menuju kemari dari kota semakin rusak parah. Apakah Anda datang untuk 'inspeksi' logistik juga sekarang?\"", 30);
+    delayPrint(L"Weiss: \"Tidak secara spesifik. Saya hanya ingin tahu, bagaimana kondisi para penambang di sini? Apakah persediaan makanan dan air selalu mencukupi? Dan bagaimana dengan upah serta jaminan kesehatan mereka?\"", 30);
+    delayPrint(L"Kinich: (Menatap Weiss dengan sedikit terkejut, tidak menyangka pertanyaan seperti itu) \"Pertanyaan yang tidak biasa dari seorang bangsawan. Untuk makanan dan air, kami berusaha keras memenuhinya, Tuan Muda, meskipun terkadang terlambat seperti ini. Upah... cukuplah untuk menghidupi keluarga di desa, meski tidak sebanding dengan risikonya. Jaminan kesehatan? Jika mereka terluka parah di dalam, kami bawa ke tabib terdekat di desa kaki gunung. Itu saja.\"", 30);
+    delayPrint(L"Weiss: \"Kedengarannya masih banyak yang perlu diperbaiki dalam hal kesejahteraan mereka. Apakah pernah ada upaya dari pihak perusahaan atau keluarga Astra untuk meningkatkan fasilitas atau jaminan bagi para penambang?\"", 30);
+    delayPrint(L"Kinich: (Tersenyum sinis) \"Upaya di atas kertas mungkin ada, Tuan Muda. Proposal dan janji-janji manis. Tapi implementasinya seringkali terhambat birokrasi atau 'pemotongan anggaran'. Bagi mereka yang duduk nyaman di kota, kami di sini mungkin hanya angka statistik.\"", 30);
+    delayPrint(L"Weiss: \"Itu pandangan yang menyedihkan, tapi mungkin ada benarnya. Saya akan coba mempelajari lebih lanjut tentang kontrak kerja dan proposal kesejahteraan yang pernah diajukan. Mungkin ada sesuatu yang bisa saya dorong dari atas.\"", 30);
+    delayPrint(L"Kinich: (Mengangkat sebelah alisnya) \"Anda serius? Seorang von Astra mau repot-repot mengurusi nasib penambang rendahan seperti kami? Jangan membuat saya tertawa, Tuan Muda.\"", 30);
+    delayPrint(L"Weiss: \"Saya serius, Kinich.\" (Memanggilnya dengan nama untuk pertama kali) \"Setiap nyawa berharga. Dan setiap pekerja berhak mendapatkan perlakuan yang layak, terutama mereka yang mempertaruhkan nyawanya setiap hari seperti di sini. Saya akan lihat apa yang bisa saya lakukan.\"", 30);
+    delayPrint(L"Kinich: (Tertegun sejenak menatap kesungguhan di mata Weiss, lalu mengalihkan pandangannya) \"Hmph. Saya sudah terlalu sering mendengar janji. Saya akan percaya jika sudah ada bukti nyata. Sekarang, jika Anda permisi, saya harus memastikan karung-karung gandum ini tidak basah.\"", 30);
+    delayPrint(L"Weiss: \"Tentu. Terima kasih atas waktunya, Kinich.\"", 30);
+    delayPrint(L"Kinich: \"Ya.\"", 30);
+    delayPrint(L"Meskipun sikapnya masih kasar, kamu merasa ada sedikit celah di dinding pertahanannya. Pertanyaanmu tentang kesejahteraan penambang sepertinya menyentuh sesuatu dalam dirinya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel3() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 3 ✦ Pintu Masuk Goa Avernix ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Berdiri di dekat pintu masuk goa yang gelap dan berangin, Kinich baru saja keluar bersama beberapa penambang yang wajahnya pucat). \"Ada masalah di dalam, Kinich? Kalian terlihat... terguncang.\"", 30);
+    delayPrint(L"Kinich: (Mengusap wajahnya yang penuh keringat dingin) \"Tuan Muda Astra. Getaran kecil tadi, Anda merasakannya? Di Lorong Tujuh terjadi sedikit longsoran. Tidak ada korban jiwa, syukurlah. Tapi beberapa peralatan tertimbun dan jalan terblokir sementara.\"", 30);
+    delayPrint(L"Weiss: \"Getaran? Saya tidak merasakannya di camp. Apakah longsoran seperti ini sering terjadi? Ini pasti sangat menakutkan bagi para penambang.\"", 30);
+    delayPrint(L"Kinich: \"Perut bumi ini hidup, Tuan Muda. Dia bergerak dan bernapas sesuka hatinya. Longsoran kecil atau sedang itu sudah jadi 'sarapan' kami. Yang kami takutkan adalah 'Guncangan Besar' yang konon bisa meruntuhkan seluruh lorong utama. Para penambang tua punya banyak cerita tentang itu.\"", 30);
+    delayPrint(L"Weiss: \"'Guncangan Besar'? Apakah itu mitos atau pernah benar-benar terjadi? Dan apakah ada cara untuk memprediksinya?\"", 30);
+    delayPrint(L"Kinich: (Menatap ke dalam kegelapan goa dengan pandangan jauh) \"Beberapa generasi lalu, katanya pernah terjadi. Menelan ratusan nyawa. Tidak ada yang tahu pasti. Untuk memprediksinya? Kami hanya bisa berdoa dan memperhatikan tanda-tanda kecil. Misalnya, jika tikus-tikus tambang berlarian keluar goa secara massal, atau jika air di sumur bawah tanah tiba-tiba surut drastis. Itu pertanda buruk.\"", 30);
+    delayPrint(L"Weiss: \"Superstisi atau kearifan lokal yang teruji waktu, ya? Hidup di sini benar-benar seperti berjudi dengan alam setiap hari. Saya jadi semakin menghargai keberanian para penambang.\"", 30);
+    delayPrint(L"Kinich: \"Mereka bukan hanya berani, Tuan Muda. Mereka putus asa. Banyak dari mereka tidak punya pilihan lain untuk menghidupi keluarga. Goa ini memberi kami kehidupan, sekaligus mengancamnya. Ironis, bukan?\"", 30);
+    delayPrint(L"Weiss: \"Sangat ironis. Apakah ada ritual atau tradisi tertentu yang biasa dilakukan para penambang sebelum masuk ke dalam untuk memohon keselamatan?\"", 30);
+    delayPrint(L"Kinich: \"Setiap pagi, kami menaburkan sedikit garam di mulut goa, sebagai persembahan untuk 'Roh Penunggu Goa'. Dan kami tidak pernah bersiul di dalam lorong, katanya itu bisa membangunkan 'mereka' yang tidur di kedalaman. Mungkin terdengar konyol bagi orang kota seperti Anda, tapi bagi kami, itu adalah cara untuk menghormati tempat ini.\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak menganggapnya konyol, Kinich. Setiap budaya punya caranya sendiri untuk berdamai dengan alam dan ketidakpastian. Terima kasih sudah berbagi cerita ini. Ini memberi saya pemahaman yang lebih dalam.\"", 30);
+    delayPrint(L"Kinich: \"Hmph. Setidaknya Anda mau mendengarkan. Kebanyakan bangsawan hanya peduli berapa banyak bijih yang bisa kami angkut keluar.\" (Meludah ke tanah). \"Sekarang saya harus mengatur tim untuk membersihkan Lorong Tujuh.\"", 30);
+    delayPrint(L"Weiss: \"Hati-hati, Kinich. Dan sampaikan salam saya untuk para penambang. Semoga mereka semua aman.\"", 30);
+    delayPrint(L"Kinich hanya mengangguk singkat sebelum berbalik dan memberi perintah kepada anak buahnya. Kamu mulai melihat sisi lain dari Kinich, seorang pria yang dibentuk oleh kerasnya alam dan kepercayaan mistis tambang.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel4() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 4 ✦ Camp Avernix (Dekat Peta Tambang) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Melihat Kinich sedang mempelajari peta lorong-lorong tambang yang besar dan rumit di dinding kantornya yang sederhana) \"Peta yang sangat detail, Kinich. Pasti butuh waktu lama untuk membuatnya seakurat ini.\"", 30);
+    delayPrint(L"Kinich: (Tanpa menoleh) \"Setiap jengkalnya digambar dengan darah dan keringat, Tuan Muda. Peta ini adalah nyawa kami di bawah sana. Salah belok sedikit bisa berarti terjebak atau bertemu sesuatu yang tidak ingin ditemui. Ada perlu apa?\"", 30);
+    delayPrint(L"Weiss: \"Saya sedang mencoba memahami lebih baik tentang struktur Goa Avernix. Saya dengar ada beberapa jenis kristal selain Kristal Kegelapan yang bisa ditemukan di sini, meskipun mungkin tidak bernilai komersial tinggi. Apakah Anda tahu di mana area yang potensial untuk menemukannya? Ini murni untuk riset pribadi.\"", 30);
+    delayPrint(L"Kinich: (Akhirnya menoleh, menatap Weiss dengan curiga) \"Riset pribadi? Bangsawan biasanya tidak tertarik pada 'batu berkilau' yang tidak bisa dijual mahal. Kristal apa yang Anda cari? Kristal Lumina yang katanya bisa bersinar sendiri, atau Geode Guntur yang berderak saat disentuh?\"", 30);
+    delayPrint(L"Weiss: \"Keduanya terdengar menarik. Terutama Kristal Lumina. Apakah benar ada? Dan di mana kira-kira bisa ditemukan? Saya tidak berniat masuk terlalu dalam, hanya area yang relatif aman.\"", 30);
+    delayPrint(L"Kinich: (Menunjuk satu titik di peta di sektor barat yang tidak terlalu jauh dari pintu masuk) \"Ada satu lorong buntu di sekitar sini, 'Gua Kunang-Kunang' kami menyebutnya. Dindingnya sering memancarkan cahaya redup kehijauan karena ada endapan mineral fosfor alami. Beberapa penambang pernah menemukan pecahan kecil Kristal Lumina di sana, tapi sangat jarang dan biasanya tertanam jauh di dalam batu.\"", 30);
+    delayPrint(L"Kinich: \"Tapi saya peringatkan, Tuan Muda. Meskipun relatif dekat, area itu jarang dilewati dan pencahayaannya minim. Pastikan Anda membawa penerangan yang cukup dan jangan pergi sendirian. Dan jangan pernah menyentuh lumut bercahaya aneh yang tumbuh di sana, bisa membuat kulit gatal selama berhari-hari.\"", 30);
+    delayPrint(L"Weiss: \"'Gua Kunang-Kunang'. Informasi yang sangat berharga. Dan terima kasih atas peringatannya, akan saya ingat baik-baik. Apakah ada tanda khusus untuk mencapai lorong itu? Peta ini terlihat sangat rumit bagi saya.\"", 30);
+    delayPrint(L"Kinich: (Mengambil sepotong arang dan membuat beberapa tanda tambahan di salinan peta kecil di mejanya) \"Ikuti jalur utama sampai persimpangan ketiga, lalu ambil belokan kiri yang menurun. Setelah melewati jembatan kayu rapuh, cari celah sempit di dinding kanan yang ditandai dengan ukiran tiga bulan sabit. Itu pintu masuknya. Tapi sekali lagi, hati-hati.\"", 30);
+    delayPrint(L"Weiss: \"Saya akan sangat berhati-hati. Terima kasih banyak atas bantuan dan petunjuknya, Kinich. Ini lebih dari yang saya harapkan.\"", 30);
+    delayPrint(L"Kinich: \"Hmph. Anggap saja ini balas budi karena Anda mau mendengarkan keluh kesah penambang tua seperti saya. Tapi jika Anda menemukan bongkahan Kristal Lumina sebesar kepala, jangan lupa bagi hasilnya ya?\" (Ada sedikit nada bercanda, yang sangat langka darinya).", 30);
+    delayPrint(L"Weiss: (Tersenyum) \"Akan saya pertimbangkan, Kinich. Akan saya pertimbangkan. Terima kasih lagi.\"", 30);
+    delayPrint(L"Kinich hanya mengangguk dan kembali mempelajari petanya. Kamu merasa ada sedikit kehangatan dalam sikapnya hari ini, seolah dia mulai menikmati berbagi pengetahuannya tentang goa yang misterius ini.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel5() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 5 ✦ Camp Avernix (Saat Istirahat Makan Siang Penambang) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss datang ke Camp Avernix membawa beberapa kotak berisi roti isi daging dan buah-buahan segar dari mansion, membagikannya kepada para penambang yang sedang beristirahat. Kinich mengamati dari kejauhan dengan ekspresi yang sulit ditebak.", 30);
+    delayPrint(L"Penambang 1: \"Wah, Tuan Muda Astra baik sekali! Roti ini enak sekali!\"", 30);
+    delayPrint(L"Penambang 2: \"Terima kasih banyak, Tuan Muda! Buah segar seperti ini jarang kami nikmati di sini!\"", 30);
+    delayPrint(L"Weiss: \"Sama-sama. Anggap saja ini sedikit perhatian dari keluarga Astra. Kalian semua sudah bekerja keras. Jaga kesehatan kalian.\"", 30);
+    delayPrint(L"Setelah selesai membagikan, Weiss menghampiri Kinich yang duduk sendirian, hanya minum air.", 30);
+    delayPrint(L"Weiss: \"Kinich, saya sisihkan satu kotak untuk Anda. Anda juga sudah bekerja keras mengawasi mereka.\"", 30);
+    delayPrint(L"Kinich: (Menerima kotak itu tanpa banyak bicara, tapi matanya menatap Weiss dengan lebih lembut) \"Tidak perlu repot-repot, Tuan Muda. Tapi... terima kasih.\"", 30);
+    delayPrint(L"Weiss: \"Saya dengar dari salah satu mandor, ada masalah dengan pasokan lampu karbit baru-baru ini? Beberapa penambang mengeluh pencahayaan di lorong semakin redup dan berbahaya.\"", 30);
+    delayPrint(L"Kinich: (Menghela napas berat) \"Benar. Kiriman terakhir kualitasnya buruk, cepat habis dan cahayanya tidak terang. Sudah saya laporkan ke manajemen di kota, tapi responsnya seperti biasa, 'sedang diproses'. Sementara itu, anak buah saya yang menanggung risikonya di bawah sana.\"", 30);
+    delayPrint(L"Weiss: \"Ini tidak bisa dibiarkan. Keselamatan mereka harus jadi prioritas. Saya akan menghubungi langsung pemasok peralatan tambang yang biasa bekerja sama dengan keluarga Astra. Saya akan pastikan kiriman lampu karbit berkualitas tinggi segera datang ke sini dalam beberapa hari. Saya yang akan menanggung biayanya jika perlu.\"", 30);
+    delayPrint(L"Kinich: (Menatap Weiss dengan campuran tak percaya dan... haru?) \"Anda... Anda serius mau melakukan itu, Tuan Muda? Hanya demi beberapa lampu untuk kami? Itu... itu di luar dugaan saya.\"", 30);
+    delayPrint(L"Weiss: \"Setiap detail kecil yang menyangkut keselamatan pekerja itu penting, Kinich. Saya tidak mau mendengar ada kecelakaan hanya karena masalah penerangan yang sebenarnya bisa diatasi. Anggap saja ini bagian dari tanggung jawab saya sebagai salah satu pemilik saham.\"", 30);
+    delayPrint(L"Kinich: (Tertegun sejenak, lalu ada senyum tulus yang langka terukir di wajahnya yang keras) \"Tuan Muda Weiss... Anda benar-benar... berbeda. Saya tidak tahu harus berkata apa. Atas nama semua penambang di sini, terima kasih. Terima kasih yang sebesar-besarnya. Anda telah menunjukkan kepedulian yang nyata.\"", 30);
+    delayPrint(L"Weiss: \"Sama-sama, Kinich. Saya hanya melakukan apa yang benar. Tolong awasi terus kondisi di bawah. Jika ada kebutuhan mendesak lainnya, jangan ragu beritahu saya.\"", 30);
+    delayPrint(L"Kinich: \"Akan saya lakukan, Tuan Muda. Dan... ini.\" (Menyodorkan sepotong kecil kristal berwarna biru redup dari sakunya) \"Ini Kristal Biru Penenang. Tidak terlalu berharga, tapi penambang percaya ini bisa membawa ketenangan di tengah kegelapan goa. Anggap saja ini tanda terima kasih kecil dari saya.\"", 30);
+    delayPrint(L"Weiss: (Menerima kristal itu) \"Indah sekali, Kinich. Terima kasih. Akan saya simpan baik-baik.\"", 30);
+    delayPrint(L"Kinich: \"Jaga diri Anda, Tuan Muda. Dan... hati-hati dengan orang-orang di kota. Tidak semua orang punya niat sebaik Anda.\"", 30);
+    delayPrint(L"Sikap Kinich hari ini benar-benar berbeda. Sepertinya tindakan nyata Weiss telah berhasil meluluhkan hatinya yang keras dan membangun jembatan kepercayaan yang kuat.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel6() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 6 ✦ Camp Avernix (Malam di sekitar Api Unggun) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss duduk bersama Kinich dan beberapa penambang senior di sekitar api unggun, berbagi cerita setelah seharian bekerja. Suasana lebih santai dari biasanya.", 30);
+    delayPrint(L"Penambang Senior 1: \"...Jadi, Tuan Muda, begitulah ceritanya kami hampir terjebak longsoran di Lorong Sembilan belas tahun lalu. Untung ada Kinich yang memimpin jalan keluar melalui celah sempit yang bahkan tikus pun ragu melewatinya!\", (Tertawa terbahak-bahak).", 30);
+    delayPrint(L"Kinich: (Menggerutu pelan) \"Kau melebih-lebihkan, Borin. Celah itu cukup untuk kita semua. Hanya saja kau terlalu banyak makan roti saat itu.\"", 30);
+    delayPrint(L"Weiss: (Tersenyum) \"Kalian semua punya banyak cerita keberanian dan ketahanan yang luar biasa. Saya jadi bertanya-tanya, Kinich, apa yang membuat Anda tetap bertahan dalam pekerjaan berbahaya ini selama bertahun-tahun? Pasti ada banyak godaan untuk mencari pekerjaan yang lebih aman di kota.\"", 30);
+    delayPrint(L"Kinich: (Menatap api unggun, pandangannya menerawang) \"Kota... bukan tempat untuk saya, Tuan Muda. Terlalu banyak basa-basi, terlalu banyak kepalsuan. Di sini, di Goa Avernix ini, semuanya nyata. Bahayanya nyata, tapi persaudaraan kami juga nyata. Kami saling menjaga punggung satu sama lain karena nyawa kami bergantung pada itu.\"", 30);
+    delayPrint(L"Kinich: \"Selain itu... ada sesuatu tentang goa ini. Sesuatu yang memanggil. Mungkin karena ayah dan kakek saya juga penambang di sini. Rasanya seperti ada ikatan tak kasat mata. Dan terus terang, Tuan Muda, saya khawatir jika bukan orang seperti saya yang menjaga tempat ini, siapa lagi? Banyak orang hanya melihat goa ini sebagai lubang penghasil uang, tanpa peduli pada 'Roh Goa' atau keseimbangan di dalamnya.\"", 30);
+    delayPrint(L"Weiss: \"'Roh Goa'? Anda benar-benar mempercayainya? Saya kira itu hanya takhayul untuk menakut-nakuti penambang baru.\"", 30);
+    delayPrint(L"Kinich: \"Anda boleh percaya atau tidak, Tuan Muda. Tapi saya sudah melihat terlalu banyak hal aneh di bawah sana yang tidak bisa dijelaskan dengan akal sehat. Suara-suara tanpa wujud, cahaya yang bergerak sendiri, lorong yang tiba-tiba berubah arah... Goa ini punya kehidupannya sendiri. Dan jika kita tidak menghormatinya, dia akan menelan kita bulat-bulat.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah perspektif yang menarik, meskipun sedikit... menyeramkan. Apakah Anda pernah merasa benar-benar dalam bahaya besar karena hal-hal 'tak kasat mata' itu?\"", 30);
+    delayPrint(L"Kinich: (Menghela napas dalam) \"Pernah sekali. Saya dan tim saya terjebak di lorong yang belum terpetakan. Tiba-tiba semua lampu kami padam serentak, dan kami mendengar suara seperti... bisikan marah dari semua arah. Kami semua berdoa menurut kepercayaan kami masing-masing. Entah bagaimana, setelah beberapa saat yang terasa seperti selamanya, satu lampu menyala kembali, cukup untuk menunjukkan jalan keluar yang sangat sempit yang sebelumnya tidak kami lihat. Sejak saat itu, saya tidak pernah meremehkan kekuatan goa ini.\"", 30);
+    delayPrint(L"Weiss: \"Cerita yang membuat bulu kuduk berdiri. Terima kasih sudah mau berbagi pengalaman pribadi seperti ini, Kinich. Ini membuat saya semakin menghargai pekerjaan Anda dan misteri yang menyelimuti Goa Avernix.\"", 30);
+    delayPrint(L"Kinich: \"Tidak masalah, Tuan Muda. Anggap saja ini dongeng sebelum tidur versi penambang. Yang penting, Anda sekarang tahu bahwa di balik setiap bongkahan bijih yang Anda lihat, ada cerita dan risiko yang kami hadapi.\"", 30);
+    delayPrint(L"Weiss: \"Saya akan selalu mengingatnya. Dan saya akan berusaha memastikan risiko itu bisa diminimalisir sebisa mungkin.\"", 30);
+    delayPrint(L"Kinich: (Mengangguk, ada sedikit senyum di wajahnya yang terpapar cahaya api unggun) \"Saya percaya Anda akan melakukannya, Tuan Muda. Saya percaya.\"", 30);
+    delayPrint(L"Di bawah langit malam yang dingin, dihangatkan oleh api unggun dan cerita-cerita tambang, kamu merasa semakin dekat dengan Kinich dan para penambang. Ada rasa persaudaraan yang unik di tempat keras ini.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel7() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 7 ✦ Camp Avernix (Kedatangan Peralatan Baru) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Beberapa gerobak besar tiba di Camp Avernix, membawa peralatan keamanan baru: helm yang lebih kuat, lampu karbit berkualitas tinggi, tabung oksigen darurat, dan beberapa alat pendeteksi gas model terbaru. Ini adalah hasil dari lobi Weiss kepada dewan kota dan sebagian menggunakan dana pribadi keluarga Astra.", 30);
+    delayPrint(L"Kinich: (Menginspeksi peralatan baru itu dengan mata berbinar, sesuatu yang sangat jarang terlihat) \"Tuan Muda Weiss... Ini... ini semua... saya tidak tahu harus berkata apa. Ini seperti mimpi bagi kami para penambang.\"", 30);
+    delayPrint(L"Weiss: \"Ini adalah apa yang seharusnya kalian dapatkan sejak lama, Kinich. Peralatan yang layak untuk pekerjaan seberbahaya ini. Anggap saja ini realisasi dari proposal yang pernah kita diskusikan dan sedikit tambahan dari saya pribadi.\"", 30);
+    delayPrint(L"Penambang lain yang berkumpul tampak takjub dan penuh rasa terima kasih.", 30);
+    delayPrint(L"Penambang 1: \"Helm ini jauh lebih kuat dari yang lama! Dan lampunya terang sekali!\"", 30);
+    delayPrint(L"Penambang 2: \"Dengan alat deteksi gas ini, kita bisa lebih tenang bekerja di lorong dalam! Terima kasih, Tuan Muda!\"", 30);
+    delayPrint(L"Kinich: \"Tuan Muda, ini... ini lebih dari yang pernah kami bayangkan. Selama bertahun-tahun kami mengajukan permintaan, tapi selalu hanya janji kosong atau barang bekas berkualitas rendah. Anda... Anda benar-benar menepati janji Anda.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya melakukan apa yang benar, Kinich. Keselamatan kalian adalah yang utama. Sekarang, yang penting adalah memastikan semua penambang mendapatkan pelatihan yang tepat untuk menggunakan peralatan baru ini secara efektif. Apakah Anda sudah punya rencana untuk itu?\"", 30);
+    delayPrint(L"Kinich: \"Tentu saja, Tuan Muda. Saya akan segera mengatur jadwal pelatihan per kelompok. Kami akan pastikan semua orang paham cara kerjanya. Ini akan sangat mengurangi angka kecelakaan, saya yakin itu. Anda telah memberikan kami lebih dari sekadar alat, Anda memberi kami rasa aman.\"", 30);
+    delayPrint(L"Weiss: \"Itulah tujuan saya. Apakah ada kendala dalam distribusi atau penyimpanan peralatan ini? Saya ingin memastikan semuanya berjalan lancar.\"", 30);
+    delayPrint(L"Kinich: \"Tidak ada masalah sama sekali, Tuan Muda. Gudang logistik kami sudah siap. Dan semangat para penambang langsung naik drastis melihat semua ini. Mereka bilang, akhirnya ada 'orang atas' yang benar-benar peduli pada nasib mereka di bawah tanah.\"", 30);
+    delayPrint(L"Weiss: \"Saya senang mendengarnya. Tolong sampaikan pada mereka untuk terus bekerja dengan hati-hati dan saling menjaga. Peralatan hanyalah alat, kewaspadaan tetap nomor satu.\"", 30);
+    delayPrint(L"Kinich: (Menepuk bahu Weiss dengan rasa hormat yang tulus – sebuah gestur yang tak pernah ia lakukan pada bangsawan lain) \"Akan saya sampaikan, Weiss.\" (Memanggilnya dengan nama tanpa gelar untuk pertama kalinya di depan umum) \"Anda telah mendapatkan rasa hormat kami semua. Bukan karena gelar Anda, tapi karena tindakan Anda. Terima kasih.\"", 30);
+    delayPrint(L"Weiss: (Tersenyum) \"Sama-sama, Kinich. Jaga mereka baik-baik.\"", 30);
+    delayPrint(L"Melihat wajah para penambang yang penuh harapan dan rasa terima kasih, serta pengakuan tulus dari Kinich, kamu merasa semua usahamu tidak sia-sia. Ini adalah langkah nyata menuju perubahan yang lebih baik.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel8() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 8 ✦ Camp Avernix (Sore Hari, Setelah Insiden Kecil) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Baru saja terjadi insiden kecil di salah satu lorong dangkal – beberapa penambang muda terjebak karena salah menginterpretasikan peta dan mengambil jalan buntu yang rapuh. Kinich dan Weiss (yang kebetulan sedang berkunjung) turut membantu proses evakuasi yang berjalan lancar tanpa korban.", 30);
+    delayPrint(L"Kinich: (Menghela napas lega sambil membersihkan debu dari pakaiannya) \"Syukurlah semua anak itu selamat. Mereka masih hijau, terlalu bersemangat dan kurang hati-hati. Ini pelajaran berharga bagi mereka. Dan terima kasih atas bantuan Anda tadi, Weiss. Kehadiran Anda menenangkan mereka.\"", 30);
+    delayPrint(L"Weiss: \"Tidak masalah, Kinich. Saya senang bisa membantu. Pengalaman seperti ini memang bisa jadi guru terbaik, meskipun terkadang menakutkan. Apakah sering terjadi penambang baru tersesat atau salah jalur?\"", 30);
+    delayPrint(L"Kinich: \"Cukup sering. Goa ini seperti labirin hidup. Peta memang membantu, tapi insting dan pengalaman di lapangan itu yang utama. Saya sendiri pernah mengalami yang lebih buruk saat masih seumuran mereka.\"", 30);
+    delayPrint(L"Weiss: \"Oh ya? Cerita seperti apa? Jika Anda tidak keberatan berbagi, tentu saja.\"", 30);
+    delayPrint(L"Kinich: (Duduk di atas sebuah peti kayu, menatap ke arah pintu masuk goa yang menganga) \"Dulu sekali, saat saya baru beberapa tahun bekerja, ada seorang teman akrab saya, namanya Kael. Kami seperti saudara. Suatu hari, kami ditugaskan menjelajahi lorong baru yang katanya punya kandungan kristal berkualitas tinggi.\"", 30);
+    delayPrint(L"Kinich: \"Kami terlalu bernafsu, masuk terlalu dalam tanpa memperhatikan tanda-tanda alam. Tiba-tiba terjadi gempa susulan, dan lorong di belakang kami runtuh total. Kami terjebak dalam kegelapan total, hanya dengan satu lampu karbit yang hampir habis dan sedikit air.\"", 30);
+    delayPrint(L"Weiss: (Mendengarkan dengan saksama, bisa merasakan ketegangan dalam cerita Kinich) \"Itu pasti situasi yang mengerikan. Bagaimana kalian bisa keluar?\"", 30);
+    delayPrint(L"Kinich: \"Kami mencoba mencari jalan lain selama berjam-jam, tapi sia-sia. Kael mulai putus asa. Tapi saya teringat ajaran kakek saya, 'Jika tersesat di goa, ikuti aliran udara sekecil apapun'. Dengan sisa tenaga, kami meraba-raba dinding, mencari celah. Akhirnya, setelah hampir seharian, kami merasakan sedikit hembusan angin. Kami mengikutinya, merangkak melalui lorong sempit yang penuh batu tajam, hingga akhirnya kami melihat secercah cahaya dari kejauhan.\"", 30);
+    delayPrint(L"Kinich: \"Sayangnya... Kael tidak seberuntung saya. Dia terlalu lemah karena dehidrasi dan luka-lukanya. Dia meninggal dalam pelukan saya beberapa saat sebelum tim penyelamat menemukan kami.\" (Suara Kinich bergetar, matanya menerawang penuh kesedihan).", 30);
+    delayPrint(L"Weiss: (Terdiam, merasakan duka yang mendalam dari cerita Kinich) \"Kinich... saya... saya turut berduka cita atas kehilanganmu. Itu pasti pengalaman yang sangat traumatis. Saya tidak bisa membayangkan betapa beratnya itu bagimu.\"", 30);
+    delayPrint(L"Kinich: (Menghela napas panjang, berusaha menguasai emosinya) \"Sudah lama sekali, Weiss. Tapi kenangan itu tidak pernah benar-benar hilang. Sejak saat itu, saya bersumpah pada diri sendiri untuk selalu memprioritaskan keselamatan anak buah saya di atas segalanya. Saya tidak ingin ada orang lain yang mengalami apa yang Kael alami, atau apa yang saya rasakan saat itu.\"", 30);
+    delayPrint(L"Weiss: \"Dedikasimu pada keselamatan mereka... sekarang saya mengerti dari mana datangnya itu. Kau bukan hanya penjaga, Kinich. Kau adalah pelindung mereka, dengan cara yang sangat personal. Dan Kael... dia pasti bangga melihatmu sekarang.\"", 30);
+    delayPrint(L"Kinich: (Menatap Weiss, ada sedikit air mata di sudut matanya yang langsung ia seka dengan kasar) \"Terima kasih, Weiss. Tidak banyak orang yang mau mendengarkan cerita lama seorang penambang. Anda... Anda teman yang baik.\"", 30);
+    delayPrint(L"Weiss: \"Kapan saja, Kinich. Kapan saja.\"", 30);
+    delayPrint(L"Membagikan cerita yang begitu personal dan menyakitkan adalah tanda kepercayaan yang luar biasa dari Kinich. Kamu merasa hubungan kalian telah mencapai level yang sangat dalam, sebuah persahabatan yang ditempa oleh saling pengertian dan rasa hormat.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel9() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 9 ✦ Camp Avernix & Pintu Masuk Goa (Situasi Krisis) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Sirene darurat tiba-tiba meraung di Camp Avernix. Para penambang berlarian panik. Kinich menghampiri Weiss yang sedang meninjau laporan produksi dengan wajah tegang.", 30);
+    delayPrint(L"Kinich: \"Weiss! Ada masalah besar! Terjadi kebocoran gas beracun di Sektor Lima! Beberapa penambang masih terjebak di dalam! Kita harus segera bertindak!\"", 30);
+    delayPrint(L"Weiss: \"Gas beracun? Sektor Lima itu cukup dalam, bukan? Berapa banyak orang yang terjebak? Dan apakah kita punya cukup peralatan pelindung?\"", 30);
+    delayPrint(L"Kinich: \"Sekitar tujuh atau delapan orang, termasuk mandor senior. Peralatan pelindung kita terbatas, terutama tabung oksigen cadangan setelah pengiriman terakhir belum juga datang dari kota karena masalah administrasi sialan itu! Kita butuh bantuan secepatnya!\"", 30);
+    delayPrint(L"Weiss: \"Tenang, Kinich. Panik tidak akan membantu. Segera kumpulkan semua tim penyelamat yang ada dan peralatan pelindung yang tersedia. Saya akan segera menghubungi Balai Kota dan markas keluarga Astra di Arcadia untuk mengirimkan bantuan medis darurat dan pasokan tabung oksigen tambahan menggunakan jalur komunikasi prioritas. Ini akan lebih cepat daripada menunggu prosedur normal.\"", 30);
+    delayPrint(L"Kinich: \"Anda bisa melakukan itu? Jalur prioritas? Itu akan sangat membantu! Sementara menunggu, tim saya akan mencoba masuk melalui jalur ventilasi alternatif untuk mencapai mereka dan memberikan tabung oksigen yang kita punya. Tapi itu sangat berisiko.\"", 30);
+    delayPrint(L"Weiss: \"Lakukan apa yang harus kaulakukan untuk mencapai mereka dengan aman, Kinich. Aku percaya pada keahlianmu. Aku akan urus birokrasi di kota. Berapa lama perkiraan timmu bisa mencapai mereka melalui jalur ventilasi?\"", 30);
+    delayPrint(L"Kinich: \"Mungkin satu atau dua jam jika tidak ada halangan. Jalurnya sempit dan belum sepenuhnya stabil. Saya akan memimpin tim itu sendiri. Anda fokus pada bantuan dari kota.\"", 30);
+    delayPrint(L"Weiss: \"Baik. Segera berangkat. Aku akan terus berkoordinasi denganmu melalui radio ini.\" (Menyerahkan radio komunikasi khusus). \"Gunakan frekuensi darurat keluarga Astra. Itu akan menembus gangguan sinyal di bawah sana. Jaga dirimu dan timmu, Kinich. Nyawa mereka ada di tanganmu.\"", 30);
+    delayPrint(L"Kinich: (Menggenggam radio itu erat, menatap Weiss dengan campuran tekad dan rasa terima kasih) \"Saya mengerti, Weiss. Saya tidak akan mengecewakanmu, atau anak buah saya. Terima kasih... atas segalanya. Anda benar-benar berbeda dari yang pernah saya bayangkan.\"", 30);
+    delayPrint(L"Weiss: \"Tidak ada waktu untuk itu sekarang. Selamatkan mereka, Kinich. Itu yang terpenting. Aku akan pastikan bantuan datang secepat kilat.\"", 30);
+    delayPrint(L"Kinich: \"Siap!\" (Berlari memimpin timnya menuju pintu masuk goa).", 30);
+    delayPrint(L"Weiss segera menggunakan otoritasnya untuk menghubungi pihak-pihak terkait di Arcadia, memotong jalur birokrasi dan memastikan bantuan darurat segera dikirim. Beberapa jam kemudian, berkat koordinasi yang baik antara tim Kinich di dalam goa dan bantuan yang cepat datang dari kota, semua penambang yang terjebak berhasil dievakuasi dengan selamat, meskipun beberapa mengalami keracunan ringan.", 30);
+    delayPrint(L"Kinich: (Menghampiri Weiss yang menunggu dengan cemas di Camp Avernix, wajahnya kotor dan lelah tapi ada kelegaan besar) \"Semua... semua selamat, Weiss. Berkat kau... berkat tindakan cepatmu. Bantuan dari kota datang tepat pada waktunya. Tabung oksigen tambahan itu menyelamatkan banyak nyawa.\"", 30);
+    delayPrint(L"Weiss: (Menghela napas lega) \"Syukurlah, Kinich. Ini kerja tim. Kau dan anak buahmu yang mempertaruhkan nyawa di bawah sana. Aku hanya membantu dari sini. Bagaimana kondisi mereka sekarang?\"", 30);
+    delayPrint(L"Kinich: \"Beberapa masih dirawat tim medis, tapi dokter bilang mereka akan pulih. Hari ini... hari ini kita berhasil menghindari tragedi besar. Dan itu semua karena ada seseorang di 'atas' yang akhirnya benar-benar peduli pada kami di 'bawah' sini.\"", 30);
+    delayPrint(L"Weiss: \"Kita semua adalah bagian dari komunitas yang sama, Kinich. Keselamatan setiap individu itu penting. Istirahatlah. Kau pantas mendapatkannya.\"", 30);
+    delayPrint(L"Kinich: (Menepuk bahu Weiss dengan erat) \"Kau juga, Weiss. Kau juga. Kau telah membuktikan dirimu lebih dari sekadar bangsawan. Kau adalah pemimpin sejati.\"", 30);
+    delayPrint(L"Dalam situasi krisis, kalian berdua telah menunjukkan kemampuan untuk bekerja sama secara efektif, saling mempercayai, dan mengambil keputusan sulit. Ikatan kalian kini bukan hanya persahabatan, tapi juga kemitraan yang teruji dalam menghadapi bahaya.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneKinichLevel10() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Kinich - Penjaga Tambang ✦ Level 10 ✦ 'Jantung Goa' Avernix (Area Kristal Tersembunyi) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Beberapa waktu setelah insiden kebocoran gas, Kinich mengajak Weiss ke sebuah bagian goa yang sangat dalam dan jarang dijamah, yang hanya diketahui oleh para penjaga tambang paling senior.", 30);
+    delayPrint(L"Kinich: \"Hati-hati melangkah, Weiss. Jalur ini tidak ada di peta resmi. Hanya sedikit dari kami yang tahu tempat ini. Saya ingin menunjukkan sesuatu padamu sebagai rasa terima kasih atas semua yang telah kau lakukan untuk kami.\"", 30);
+    delayPrint(L"Weiss: (Mengikuti Kinich dengan hati-hati, hanya diterangi oleh lampu karbit mereka) \"Ke mana kau akan membawaku, Kinich? Ini terasa seperti petualangan sungguhan. Apakah ini aman?\"", 30);
+    delayPrint(L"Kinich: \"Relatif aman jika kau tahu jalannya. Dan ya, ini adalah petualangan.\" (Tersenyum tipis). Setelah melewati lorong sempit dan turunan yang curam, mereka tiba di sebuah gua besar yang dindingnya dipenuhi kristal-kristal berwarna-warni yang berpendar dengan cahaya redup, menciptakan pemandangan yang luar biasa indah dan magis.", 30);
+    delayPrint(L"Weiss: (Ternganga takjub) \"Demi para Dewa... Kinich... tempat apa ini? Ini... ini seperti surga tersembunyi di perut bumi! Belum pernah aku melihat kristal seindah dan sebanyak ini!\"", 30);
+    delayPrint(L"Kinich: (Menatap sekeliling dengan bangga) \"Kami menyebutnya 'Jantung Goa', Weiss. Tempat ini adalah sumber kehidupan dan energi Goa Avernix, menurut kepercayaan para tetua kami. Kristal-kristal ini bukan untuk ditambang. Mereka adalah penjaga keseimbangan goa ini. Hanya sedikit orang yang pernah melihatnya secara langsung.\"", 30);
+    delayPrint(L"Weiss: \"Mengapa... mengapa kau menunjukkannya padaku, Kinich? Ini pasti rahasia besar bagi kalian.\"", 30);
+    delayPrint(L"Kinich: \"Karena kau telah membuktikan dirimu sebagai sahabat sejati para penambang dan pelindung Goa Avernix, Weiss. Kau telah menunjukkan kepedulian yang melampaui keuntungan materi. Kau telah mempertaruhkan dirimu demi kami. Bagi kami, itu menjadikanmu bagian dari 'keluarga' goa ini.\"", 30);
+    delayPrint(L"Kinich kemudian mengambil sebuah kristal sebesar genggaman tangan yang memancarkan cahaya biru paling terang dari sebuah ceruk.", 30);
+    delayPrint(L"Kinich: \"Ini adalah 'Air Mata Avernix'. Legenda mengatakan kristal ini terbentuk dari air mata Roh Penunggu Goa yang berduka atas keserakahan manusia. Tapi bagi kami, ini adalah simbol harapan dan perlindungan. Saya ingin kau memilikinya, Weiss. Sebagai tanda persahabatan abadi kita, dan sebagai pengingat bahwa bahkan di tempat tergelap sekalipun, selalu ada cahaya keindahan dan harapan.\"", 30);
+    delayPrint(L"Weiss: (Menerima kristal itu dengan tangan gemetar, merasakan energi hangat yang mengalir darinya) \"Kinich... aku... aku benar-benar tidak bisa berkata-kata. Ini adalah hadiah paling luar biasa dan paling berarti yang pernah kuterima. Aku bersumpah akan menjaganya dengan segenap jiwaku, seperti aku menjaga kepercayaan yang telah kau berikan padaku.\"", 30);
+    delayPrint(L"Kinich: (Menepuk bahu Weiss dengan erat) \"Aku tahu kau akan melakukannya, saudaraku. Ingatlah, Weiss, Goa Avernix ini mungkin keras dan berbahaya, tapi dia juga murah hati kepada mereka yang menghormatinya. Dan kami, para penambang dan penjaga, akan selalu menjadi sekutumu, di dalam maupun di luar goa ini. Kau telah mendapatkan kesetiaan kami yang tak tergoyahkan.\"", 30);
+    delayPrint(L"Weiss: \"Dan kalian juga telah mendapatkan kesetiaan dan dukunganku selamanya, Kinich. Kita akan terus memastikan bahwa goa ini memberikan kehidupan, bukan mengambilnya. Mungkin kita bisa memulai program eksplorasi yang lebih aman dan bertanggung jawab, dengan memprioritaskan kesejahteraan penambang dan kelestarian goa?\"", 30);
+    delayPrint(L"Kinich: (Tertawa terbahak-bahak, suara tawanya menggema di gua kristal itu) \"Kau benar-benar tidak pernah kehabisan ide untuk bekerja ya, Weiss! Tapi aku suka semangatmu itu! Tentu saja! Dengan kau di sisi kami, aku yakin masa depan Goa Avernix akan jauh lebih cerah! Tapi untuk sekarang... mari kita nikmati keindahan 'Jantung Goa' ini sejenak. Ini adalah momen langka.\"", 30);
+    delayPrint(L"Weiss: (Tersenyum, memandang sekeliling dengan takjub) \"Kau benar, Kinich. Sangat benar.\"", 30);
+    delayPrint(L"Di tengah keindahan magis 'Jantung Goa', sebuah ikatan persaudaraan yang ditempa oleh bahaya, kepercayaan, dan rasa hormat timbal balik telah mencapai puncaknya. Weiss dan Kinich, dua pria dari dunia yang sangat berbeda, kini bersatu sebagai penjaga dan sahabat Goa Avernix, siap menghadapi masa depan bersama.", 30);
+
+    // applySocialLinkBonus("Kinich"); // Misal: "Kinich's Miner's Pact" (Passive: Increased chance to find rare ores/gems in Goa Avernix, better prices for selling minerals, access to Kinich's network for certain underground info, or a unique mining tool/charm that provides protection or luck in caves).
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel1() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 1 ✦ Taman Norelia, Puncak Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss: (Melihat seorang wanita muda bangsawan dengan pakaian elegan sedang menatap pemandangan kota dari Puncak Arcadia dengan ekspresi dingin dan angkuh. Weiss mendekat dengan sopan) \"Permisi, pemandangan dari sini sungguh menakjubkan, bukan? Saya Weiss von Astra.\"", 30);
+    delayPrint(L"Masha: (Menoleh sekilas ke arah Weiss, tatapannya dingin dan menilai, lalu kembali memandang ke kejauhan) \"Pemandangan hanyalah pemandangan, Tuan von Astra. Biasa saja. Apakah ada keperluan mendesak yang membuat Anda merasa perlu mengganggu ketenangan saya?\"", 30);
+    delayPrint(L"Weiss: \"Tidak ada yang mendesak, Nona... maaf, saya belum tahu nama Anda. Saya hanya berpikir untuk memulai percakapan ringan. Jarang bertemu sesama bangsawan di tempat setenang ini.\"", 30);
+    delayPrint(L"Masha: \"Masha. Masha von Aurora. Dan saya lebih suka menikmati ketenangan ini sendirian, jika Anda tidak keberatan. Saya datang ke sini untuk menjernihkan pikiran, bukan untuk basa-basi.\"", 30);
+    delayPrint(L"Weiss: \"Saya mengerti, Nona von Aurora. Maafkan kelancangan saya. Saya tidak akan mengganggu lebih lama. Semoga Anda menemukan kejernihan yang Anda cari.\"", 30);
+    delayPrint(L"Masha: (Hanya memberikan anggukan singkat tanpa menoleh, seolah Weiss sudah tidak ada lagi di sana).", 30);
+    delayPrint(L"Weiss: (Dalam hati) \"Putri Es dari keluarga Aurora rupanya. Sesuai dengan reputasinya. Ini akan jadi interaksi yang... menarik.\"", 30);
+    delayPrint(L"Masha: \"Apakah ada hal lain, Tuan von Astra? Atau Anda hanya suka berdiri mematung di dekat orang asing?\", (Nadanya setajam es).", 30);
+    delayPrint(L"Weiss: \"Tidak ada, Nona von Aurora. Sekali lagi, permisi.\" (Weiss memutuskan untuk tidak memaksakan diri lebih jauh).", 30);
+    delayPrint(L"Masha: \"Hmph.\"", 30);
+    delayPrint(L"Pertemuan pertama yang sangat dingin. Masha jelas bukan tipe orang yang mudah didekati. Mendapatkan perhatiannya saja sudah merupakan sebuah pencapaian.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel2() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 2 ✦ Taman Norelia, Puncak Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss kembali ke Taman Norelia beberapa hari kemudian, dan lagi-lagi menemukan Masha di tempat yang sama, sedang membaca sebuah buku bersampul kulit tebal dengan ekspresi serius.", 30);
+    delayPrint(L"Weiss: (Berusaha menjaga jarak aman, hanya mengangguk sopan) \"Selamat siang, Nona von Aurora. Semoga hari Anda menyenangkan.\"", 30);
+    delayPrint(L"Masha: (Melirik sekilas dari balik bukunya, ekspresinya tidak berubah) \"Siang. Saya harap Anda tidak berencana untuk 'memulai percakapan ringan' lagi hari ini, Tuan von Astra. Saya sedang sibuk.\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak akan mengganggu kegiatan membaca Anda, Nona. Saya hanya ingin menikmati udara segar. Kebetulan bunga Azalea di sudut sana sedang mekar dengan indah. Apakah Anda sempat memperhatikannya?\"", 30);
+    delayPrint(L"Masha: \"Bunga hanyalah bunga, Tuan von Astra. Keindahannya fana dan tidak banyak berguna. Berbeda dengan pengetahuan dalam buku ini, yang abadi dan mencerahkan.\" (Kembali fokus pada bukunya).", 30);
+    delayPrint(L"Weiss: \"Setiap hal punya keindahannya masing-masing, saya rasa. Bahkan yang fana sekalipun bisa memberi inspirasi. Buku apa yang sedang Anda baca, jika saya boleh tahu? Sepertinya sangat menarik perhatian Anda.\"", 30);
+    delayPrint(L"Masha: (Menutup bukunya dengan jari sebagai pembatas, menatap Weiss dengan sedikit kesal) \"Apakah rasa ingin tahu Anda tidak ada batasnya, Tuan von Astra? Ini adalah risalah filosofi tentang 'Keseimbangan Kekuasaan dan Moralitas Pemerintahan'. Saya ragu topik seperti ini akan menarik bagi Anda.\"", 30);
+    delayPrint(L"Weiss: \"Justru sebaliknya, Nona. Topik itu sangat relevan dengan posisi saya. Mungkin suatu saat kita bisa berdiskusi tentang pandangan filsuf Xantus mengenai hal itu? Saya menemukan beberapa argumennya cukup... problematis.\"", 30);
+    delayPrint(L"Masha: (Alisnya sedikit terangkat, ada sebersit keterkejutan yang cepat ia sembunyikan) \"Anda... membaca Xantus? Saya tidak menyangka. Kebanyakan bangsawan seusia Anda lebih tertarik pada pesta dan perburuan.\"", 30);
+    delayPrint(L"Weiss: \"Saya mencoba memperluas wawasan saya, Nona. Pesta dan perburuan memang menyenangkan, tapi tidak memberikan jawaban atas pertanyaan-pertanyaan penting dalam hidup.\"", 30);
+    delayPrint(L"Masha: \"Hmph. Mungkin Anda tidak sepenuhnya... dangkal seperti yang saya kira. Tapi tetap saja, saya lebih suka membaca dalam ketenangan.\" (Kembali membuka bukunya, namun kali ini ada sedikit keraguan dalam gerakannya).", 30);
+    delayPrint(L"Weiss: \"Saya mengerti. Selamat melanjutkan, Nona von Aurora.\"", 30);
+    delayPrint(L"Meskipun masih sangat dingin, setidaknya dia tidak langsung mengusirmu. Menyebut Xantus sepertinya sedikit menarik perhatiannya, walau hanya sesaat.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel3() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 3 ✦ Taman Norelia, Puncak Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Saat Weiss sedang menikmati pemandangan, Masha mendekat dengan langkah anggun namun tetap menjaga jarak.", 30);
+    delayPrint(L"Masha: \"Tuan von Astra. Mengenai Xantus yang Anda sebutkan tempo hari. Argumen mana yang Anda anggap problematis? Apakah tentang konsepnya mengenai 'Keadilan Ilahiah' yang melegitimasi kekuasaan absolut?\"", 30);
+    delayPrint(L"Weiss: (Sedikit terkejut Masha yang memulai percakapan) \"Nona von Aurora. Ya, tepat sekali. Saya merasa konsep itu terlalu menyederhanakan kompleksitas keadilan dan mudah disalahgunakan untuk menindas. Bagaimana menurut Anda?\"", 30);
+    delayPrint(L"Masha: \"Xantus menulis dalam konteks zamannya, Tuan von Astra. Di mana stabilitas adalah segalanya. Namun, saya setuju bahwa interpretasi literal atas karyanya bisa berbahaya. Ada filsuf lain, Lady Seraphina, yang menawarkan kritik menarik terhadap Xantus. Pernahkah Anda membacanya?\"", 30);
+    delayPrint(L"Weiss: \"Lady Seraphina dari Valoria? 'Dialektika Kepatuhan dan Kebebasan'? Ya, saya sudah membacanya. Argumennya tentang hak individu memang lebih sesuai dengan perkembangan zaman. Tapi bukankah dia juga terlalu idealis dalam beberapa aspek?\"", 30);
+    delayPrint(L"Masha: (Untuk pertama kalinya, Weiss melihat secercah senyum tipis di bibir Masha, meskipun cepat menghilang) \"Idealisme adalah kemewahan bagi mereka yang tidak memegang kekuasaan riil, Tuan von Astra. Tapi pemikirannya memberikan alternatif yang menyegarkan. Saya terkejut Anda memiliki pemahaman sejauh ini tentang topik yang... cukup kering bagi kebanyakan orang.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya berusaha memahami dunia di sekitar saya, Nona. Dan terkadang, diskusi dengan orang yang punya perspektif berbeda bisa sangat mencerahkan. Apakah Anda sering membaca risalah filosofi di waktu luang Anda?\"", 30);
+    delayPrint(L"Masha: \"Saya menemukan bahwa memahami pemikiran para filsuf besar membantu saya menavigasi... kerumitan interaksi sosial dan politik di kalangan bangsawan. Lebih berguna daripada mendengarkan gosip di pesta dansa.\"", 30);
+    delayPrint(L"Weiss: \"Saya setuju sepenuhnya. Gosip memang melelahkan. Mungkin lain kali kita bisa membahas lebih lanjut tentang pandangan Lady Seraphina mengenai etika kepemimpinan? Ada beberapa poinnya yang masih saya pertanyakan.\"", 30);
+    delayPrint(L"Masha: (Setelah jeda singkat) \"...Mungkin. Jika saya sedang tidak ada urusan yang lebih mendesak. Jangan salah paham, Tuan von Astra, ini murni diskusi akademis.\" (Nadanya kembali sedikit dingin, seolah menyadari dirinya terlalu 'terbuka').", 30);
+    delayPrint(L"Weiss: \"Tentu saja, Nona von Aurora. Murni akademis. Saya menantikannya.\"", 30);
+    delayPrint(L"Masha: \"Hmph.\" (Dia berbalik dan kembali ke tempat duduknya yang biasa, membuka bukunya).", 30);
+    delayPrint(L"Sebuah kemajuan besar! Masha tidak hanya memulai percakapan, tapi juga terlibat dalam diskusi intelektual. Dinding esnya mungkin mulai retak, meskipun sangat perlahan.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel4() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 4 ✦ Taman Norelia, Puncak Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss melihat Masha sedang berdiri di dekat hamparan bunga Edelweiss langka yang tumbuh di salah satu sudut tersembunyi Taman Norelia. Dia tampak sedang mengamati bunga itu dengan intensitas yang tidak biasa.", 30);
+    delayPrint(L"Weiss: (Menghampiri dengan hati-hati) \"Bunga yang indah, bukan, Nona von Aurora? Saya dengar Edelweiss ini hanya tumbuh di tempat-tempat tinggi dan sulit dijangkau. Keberadaannya di sini cukup istimewa.\"", 30);
+    delayPrint(L"Masha: (Menoleh, sedikit terkejut karena tidak menyadari kehadiran Weiss) \"Tuan von Astra. Anda lagi. Ya, Edelweiss memang bunga yang unik. Simbol ketahanan dan kemurnian. Tidak banyak yang menghargai keberadaannya yang sederhana namun kuat.\"", 30);
+    delayPrint(L"Weiss: \"Anda tampak sangat memahaminya. Apakah Anda punya pengetahuan khusus tentang botani? Saya perhatikan cara Anda mengamati bunga ini berbeda dari sekadar menikmati keindahannya.\"", 30);
+    delayPrint(L"Masha: (Ada sedikit keraguan di matanya sebelum menjawab) \"Saya... memiliki sedikit ketertarikan pada herbologi dan khasiat tanaman. Edelweiss, misalnya, selain keindahannya, ekstraknya dipercaya memiliki sifat anti-penuaan dan melindungi dari radikal bebas. Pengetahuan yang cukup berguna, bukan?\"", 30);
+    delayPrint(L"Weiss: \"Sangat berguna dan sangat menarik! Saya tidak tahu Edelweiss punya khasiat seperti itu. Apakah keluarga Aurora memiliki tradisi dalam mempelajari herbologi? Atau ini murni minat pribadi Anda?\"", 30);
+    delayPrint(L"Masha: (Mengalihkan pandangannya kembali ke bunga) \"Ini hanya hobi pribadi, Tuan von Astra. Sesuatu untuk mengisi waktu luang selain membaca buku-buku berat. Tidak semua hal harus selalu terkait dengan tradisi keluarga atau politik, bukan?\"", 30);
+    delayPrint(L"Weiss: \"Anda benar sekali. Terkadang hobi pribadi adalah tempat kita menemukan diri kita yang sesungguhnya. Jika Anda tidak keberatan, mungkin suatu saat Anda bisa berbagi lebih banyak tentang tanaman menarik lainnya di taman ini? Saya yakin banyak yang punya cerita atau khasiat tersembunyi.\"", 30);
+    delayPrint(L"Masha: \"Saya tidak melihat alasan mengapa saya harus melakukannya.\" (Nadanya kembali dingin, namun ada sedikit nada defensif yang tidak biasa). \"Pengetahuan adalah kekuatan, Tuan von Astra. Tidak untuk dibagikan sembarangan.\"", 30);
+    delayPrint(L"Weiss: \"Saya mengerti maksud Anda, Nona. Tapi terkadang, berbagi pengetahuan justru bisa memperkaya, bukan mengurangi. Namun, saya hormati keputusan Anda.\" (Memberikan senyum tipis).", 30);
+    delayPrint(L"Masha: (Tertegun sejenak oleh respons Weiss yang tidak memaksa, lalu membuang muka) \"Saya harus pergi. Ada urusan lain.\" (Berlalu dengan cepat).", 30);
+    delayPrint(L"Weiss: \"Hati-hati di jalan, Nona von Aurora.\"", 30);
+    delayPrint(L"Meskipun dia kembali menarik diri, kamu berhasil melihat sekilas minat tersembunyinya. Ada lebih banyak hal dalam diri Putri Es ini daripada yang terlihat di permukaan.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel5() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 5 ✦ Taman Norelia, Puncak Arcadia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Masha sedang duduk di bangku taman, membaca surat bersampul lambang keluarga Aurora dengan ekspresi yang lebih tegang dari biasanya. Weiss yang kebetulan lewat, ragu sejenak sebelum memutuskan untuk menyapa.", 30);
+    delayPrint(L"Weiss: \"Nona von Aurora, selamat sore. Maaf jika mengganggu, tapi Anda terlihat... sedikit kurang baik hari ini. Apakah ada masalah?\"", 30);
+    delayPrint(L"Masha: (Mendongak kaget, buru-buru melipat surat itu dan memasukkannya ke dalam tasnya. Ekspresi dinginnya kembali terpasang, meski ada sedikit jejak keresahan di matanya) \"Tuan von Astra. Urusan saya bukan urusan Anda. Seperti biasa, Anda terlalu ingin tahu.\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak bermaksud ikut campur, Nona. Hanya saja, sebagai sesama... yah, bangsawan, saya tahu terkadang kita menerima surat yang isinya kurang menyenangkan atau membawa beban tanggung jawab yang berat. Jika Anda butuh seseorang untuk sekadar mengalihkan pikiran, saya ada di sini.\"", 30);
+    delayPrint(L"Masha: (Menatap Weiss lama, menilai ketulusan dalam kata-katanya) \"Beban tanggung jawab, katamu? Apa yang seorang von Astra yang terkenal 'malas' dan 'tidak peduli' tahu tentang beban tanggung jawab?\" (Nadanya sinis, tapi ada sedikit nada ingin menguji).", 30);
+    delayPrint(L"Weiss: (Menghela napas, memutuskan untuk sedikit lebih terbuka) \"Reputasi saya memang mendahului saya, Nona. Dan saya akui, sebagian besar benar adanya... dulu. Tapi orang bisa berubah. Dan saya sedang berusaha memikul tanggung jawab yang selama ini saya abaikan. Percayalah, tekanan dari keluarga dan ekspektasi publik itu... nyata, tidak peduli seberapa tebal tembok mansion kita.\"", 30);
+    delayPrint(L"Masha: (Tertegun mendengar kejujuran Weiss. Ada sesuatu dalam nada suaranya yang membuatnya terdiam sejenak) \"...Setidaknya Anda mengakuinya. Kebanyakan bangsawan terlalu angkuh untuk mengakui kelemahan atau kesalahan masa lalu mereka. Surat ini... ya, ini berkaitan dengan perjodohan yang diatur keluarga. Sesuatu yang sangat... kuno dan menyebalkan.\", (Dia mengucapkan kalimat terakhir dengan nada rendah, hampir seperti bergumam pada diri sendiri).", 30);
+    delayPrint(L"Weiss: \"Perjodohan. Saya turut... bersimpati. Itu memang salah satu 'kemewahan' yang seringkali tidak kita miliki sebagai bangsawan, kebebasan untuk memilih pasangan hidup. Apakah... apakah calonnya seseorang yang tidak Anda sukai?\"", 30);
+    delayPrint(L"Masha: (Mendengus pelan) \"Saya bahkan belum pernah bertemu dengannya. Ini murni aliansi politik antara keluarga Aurora dan keluarga Ruberius dari Utara. Mereka hanya melihat saya sebagai aset, bukan sebagai individu. Sangat... menghinakan.\"", 30);
+    delayPrint(L"Weiss: \"Saya mengerti perasaan itu. Perasaan menjadi bidak catur dalam permainan orang lain. Saya tidak bisa menawarkan solusi, Nona. Tapi saya bisa menawarkan telinga untuk mendengar, jika Anda merasa perlu meluapkan kekesalan Anda pada sistem yang terkadang tidak adil ini.\"", 30);
+    delayPrint(L"Masha: (Menatap Weiss lagi, kali ini dengan ekspresi yang lebih lembut, meskipun masih dijaga) \"...Terima kasih, Tuan von Astra. Mungkin... mungkin lain kali. Untuk saat ini, saya hanya ingin sendirian. Tapi... tawaran Anda... saya hargai.\"", 30);
+    delayPrint(L"Weiss: \"Kapan saja, Nona von Aurora. Saya harap Anda bisa menemukan sedikit ketenangan di taman ini.\"", 30);
+    delayPrint(L"Masha: \"Saya juga berharap begitu.\"", 30);
+    delayPrint(L"Ini adalah pertama kalinya Masha menunjukkan sedikit sisi rentannya padamu. Meskipun singkat dan dia langsung menarik diri, kamu merasa ada kemajuan besar. Beban menjadi bangsawan ternyata adalah sesuatu yang bisa kalian 'bagikan', meski hanya dalam diam.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel6() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 6 ✦ Taman Norelia (Dekat Air Mancur Tersembunyi) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss berjalan menuju bagian taman yang lebih jarang dikunjungi, dekat sebuah air mancur kecil yang tersembunyi di balik rimbunnya pepohonan. Samar-samar ia mendengar suara Masha, bukan nada dingin yang biasa, tapi nada yang lebih... bersemangat, berbicara dengan seorang pelayan wanitanya.", 30);
+    delayPrint(L"Masha: (Tidak menyadari kehadiran Weiss) \"...dan bayangkan, Livia! Jika kita bisa mengembangbiakkan jenis Anggrek Bulan Salju itu di iklim Arcadia, nilainya akan sangat tinggi! Aku sudah membaca semua jurnal penelitiannya, teknik penyerbukannya memang rumit, tapi bukan tidak mungkin! Ini bisa jadi proyek botani yang revolusioner!\"", 30);
+    delayPrint(L"Pelayan Livia: \"Anda memang selalu punya ide-ide cemerlang, Nona Masha. Tapi apakah Tuan Besar von Aurora akan menyetujui proyek yang 'tidak biasa' ini?\"", 30);
+    delayPrint(L"Masha: \"Ayah... yah, dia mungkin akan menganggapnya buang-buang waktu. Dia lebih suka aku fokus pada pelajaran etiket dan mempersiapkan diri untuk... ah, sudahlah. Tapi aku yakin, jika aku bisa membuktikan nilai komersial dan ilmiahnya...\"", 30);
+    delayPrint(L"Weiss: (Sengaja membuat sedikit suara agar kehadirannya diketahui) \"Permisi, Nona von Aurora. Maaf tidak sengaja mendengar. Proyek Anggrek Bulan Salju? Kedengarannya sangat ambisius dan menarik.\"", 30);
+    delayPrint(L"Masha: (Terlonjak kaget, wajahnya langsung kembali dingin dan waspada. Pelayannya segera menunduk hormat) \"Tuan von Astra! Apa yang Anda lakukan di sini? Menguping pembicaraan pribadi orang lain? Sungguh tidak sopan!\"", 30);
+    delayPrint(L"Weiss: \"Saya sungguh tidak bermaksud menguping, Nona. Saya hanya sedang berjalan-jalan dan tidak sengaja mendengar antusiasme Anda. Saya minta maaf jika membuat Anda tidak nyaman. Tapi, jika boleh jujur, saya terkesan dengan semangat Anda terhadap proyek botani itu.\"", 30);
+    delayPrint(L"Masha: (Pipinya sedikit merona, entah karena marah atau malu) \"Itu... itu hanya selingan. Bukan sesuatu yang serius. Lupakan saja apa yang Anda dengar. Pelayan saya pasti salah bicara.\" (Melirik tajam ke arah Livia).", 30);
+    delayPrint(L"Livia: \"M-maafkan saya, Nona Masha, Tuan Muda.\"", 30);
+    delayPrint(L"Weiss: \"Saya rasa tidak ada yang salah, Nona. Memiliki gairah terhadap sesuatu, apapun itu, adalah hal yang baik. Saya sendiri sedang mencoba menemukan hal yang benar-benar bisa membuat saya bersemangat. Mungkin Anggrek Bulan Salju itu bisa jadi salah satunya jika Anda bersedia berbagi sedikit tentangnya?\"", 30);
+    delayPrint(L"Masha: (Menatap Weiss dengan curiga, mencoba membaca niatnya) \"Saya tidak punya waktu untuk menjelaskan hal-hal sepele kepada Anda, Tuan von Astra. Saya punya banyak urusan yang lebih penting. Permisi.\" (Bergegas pergi, diikuti pelayannya).", 30);
+    delayPrint(L"Weiss: (Menghela napas sambil tersenyum tipis) \"Yah, setidaknya aku melihat sisi lainnya hari ini, walau hanya sekilas.\"", 30);
+    delayPrint(L"Meskipun dia kembali memasang dinding esnya, kamu tahu sekarang bahwa di balik sikap dingin itu ada gairah dan kecerdasan yang terpendam. Dia bukan hanya sekadar 'Putri Es'.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel7() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 7 ✦ Gazebo Taman Norelia ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Weiss sedang membaca di gazebo ketika Masha datang dan duduk di bangku seberang, juga dengan sebuah buku. Suasana hening sejenak.", 30);
+    delayPrint(L"Masha: \"Tuan von Astra. Saya sudah memikirkan diskusi kita tentang Xantus dan Seraphina. Saya menemukan beberapa inkonsistensi dalam argumen Seraphina mengenai 'otonomi absolut individu' jika diterapkan dalam struktur masyarakat yang kompleks. Bagaimana menurut Anda?\"", 30);
+    delayPrint(L"Weiss: (Menutup bukunya, senang karena Masha yang memulai) \"Sebuah pengamatan yang menarik, Nona von Aurora. Saya setuju bahwa otonomi absolut bisa berbenturan dengan kebutuhan akan keteraturan sosial. Tapi bukankah keteraturan yang terlalu kaku juga bisa mematikan inovasi dan kebebasan berpikir, seperti yang dikritik Seraphina terhadap sistem yang diidealkan Xantus?\"", 30);
+    delayPrint(L"Masha: \"Inovasi tanpa arah bisa berbahaya, Tuan von Astra. Kebebasan berpikir tanpa tanggung jawab bisa melahirkan anarki. Harus ada keseimbangan. Pertanyaannya, siapa yang berhak menentukan titik keseimbangan itu? Apakah negara, seperti kata Xantus, atau individu melalui kontrak sosial, seperti yang diusulkan Seraphina?\"", 30);
+    delayPrint(L"Weiss: \"Itulah dilema utamanya. Saya pribadi lebih condong pada kontrak sosial yang dinamis, yang bisa ditinjau ulang seiring perkembangan masyarakat. Kekuasaan negara yang absolut, bahkan jika didasari 'Keadilan Ilahiah', terlalu rentan terhadap penyalahgunaan oleh individu yang memegang kekuasaan tersebut.\"", 30);
+    delayPrint(L"Masha: \"Tapi kontrak sosial juga bisa dimanipulasi oleh kelompok mayoritas yang menindas minoritas, atau oleh demagog yang pandai memainkan emosi massa. Setidaknya, konsep 'Keadilan Ilahiah' Xantus, meskipun problematis, mencoba memberikan landasan moral transenden yang tidak bergantung pada opini publik yang mudah berubah.\"", 30);
+    delayPrint(L"Weiss: \"Anda ada benarnya. Tidak ada sistem yang sempurna. Mungkin solusinya terletak pada kombinasi keduanya? Sebuah negara yang kuat namun dibatasi oleh hukum yang menjamin hak-hak dasar individu, dan partisipasi publik yang cerdas dalam mengawasi jalannya pemerintahan?\"", 30);
+    delayPrint(L"Masha: (Tertegun sejenak, lalu mengangguk pelan) \"Sebuah... sintesis yang menarik, Tuan von Astra. Memadukan stabilitas Xantus dengan dinamisme Seraphina. Saya belum pernah memikirkannya dari sudut pandang itu. Anda... ternyata punya pemikiran yang cukup mendalam, di luar dugaan saya.\"", 30);
+    delayPrint(L"Weiss: \"Saya hanya berusaha mencari jawaban, sama seperti Anda, Nona. Dan diskusi seperti ini sangat membantu. Apakah Anda punya rekomendasi buku lain yang membahas topik serupa dari perspektif yang berbeda?\"", 30);
+    delayPrint(L"Masha: \"Ada beberapa. 'Republik Utopia' karya Magister Lucian, atau 'Risalah tentang Tirani Kebaikan' oleh Historian Amara. Keduanya menawarkan pandangan yang cukup... provokatif. Mungkin Anda akan tertarik.\"", 30);
+    delayPrint(L"Weiss: \"Akan saya cari buku-buku itu. Terima kasih atas rekomendasinya, Nona von Aurora. Dan terima kasih untuk diskusinya. Ini sangat mencerahkan.\"", 30);
+    delayPrint(L"Masha: \"Diskusi ini... cukup bisa ditoleransi, Tuan von Astra.\" (Ada sedikit senyum yang sangat tipis, yang langsung ia sembunyikan dengan kembali membuka bukunya).", 30);
+    delayPrint(L"Weiss: \"Saya anggap itu pujian tertinggi dari Anda.\" (Tersenyum dalam hati).", 30);
+    delayPrint(L"Perdebatan intelektual ini, meskipun masih ada nada formal, menunjukkan adanya rasa hormat timbal balik terhadap kecerdasan masing-masing. Dinding es Masha benar-benar mulai mencair.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel8() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 8 ✦ Taman Norelia (Cuaca Mendung) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Cuaca hari itu mendung, mencerminkan suasana hati Masha yang tampak lebih suram dari biasanya. Dia berdiri sendirian di tepi tebing, memandang ke arah kota yang diselimuti awan kelabu.", 30);
+    delayPrint(L"Weiss: (Menghampirinya dengan hati-hati) \"Nona von Aurora? Langit hari ini tampak ikut berduka. Apakah ada sesuatu yang membebani pikiran Anda? Anda terlihat... lebih pendiam dari biasanya.\"", 30);
+    delayPrint(L"Masha: (Menoleh, matanya tampak lelah. Dia tidak langsung memasang sikap dinginnya yang biasa) \"Tuan von Astra. Hanya... hari yang melelahkan. Terlalu banyak tuntutan, terlalu banyak ekspektasi yang tidak masuk akal dari keluarga. Terkadang saya merasa seperti boneka pajangan yang hanya boleh tersenyum dan mengangguk.\"", 30);
+    delayPrint(L"Weiss: \"Saya mengerti perasaan itu lebih dari yang Anda bayangkan, Masha.\" (Menggunakan namanya tanpa gelar secara refleks, lalu sedikit ragu) \"Maaf... Nona von Aurora. Maksud saya, tekanan menjadi pewaris bangsawan memang terkadang menyesakkan.\"", 30);
+    delayPrint(L"Masha: (Tidak mengoreksi panggilan Weiss, hanya menghela napas panjang) \"Ayah saya... beliau baru saja memberitahu bahwa rencana perjodohan saya dengan Pangeran dari Utara itu akan dipercepat. Mereka bahkan tidak bertanya apakah saya setuju atau tidak. Seolah pendapat saya tidak penting sama sekali. Yang mereka pedulikan hanya aliansi dan perluasan pengaruh.\"", 30);
+    delayPrint(L"Weiss: \"Itu... sangat tidak adil. Anda berhak menentukan jalan hidup Anda sendiri, termasuk dengan siapa Anda akan menghabiskan sisa hidup Anda. Apakah tidak ada cara untuk menolak atau setidaknya menundanya?\"", 30);
+    delayPrint(L"Masha: \"Melawan keinginan Kepala Keluarga Aurora? Itu sama saja dengan bunuh diri sosial, Weiss.\" (Dia juga memanggil nama Weiss tanpa gelar, suaranya terdengar pahit) \"Saya dididik untuk patuh, untuk menjadi 'putri yang baik', untuk mengorbankan kebahagiaan pribadi demi 'kebaikan keluarga'. Sangat munafik, bukan?\"", 30);
+    delayPrint(L"Weiss: \"Sangat munafik. Dan sangat menyedihkan. Tapi, Masha, Anda adalah wanita yang cerdas dan kuat. Saya sudah melihatnya. Pasti ada sesuatu yang bisa Anda lakukan. Mungkin... mencari sekutu di dalam keluarga Anda? Atau menunjukkan bahwa Anda punya nilai lebih dari sekadar 'alat' perjodohan? Proyek Anggrek Bulan Salju Anda, misalnya?\"", 30);
+    delayPrint(L"Masha: (Menatap Weiss, ada secercah harapan di matanya yang redup) \"Proyek anggrek itu... Ayah menganggapnya mainan anak kecil. Tapi... Anda benar. Mungkin jika saya bisa membuktikan bahwa saya bisa mandiri secara finansial atau membawa kehormatan bagi keluarga melalui jalur lain... mungkin mereka akan sedikit melunak.\"", 30);
+    delayPrint(L"Weiss: \"Itu patut dicoba. Dan jika Anda butuh dukungan, baik itu koneksi, sumber daya, atau sekadar teman untuk berdiskusi strategi, saya siap membantu. Anda tidak sendirian dalam hal ini, Masha.\"", 30);
+    delayPrint(L"Masha: (Untuk pertama kalinya, dia menatap Weiss dengan tatapan yang benar-benar terbuka, tanpa dinding es. Ada kerapuhan, tapi juga secercah tekad) \"...Kenapa Anda mau membantu saya, Weiss? Apa untungnya bagi Anda?\"", 30);
+    delayPrint(L"Weiss: \"Karena saya tahu bagaimana rasanya terkurung dalam sangkar emas, Masha. Dan karena saya percaya setiap orang berhak memperjuangkan kebahagiaannya. Anggap saja... saya ingin melihat 'Putri Es' ini akhirnya bisa tersenyum tulus karena pilihannya sendiri.\"", 30);
+    delayPrint(L"Masha: (Tertegun, lalu sebuah senyum yang sangat tipis namun tulus terukir di bibirnya) \"...Terima kasih, Weiss. Kata-kata Anda... sangat berarti. Saya... saya akan memikirkannya. Terima kasih sudah mau mendengarkan.\"", 30);
+    delayPrint(L"Weiss: \"Kapan saja, Masha. Kapan saja.\"", 30);
+    delayPrint(L"Momen kerentanan ini, di mana Masha membagikan beban hatinya dan Weiss menawarkan dukungan tulus, menjadi titik balik penting dalam hubungan kalian. Dinding es itu benar-benar mulai runtuh.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel9() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 9 ✦ Taman Norelia (Setelah Badai Kecil) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Badai semalam telah merusak sebagian kecil Taman Norelia. Beberapa pot bunga pecah dan ranting pohon berserakan. Weiss melihat Masha sedang sendirian, dengan hati-hati mencoba menegakkan kembali sebatang tanaman mawar langka yang batangnya patah.", 30);
+    delayPrint(L"Weiss: (Menghampirinya) \"Masha, hati-hati. Batang itu terlihat rapuh. Perlu bantuan? Saya membawa beberapa tali dan penyangga dari pos jaga taman.\"", 30);
+    delayPrint(L"Masha: (Menoleh, wajahnya sedikit kotor terkena tanah, tapi ekspresinya penuh tekad) \"Weiss. Terima kasih. Saya tidak tahu harus mulai dari mana. Mawar ini... ini adalah varietas 'Aurora Dawn', sangat langka dan berharga bagi saya. Saya khawatir dia tidak akan selamat.\"", 30);
+    delayPrint(L"Weiss: \"Kita akan coba selamatkan bersama. Saya pernah membaca beberapa teknik grafting dan perbanyakan tanaman. Mungkin kita bisa menyambungnya, atau setidaknya mengambil stek untuk ditanam kembali jika bagian utamanya tidak bisa diselamatkan.\"", 30);
+    delayPrint(L"Mereka berdua bekerja bersama dalam diam namun penuh konsentrasi, membersihkan area sekitar mawar, memasang penyangga, dan dengan hati-hati mencoba menyatukan kembali batang yang patah dengan balutan kain dan tali.", 30);
+    delayPrint(L"Masha: \"Anda... tahu banyak tentang tanaman juga rupanya, Weiss. Saya kira minat Anda hanya pada buku-buku filosofi berat.\", (Ada nada menggoda yang tidak biasa dalam suaranya).", 30);
+    delayPrint(L"Weiss: (Tersenyum) \"Saya punya banyak minat tersembunyi, Masha. Sama seperti Anda dengan herbologi dan Anggrek Bulan Salju itu. Bagaimana kabar proyek itu, ngomong-ngomong? Apakah ada kemajuan?\"", 30);
+    delayPrint(L"Masha: \"Berkat beberapa jurnal penelitian yang Anda bantu carikan dari perpustakaan keluarga Astra, saya menemukan metode baru untuk aklimatisasi bibitnya. Sudah ada beberapa yang mulai menunjukkan tanda-tanda pertumbuhan positif. Saya... saya sangat berterima kasih atas bantuan Anda itu, Weiss. Itu sangat berarti.\"", 30);
+    delayPrint(L"Weiss: \"Saya senang bisa membantu. Melihat semangat Anda saat membahasnya membuat saya ikut termotivasi. Nah, sepertinya mawar ini sudah cukup stabil untuk sementara. Kita tinggal berharap yang terbaik.\"", 30);
+    delayPrint(L"Masha: (Menatap mawar yang sudah ditopang itu, lalu menatap Weiss. Ada kelembutan yang tulus di matanya) \"Terima kasih, Weiss. Bukan hanya untuk mawar ini. Tapi... untuk segalanya. Untuk mau mendengarkan, untuk menawarkan bantuan tanpa pamrih, untuk... melihat saya lebih dari sekadar 'Putri Es'.\"", 30);
+    delayPrint(L"Weiss: \"Setiap orang punya sisi hangatnya masing-masing, Masha. Terkadang hanya butuh orang yang tepat untuk melihatnya. Dan saya... saya senang bisa melihat sisi hangat Anda.\" (Memberikan senyum tulus).", 30);
+    delayPrint(L"Masha: (Untuk pertama kalinya, dia tidak membuang muka atau menyembunyikan senyumnya. Sebuah senyum yang manis dan tulus, yang membuat wajahnya tampak begitu berbeda dan mempesona) \"Mungkin... mungkin Anda benar, Weiss. Mungkin memang begitu.\"", 30);
+    delayPrint(L"Weiss: \"Lain kali, jika ada badai lagi, jangan sungkan meminta bantuan, ya? Dua pasang tangan selalu lebih baik dari satu, terutama untuk menyelamatkan mawar langka.\"", 30);
+    delayPrint(L"Masha: (Tertawa kecil, suara tawa yang merdu) \"Akan saya ingat itu. Dan mungkin... setelah ini kita bisa minum teh hangat? Saya yang buatkan. Saya punya campuran herbal spesial yang bisa meredakan lelah.\"", 30);
+    delayPrint(L"Weiss: \"Sebuah tawaran yang tidak mungkin saya tolak, Masha.\"", 30);
+    delayPrint(L"Di tengah taman yang sedikit porak-poranda, sebuah hubungan yang tadinya dingin kini mekar menjadi sesuatu yang hangat dan tulus. Kalian berdua telah menemukan kenyamanan dan dukungan satu sama lain.", 30);
+
+    printLine();
+    waitForEnter();
+}
+
+void sceneMashaLevel10() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ Masha - Putri Bangsawan Aurora ✦ Level 10 ✦ Taman Norelia (Festival Bunga Tahunan) ✦✦✦");
+    printLine();
+    wcout << endl;
+
+    delayPrint(L"Taman Norelia hari itu sangat ramai. Festival Bunga Tahunan sedang berlangsung, dan Masha, secara mengejutkan, menjadi salah satu panitia utama yang mengurus paviliun tanaman langka dan eksotis, termasuk beberapa Anggrek Bulan Salju hasil percobaannya yang mulai mekar.", 30);
+    delayPrint(L"Weiss: (Menghampiri Masha yang sedang sibuk memberikan penjelasan kepada beberapa pengunjung bangsawan) \"Paviliun Anda luar biasa, Masha! Anggrek Bulan Salju itu... benar-benar memukau! Anda berhasil!\"", 30);
+    delayPrint(L"Masha: (Menoleh, senyum bangga dan bahagia terpancar di wajahnya. Dia tidak lagi terlihat dingin, melainkan penuh percaya diri dan antusiasme) \"Weiss! Terima kasih! Ini semua juga berkat dukungan dan masukan dari Anda! Lihat, mereka mekar dengan sempurna! Ayah saya bahkan datang tadi dan... beliau terlihat cukup terkesan!\"", 30);
+    delayPrint(L"Weiss: \"Saya tidak ragu beliau akan terkesan. Anda telah membuktikan kemampuan dan dedikasi Anda. Bagaimana dengan... perjodohan itu? Apakah ada kabar baik?\"", 30);
+    delayPrint(L"Masha: (Senyumnya sedikit meredup, tapi tetap ada ketegasan di sana) \"Setelah melihat kesuksesan paviliun ini dan beberapa proposal bisnis yang saya ajukan terkait budidaya tanaman langka, Ayah setuju untuk... menunda perjodohan itu tanpa batas waktu. Beliau bilang, mungkin saya memang punya 'nilai' lain bagi keluarga Aurora selain menjadi istri Pangeran Utara.\" (Mengedipkan mata).", 30);
+    delayPrint(L"Weiss: \"Itu berita terbaik yang saya dengar hari ini, Masha! Saya ikut bahagia untuk Anda! Anda berhak mendapatkan kebebasan untuk memilih jalan hidup Anda sendiri!\"", 30);
+    delayPrint(L"Masha: \"Dan kebebasan itu sebagian besar karena Anda, Weiss. Anda yang memberi saya keberanian untuk melawan, untuk menunjukkan siapa diri saya sebenarnya. Anda yang percaya pada saya ketika tidak ada orang lain yang melakukannya, bahkan diri saya sendiri pun ragu.\"", 30);
+    delayPrint(L"Masha: \"Sebagai tanda terima kasih saya yang tak terhingga, dan sebagai simbol persahabatan kita yang telah tumbuh dari taman ini, saya ingin memberikan ini untuk Anda.\" (Dia mengambil sebuah kotak beludru kecil dari balik meja).", 30);
+    delayPrint(L"Di dalamnya, ada sebuah bros perak berbentuk bunga Edelweiss yang dikerjakan dengan sangat halus, dengan sebutir safir kecil di tengahnya yang berkilau seperti mata Masha.", 30);
+    delayPrint(L"Masha: \"Edelweiss, simbol ketahanan dan kemurnian. Dan safir, melambangkan kebijaksanaan dan ketulusan. Semoga ini selalu mengingatkan Anda pada Puncak Arcadia, pada Taman Norelia, dan pada... sahabat Anda di sini.\"", 30);
+    delayPrint(L"Weiss: (Menerima bros itu dengan penuh haru) \"Masha... ini... ini sangat indah. Lebih dari indah. Ini adalah simbol dari perjalanan luar biasa yang telah kita lalui bersama. Dari Putri Es yang angkuh hingga menjadi wanita kuat dan inspiratif yang berdiri di hadapan saya sekarang. Saya akan memakai ini dengan bangga.\"", 30);
+    delayPrint(L"Masha: (Pipinya merona, namun tatapannya mantap dan hangat) \"Dunia bangsawan mungkin penuh dengan kepalsuan dan intrik, Weiss. Tapi persahabatan kita adalah salah satu hal paling nyata dan berharga dalam hidup saya. Ketahuilah, keluarga Aurora, atau setidaknya saya pribadi, akan selalu menjadi sekutu Anda. Apapun yang terjadi.\"", 30);
+    delayPrint(L"Weiss: \"Dan keluarga Astra, atau setidaknya saya, juga akan selalu menjadi sekutu dan sahabat Anda, Masha. Mari kita hadapi dunia ini bersama, dengan keberanian dan ketulusan, seperti Edelweiss yang tumbuh di puncak tertinggi.\"", 30);
+    delayPrint(L"Masha: (Mengulurkan tangannya) \"Bersama, Weiss. Bersama.\"", 30);
+    delayPrint(L"Weiss: (Menjabat tangan Masha dengan erat) \"Bersama.\"", 30);
+    delayPrint(L"Di tengah kemeriahan festival, di antara keindahan bunga-bunga yang mekar, sebuah persahabatan yang unik dan kuat telah mencapai puncaknya. Weiss dan Masha, dua jiwa bangsawan yang menemukan koneksi tak terduga, kini siap melangkah maju, saling mendukung, dan mungkin, bersama-sama membawa perubahan positif bagi dunia mereka.", 30);
+
+    // applySocialLinkBonus("Masha"); // Misal: "Masha's Aurora Pact" (Passive: Increased influence/reputation among other noble families, access to rare botanical ingredients for crafting, a special Aurora family heirloom/accessory that grants a unique buff, or ability to get Masha's insight on political matters).
+
+    printLine();
+    waitForEnter();
+}
+
+
+void interactWithNPC(const string& npcName) {
+    if (talkedToday[npcName]) {
+        wcout << L"Kamu sudah berbicara dengan " << utf8_to_wstring(npcName) << L" hari ini.\n";
+        waitForEnter();
+        return;
+    }
+
+    wcout << L"Apakah kamu yakin ingin berbicara dengan " << utf8_to_wstring(npcName) << L"? (y/n): ";
+    char choice;
+    cin >> choice;
+    if (choice != 'y' && choice != 'Y') return;
+
+    if (currentActionsRemaining <= 0) {
+        wcout << L"Kamu tidak punya cukup poin aksi untuk berbicara.\n";
+        return;
+    }
+
+    consumeAction();
+    talkedToday[npcName] = true;
+
+    SocialLink& link = socialLinks[npcName];
+    int level = link.currentLevel;
+
+    // Periksa apakah level ini terkunci
+    const auto& lockedLevels = socialLinkStories[npcName].lockedLevels;
+    if (lockedLevels.count(level) > 0) {
+        wcout << L"Level ini terkunci. Selesaikan event tertentu untuk membukanya.\n";
+        return;
+    }
+
+    // Jalankan scene per NPC dan level
+    if (npcName == "Ruigerd") {
+        if (level == 1) sceneRuigerdLevel1();
+        else if (level == 2) sceneRuigerdLevel2();
+        else if (level == 3) sceneRuigerdLevel3();
+        else if (level == 4) sceneRuigerdLevel4();
+        else if (level == 5) sceneRuigerdLevel5();
+        else if (level == 6) sceneRuigerdLevel6();
+        else if (level == 7) sceneRuigerdLevel7();
+        else if (level == 8) sceneRuigerdLevel8();
+        else if (level == 9) sceneRuigerdLevel9();
+        else if (level == 10) sceneRuigerdLevel10();
+    } else if (npcName == "Irene") {
+        if (level == 1) sceneIreneLevel1();
+        else if (level == 2) sceneIreneLevel2();
+        else if (level == 3) sceneIreneLevel3();
+        else if (level == 4) sceneIreneLevel4();
+        else if (level == 5) sceneIreneLevel5();
+        else if (level == 6) sceneIreneLevel6();
+        else if (level == 7) sceneIreneLevel7();
+        else if (level == 8) sceneIreneLevel8();
+        else if (level == 9) sceneIreneLevel9();
+        else if (level == 10) sceneIreneLevel10();
+    } else if (npcName == "Ella") {
+        if (level == 1) sceneEllaLevel1();
+        else if (level == 2) sceneEllaLevel2();
+        else if (level == 3) sceneEllaLevel3();
+        else if (level == 4) sceneEllaLevel4();
+        else if (level == 5) sceneEllaLevel5();
+        else if (level == 6) sceneEllaLevel6();
+        else if (level == 7) sceneEllaLevel7();
+        else if (level == 8) sceneEllaLevel8();
+        else if (level == 9) sceneEllaLevel9();
+        else if (level == 10) sceneEllaLevel10();
+    } else if (npcName == "Charlotte") {
+        if (level == 1) sceneCharlotteLevel1();
+        else if (level == 2) sceneCharlotteLevel2();
+        else if (level == 3) sceneCharlotteLevel3();
+        else if (level == 4) sceneCharlotteLevel4();
+        else if (level == 5) sceneCharlotteLevel5();
+        else if (level == 6) sceneCharlotteLevel6();
+        else if (level == 7) sceneCharlotteLevel7();
+        else if (level == 8) sceneCharlotteLevel8();
+        else if (level == 9) sceneCharlotteLevel9();
+        else if (level == 10) sceneCharlotteLevel10();
+    } else if (npcName == "Mars") {
+        if (level == 1) sceneMarsLevel1();
+        else if (level == 2) sceneMarsLevel2();
+        else if (level == 3) sceneMarsLevel3();
+        else if (level == 4) sceneMarsLevel4();
+        else if (level == 5) sceneMarsLevel5();
+        else if (level == 6) sceneMarsLevel6();
+        else if (level == 7) sceneMarsLevel7();
+        else if (level == 8) sceneMarsLevel8();
+        else if (level == 9) sceneMarsLevel9();
+        else if (level == 10) sceneMarsLevel10();
+    } else if (npcName == "Kinich") {
+        if (level == 1) sceneKinichLevel1();
+        else if (level == 2) sceneKinichLevel2();
+        else if (level == 3) sceneKinichLevel3();
+        else if (level == 4) sceneKinichLevel4();
+        else if (level == 5) sceneKinichLevel5();
+        else if (level == 6) sceneKinichLevel6();
+        else if (level == 7) sceneKinichLevel7();
+        else if (level == 8) sceneKinichLevel8();
+        else if (level == 9) sceneKinichLevel9();
+        else if (level == 10) sceneKinichLevel10();
+    } else if (npcName == "Masha") {
+        if (level == 1) sceneMashaLevel1();
+        else if (level == 2) sceneMashaLevel2();
+        else if (level == 3) sceneMashaLevel3();
+        else if (level == 4) sceneMashaLevel4();
+        else if (level == 5) sceneMashaLevel5();
+        else if (level == 6) sceneMashaLevel6();
+        else if (level == 7) sceneMashaLevel7();
+        else if (level == 8) sceneMashaLevel8();
+        else if (level == 9) sceneMashaLevel9();
+        else if (level == 10) sceneMashaLevel10();
+    } else {
+        wcout << L"NPC tidak ditemukan.\n";
+        return;
+    }
+
+    // Naikkan level jika belum maksimal
+    if (link.currentLevel < 10) {
+        link.currentLevel++;
+    }
+
+    // Bonus saat level 10
+    if (link.currentLevel == 10 && !link.completed) {
+        applySocialLinkBonus(npcName);
+        link.completed = true;
+    }
+}
+
+
+
 // Main Game Loop
 void showGameMenu() {
     int choice;
@@ -3437,6 +6059,7 @@ void showGameMenu() {
         printLine();
         wcout << L"Lokasi: " << currentSubArea.c_str() << L" di " << currentWorld.c_str() << endl;
         wcout << L"Hari: " << currentDay << endl;
+        wcout << L"Aksi tersisa hari ini: " << currentActionsRemaining << L"/" << maxActionsPerDay << endl;
         printLine();    
         const auto& actions = allWorlds[currentWorld].subAreas[currentSubArea].actions;
         for (int i = 0; i < actions.size(); ++i) {
@@ -3457,12 +6080,22 @@ void showGameMenu() {
                 showDiaryMenu();
             } else if (action == "Pilih Lokasi") {
                 showLocationMenu();
-            } else if (action == "Bicara dengan Companion") {
-                wcout << L"(Fitur obrolan companion belum diimplementasikan)" << endl;
-                wcout << L"Tekan Enter untuk kembali..."; cin.get();
+            } else if (action == "Bicara dengan Ruigerd") {
+                interactWithNPC("Ruigerd");
+            } else if (action == "Bicara dengan Irene") {
+                interactWithNPC("Irene");
+            } else if (action == "Bicara dengan Ella") {
+                interactWithNPC("Ella");
+            } else if (action == "Bicara dengan Charlotte") {
+                interactWithNPC("Charlotte");
+            } else if (action == "Bicara dengan Mars") {
+                interactWithNPC("Mars");
+            } else if (action == "Bicara dengan Kinich") {
+                interactWithNPC("Kinich");
+            } else if (action == "Bicara dengan Masha") {
+                interactWithNPC("Masha");            
             } else if (action == "Quest Board") {
-                wcout << L"(Quest Board belum tersedia)" << endl;
-                wcout << L"Tekan Enter untuk kembali..."; cin.get();
+                showQuestBoard();
             } else if (action == "Item Shop") {
                 showItemShop();
             } else if (action == "Penempa Besi") {
@@ -3566,6 +6199,22 @@ void showLocationMenu() {
         cin >> subChoice;
         if (subChoice > 0 && subChoice <= subAreaList.size()) {
             currentSubArea = subAreaList[subChoice - 1];
+            for (auto& quest : dailyQuests) {
+            if (quest.type == "travel" && quest.taken && !quest.completed && currentSubArea == quest.target) {
+                quest.completed = true;
+                delayPrint(L"✓ Quest selesai: " + utf8_to_wstring(quest.title));
+                delayPrint(L"Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold");
+                player.exp += quest.expReward;
+                player.gold += quest.goldReward;
+                handleExperienceAndLevelUp(player, quest.expReward);
+                activeDailyQuests.erase(
+                remove_if(activeDailyQuests.begin(), activeDailyQuests.end(),
+                [](const DailyQuest& q) { return q.completed; }),
+                 activeDailyQuests.end()
+        );
+            }
+        }
+
         }
     } else if (choice == 2) {
         // Tampilkan world map
@@ -3589,6 +6238,7 @@ void showLocationMenu() {
         if (worldChoice > 0 && worldChoice <= worldList.size()) {
             currentWorld = worldList[worldChoice - 1];
             currentSubArea = allWorlds[currentWorld].startSubArea;
+            consumeAction();
         }
     }
 }
