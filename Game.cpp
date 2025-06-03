@@ -112,18 +112,19 @@ struct ActiveHoTEffect {
     int remainingTurns;
 };
 
-// Di dekat definisi struct lainnya
 struct ActiveRuneEffect {
-    string spellId;         // ID dari spell yang menerapkan rune (misal, "FIRE_EXPLOSIVE_RUNE_2")
-    string spellName;       // Nama spell untuk ditampilkan
-    string elementType;     // Tipe elemen dari damage rune
-    int damageOnTrigger;    // Damage yang diberikan saat rune meledak/aktif
-    int turnsUntilTrigger;  // Hitungan mundur giliran sampai rune aktif
-    // bool triggerOnHit;   // Opsional: jika rune aktif saat musuh diserang (bisa ditambahkan nanti)
-    // bool triggered;      // Untuk memastikan hanya aktif sekali (jika diperlukan)
-
+    string spellId;         
+    string spellName;     
+    string elementType;     
+    int damageOnTrigger;    
+    int turnsUntilTrigger;  
     ActiveRuneEffect(string id = "", string name = "", string eType = "None", int dmg = 0, int turns = 0)
         : spellId(id), spellName(name), elementType(eType), damageOnTrigger(dmg), turnsUntilTrigger(turns) {}
+};
+
+struct PlayerSpellUndoState {
+    int skillPoints;
+    vector<string> knownSpells;
 };
 
 struct Character {
@@ -140,6 +141,8 @@ struct Character {
     int agility;
     int exp;
     int gold;
+    int temporaryStrengthBuff = 0;
+    int temporaryIntelligenceBuff = 0;
     vector<Item*> inventory;
     vector<Weapon*> weapons;
     // vector<Magic*> knownMagic; // OLD: To be replaced
@@ -256,6 +259,11 @@ struct DailyQuest {
     string rank = "C"; // C, B, A, S, SS
 };
 
+struct ActiveDailyQuestNode {
+    DailyQuest data; // Menyimpan objek DailyQuest
+    ActiveDailyQuestNode* next;
+};
+
 struct Location {
     string name;
     string description;
@@ -318,6 +326,7 @@ unordered_map<string, bool> talkedToday;
 
 string currentWorld = "Mansion Astra";
 string currentSubArea = "Kamar Weiss";
+string currentDungeonName;
 
 // Global Variables
 Character player;
@@ -327,7 +336,8 @@ vector<Weapon> allWeapons;
 vector<Magic> allMagic;
 vector<DailyQuest> allDailyQuestPool;
 vector<DailyQuest> dailyQuests;
-vector<DailyQuest> activeDailyQuests;
+ActiveDailyQuestNode* activeDailyQuestsHead = nullptr;
+// vector<DailyQuest> activeDailyQuests;
 unordered_map<string, Item*> itemDatabase;
 unordered_map<string, Weapon*> weaponDatabase;
 unordered_map<string, Magic*> magicDatabase;
@@ -337,6 +347,7 @@ map<string, Location> worldMap;
 map<string, MagicElement> allMagicElements;
 queue<GameEvent> scheduledEvents;
 stack<Character> playerStateHistory;
+stack<PlayerSpellUndoState> spellLearnUndoStack;
 Quest* questHead = nullptr;
 const double BASE_XP = 7.0;
 const double XP_EXPONENT = 1.1;
@@ -371,7 +382,7 @@ void showCompanionDetail(Companion& companion);
 void showCalendar();
 void showDiaryMenu();
 void setupWorldAreas();
-bool startBattle(Enemy& baseEnemy);
+bool startBattle(Enemy& baseEnemy, const string& dungeonName);
 void displayEnemyASCII(const string& enemyName);
 void initializeAllQuests();
 void generateDailyQuests();
@@ -412,6 +423,14 @@ map<string, MagicSpell> getAllSpells() {
     }
     return allSpells;
 }
+
+const MagicSpell* getSpellDetails(const string& spellId) {
+    static auto allSpells = getAllSpells();  // Cached result
+    auto it = allSpells.find(spellId);
+    if (it != allSpells.end()) return &it->second;
+    return nullptr;
+}
+
 
 
 string getQuestRankLetter() {
@@ -666,18 +685,31 @@ long long calculateExpToNextLevel(int currentLevel) {
 
 void checkEndOfDay() {
     if (currentActionsRemaining <= 0) {
+        system("cls");
         printLine();
         centerText(L"⚠ Hari telah menuju malam...");
-        delayPrint(L"Aku merasa lelah... Sebaiknya kembali dan mengakhiri hariku.", 30);
-        delayPrint(L"Aku akan tidur malam ini dan bersiap menghadapi hari berikutnya.", 30);
+        delayPrint(L"Aku merasa lelah... Sebaiknya aku segera kembali dan mengakhiri hariku.", 30);
         currentDay++;
         currentActionsRemaining = maxActionsPerDay;
+        talkedToday.clear(); // Reset status bicara dengan NPC untuk hari berikutnya
+
         printLine();
         centerText(L"✦ Hari berganti! Sekarang Hari ke-" + to_wstring(currentDay) + L" ✦");
         printLine();
-        system("pause");
-        activeDailyQuests.clear();
-        generateDailyQuests(); // quest baru untuk hari berikutnya
+        // system("pause"); // system("pause") kurang portabel, waitForEnter() lebih baik jika ada
+        waitForEnter(); // Menggunakan waitForEnter Anda
+
+        // MODIFIKASI: Membersihkan linked list activeDailyQuestsHead
+        ActiveDailyQuestNode* current = activeDailyQuestsHead;
+        ActiveDailyQuestNode* nextNode = nullptr;
+        while (current != nullptr) {
+            nextNode = current->next; // Simpan node berikutnya
+            delete current;           // Hapus node saat ini
+            current = nextNode;       // Pindah ke node berikutnya
+        }
+        activeDailyQuestsHead = nullptr; // Set head menjadi nullptr setelah semua node dihapus
+
+        generateDailyQuests(); // Generate quest baru untuk hari berikutnya
     }
 }
 
@@ -1135,12 +1167,11 @@ void initializeGame() {
         // Nama, Tipe, Nilai Jual (opsional), Deskripsi, Syarat Stat, Harga Beli
         {"Health Potion", "consumable", 25, "Memulihkan 50 HP.", 0, 100},
         {"Mana Potion", "consumable", 20, "Memulihkan 30 Mana.", 0, 100},
-        {"Big Health Potion", "consumable", 60, "Memulihkan 150 HP dengan cepat.", 0, 275},
-        {"Big Mana Potion", "consumable", 50, "Memulihkan 100 Mana dengan cepat.", 0, 275},
-        {"Smoke Bomb", "consumable", 50, "Menjamin kabur dari pertarungan non-boss.", 0, 150},
+        {"Big Health Potion", "consumable", 60, "Memulihkan 300 HP dengan cepat.", 0, 275},
+        {"Big Mana Potion", "consumable", 50, "Memulihkan 150 Mana dengan cepat.", 0, 275},
         {"Earl Grey Tea", "consumable", 10, "Secangkir teh yang nikmat. Akhirnya!", 0, 50},
         {"Minor Strength Elixir", "consumable", 60, "Sedikit meningkatkan Kekuatan untuk sementara.", 0, 250},
-        {"Minor Focus Elixir", "consumable", 60, "Sedikit meningkatkan Intelijensia untuk sementara.", 0, 250}
+        {"Minor Focus Elixir", "consumable", 60, "Sedikit meningkatkan Int untuk sementara.", 0, 250}
     };
 
     // Setup Weapons 
@@ -1694,6 +1725,39 @@ for(const auto& comp : companions) {
 
 }
 
+void applyItemEffect(const string& itemName) {
+    if (itemName == "Health Potion") {
+        int heal = 50;
+        player.hp = min(player.maxHp, player.hp + heal);
+        delayPrint(L"✓ Kamu memulihkan " + to_wstring(heal) + L" HP!", 20);
+    } else if (itemName == "Big Health Potion") {
+        int heal = 150;
+        player.hp = min(player.maxHp, player.hp + heal);
+        delayPrint(L"✓ Kamu memulihkan " + to_wstring(heal) + L" HP!", 20);
+    } else if (itemName == "Mana Potion") {
+        int restore = 30;
+        player.mana = min(player.maxMana, player.mana + restore);
+        delayPrint(L"✓ Kamu memulihkan " + to_wstring(restore) + L" Mana!", 20);
+    } else if (itemName == "Big Mana Potion") {
+        int restore = 100;
+        player.mana = min(player.maxMana, player.mana + restore);
+        delayPrint(L"✓ Kamu memulihkan " + to_wstring(restore) + L" Mana!", 20);
+    } else if (itemName == "Earl Grey Tea") {
+        int heal = 50;
+        player.hp = min(player.maxHp, player.hp + heal);
+        delayPrint(L"✓ Kamu memulihkan " + to_wstring(heal) + L" HP!", 20);
+    } else if (itemName == "Minor Strength Elixir") {
+        delayPrint(L"✓ Kekuatanmu meningkat sementara!", 20);
+        player.temporaryStrengthBuff += 5; // kamu bisa buat sistem buff temporer
+    } else if (itemName == "Minor Focus Elixir") {
+        delayPrint(L"✓ Konsentrasimu meningkat sementara!", 20);
+        player.temporaryIntelligenceBuff += 5; // buff sementara
+    } else {
+        delayPrint(L"Efek item tidak dikenali.", 20);
+    }
+}
+
+
 void showItemShop() {
     int choice;
     vector<Item*> shopStock;
@@ -2007,9 +2071,8 @@ void levelUpCharacter(Character& character) {
 
 
 void handleExperienceAndLevelUp(Character& character, int expGained) {
-    system("cls");
     if (expGained <= 0) return;
-
+    system("cls");
     character.exp += expGained;
     bool leveledUp = false;
     while (character.exp >= character.expToNextLevel) {
@@ -2019,6 +2082,7 @@ void handleExperienceAndLevelUp(Character& character, int expGained) {
     }
 
     if (!leveledUp) { // If no level up, just show current EXP status
+        printLine();
         delayPrint(L"Total EXP: " + to_wstring(character.exp) + L"/" + to_wstring(character.expToNextLevel), 20);
     }
 }
@@ -2044,13 +2108,11 @@ bool canLearnSpell(const Character& character, const MagicSpell& spell) {
 
 void learnSpell(Character& character, const string& spellIdToLearn) {
     const MagicSpell* spellToLearn = nullptr;
-    string elementOfSpell;
 
-    // Find the spell in allMagicElements
     for (const auto& elemPair : allMagicElements) {
         if (elemPair.second.spells.count(spellIdToLearn)) {
             spellToLearn = &elemPair.second.spells.at(spellIdToLearn);
-            elementOfSpell = elemPair.first;
+            // elementOfSpell = elemPair.first;
             break;
         }
     }
@@ -2060,9 +2122,8 @@ void learnSpell(Character& character, const string& spellIdToLearn) {
         return;
     }
 
-    // Check if element is unlocked
     bool elementUnlocked = false;
-    for(const string& unlockedElem : character.unlockedMagicElements) {
+    for (const string& unlockedElem : character.unlockedMagicElements) {
         if (unlockedElem == spellToLearn->elementType) {
             elementUnlocked = true;
             break;
@@ -2081,20 +2142,62 @@ void learnSpell(Character& character, const string& spellIdToLearn) {
         }
     }
 
-    if (character.skillPoints < 1) { // Assuming 1 SP per spell
-        delayPrint(L"❌ Skill Point tidak cukup!", 20);
-        return;
-    }
-
     if (!canLearnSpell(character, *spellToLearn)) {
         delayPrint(L"❌ Persyaratan untuk mempelajari spell ini belum terpenuhi (level atau prerequisite spell).", 20);
         return;
     }
 
+    if (character.skillPoints < 1) { 
+        delayPrint(L"❌ Skill Point tidak cukup!", 20);
+        return;
+    }
+    PlayerSpellUndoState currentStateSnapshot;
+    currentStateSnapshot.skillPoints = character.skillPoints;
+    currentStateSnapshot.knownSpells = character.knownSpells; 
+    spellLearnUndoStack.push(currentStateSnapshot);
+
+ 
     character.knownSpells.push_back(spellIdToLearn);
-    character.skillPoints -= 1;
+    character.skillPoints -= 1; 
     delayPrint(L"✨ Selamat! Kamu telah mempelajari: " + utf8_to_wstring(spellToLearn->name) + L"!", 20);
     delayPrint(L"  Sisa Skill Point: " + to_wstring(character.skillPoints), 20);
+    waitForEnter(); 
+}
+
+void undoLearnLastSpell(Character& character) {
+    system("cls"); 
+    printLine();
+    centerText(L"✦ UNDO PEMBELAJARAN SIHIR ✦");
+    printLine();
+
+    if (!spellLearnUndoStack.empty()) {
+        PlayerSpellUndoState previousState = spellLearnUndoStack.top();
+        spellLearnUndoStack.pop();
+
+        string unlearnedSpellName = "Sihir Tak Dikenal";
+        if (character.knownSpells.size() > previousState.knownSpells.size()) {
+            string unlearnedSpellId = character.knownSpells.back(); // Ambil ID sihir terakhir
+             const MagicSpell* spellDetails = nullptr;
+            for (const auto& elemPair : allMagicElements) {
+                if (elemPair.second.spells.count(unlearnedSpellId)) {
+                    spellDetails = &elemPair.second.spells.at(unlearnedSpellId);
+                    break;
+                }
+            }
+            if(spellDetails) unlearnedSpellName = spellDetails->name;
+        }
+
+
+        character.skillPoints = previousState.skillPoints;
+        character.knownSpells = previousState.knownSpells; // Kembalikan ke daftar sihir sebelumnya
+
+        delayPrint(L"Pembelajaran sihir '" + utf8_to_wstring(unlearnedSpellName) + L"' telah dibatalkan.", 30);
+        delayPrint(L"Skill Point Anda telah dikembalikan menjadi: " + to_wstring(character.skillPoints), 30);
+    } else {
+        delayPrint(L"Tidak ada aksi pembelajaran sihir yang bisa dibatalkan dari sesi ini.", 30);
+    }
+    printLine();
+    waitForEnter();
 }
 
 void displayElementSkillTree(Character& character, const string& elementName) {
@@ -2220,62 +2323,84 @@ void displayElementSkillTree(Character& character, const string& elementName) {
     }
 }
 
-
-// Menampilkan detail spell dan pilihan unlock
 bool showSpellDetailAndMaybeUnlock(Character& character, const MagicSpell& spell) {
-    auto allSpells = getAllSpells();
-    wstring line = L"════════════════════════════════════════════════════════════════════════════";
+    // auto allSpells = getAllSpells(); // Anda sudah punya getSpellDetails global
     system("cls");
-    wcout << line << endl;
-    centerText(utf8_to_wstring("✦ DETAIL SKILL: " + spell.name));
-    wcout << line << endl;
+    printLine(); 
+    centerText(L"✦ DETAIL SKILL: " + utf8_to_wstring(spell.name) + L" ✦"); 
+    printLine();
+
+    wcout << L"Elemen      : " << utf8_to_wstring(spell.elementType) << endl;
+    wcout << L"Tier        : " << spell.tier << endl;
     wcout << L"MP Cost     : " << spell.manaCost << endl;
     wcout << L"Power       : " << spell.basePower << endl;
     wcout << L"Deskripsi   : " << utf8_to_wstring(spell.description) << endl;
 
     if (!spell.prerequisites.empty()) {
         wcout << L"Prasyarat   : ";
-        for (const string& pre : spell.prerequisites) {
-            wcout << utf8_to_wstring(allSpells[pre].name) << L"  ";
+        for (size_t i = 0; i < spell.prerequisites.size(); ++i) {
+            const MagicSpell* prereqSpell = getSpellDetails(spell.prerequisites[i]); // Panggil getSpellDetails
+            if (prereqSpell) {
+                wcout << utf8_to_wstring(prereqSpell->name) << (i < spell.prerequisites.size() - 1 ? L", " : L"");
+            } else {
+                wcout << utf8_to_wstring(spell.prerequisites[i]) << L" (Detail Tidak Ditemukan)" << (i < spell.prerequisites.size() - 1 ? L", " : L"");
+            }
         }
         wcout << endl;
     }
 
-    bool unlocked = find(character.knownSpells.begin(), character.knownSpells.end(), spell.id) != character.knownSpells.end();
-    wcout << L"Status      : " << (unlocked ? L"✅ Dimiliki" : L"🔒 Belum dimiliki") << endl;
-    if (!unlocked) {
-        wcout << L"Skill Point : " << character.skillPoints << endl;
-
-        bool prereqMet = all_of(spell.prerequisites.begin(), spell.prerequisites.end(),
-                                [&](const string& pre) {
-                                    return find(character.knownSpells.begin(), character.knownSpells.end(), pre) != character.knownSpells.end();
-                                });
-
-        if (prereqMet && character.skillPoints > 0) {
-            wcout << L"\nKamu bisa mempelajari skill ini. Gunakan 1 Skill Point? (y/n): ";
-            char input;
-            cin >> input;
-            if (input == 'y' || input == 'Y') {
-                character.knownSpells.push_back(spell.id);
-                character.skillPoints--;
-                wcout << L"\n✅ Skill berhasil dipelajari!" << endl;
-            }
-        } else if (!prereqMet) {
-            wcout << L"\n✖ Belum memenuhi prasyarat." << endl;
-        } else {
-            wcout << L"\n✖ Skill Point tidak mencukupi." << endl;
+    bool alreadyKnown = false;
+    for (const string& knownId : character.knownSpells) {
+        if (knownId == spell.id) {
+            alreadyKnown = true;
+            break;
         }
     }
 
-    waitForEnter();
-    return true;
+    wcout << L"Status      : " << (alreadyKnown ? L"✅ Dimiliki" : L"🔒 Belum dimiliki") << endl;
+    bool learnedThisTurn = false; // Untuk menandakan apakah menu tree perlu di-refresh
+
+    if (!alreadyKnown) {
+        wcout << L"Skill Point Tersisa: " << character.skillPoints << endl; // Tampilkan SP yang dimiliki
+
+        bool canCurrentlyLearnCheck = canLearnSpell(character, spell); // Cek apakah bisa dipelajari
+
+        if (canCurrentlyLearnCheck && character.skillPoints > 0) {
+            wcout << L"\nKamu bisa mempelajari skill ini. Gunakan 1 Skill Point? (y/n) ✦: ";
+            char input;
+            cin >> input;
+            cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
+
+            if (input == 'y' || input == 'Y') {
+                learnSpell(character, spell.id); // PANGGIL FUNGSI learnSpell YANG SUDAH HANDLE UNDO STACK
+                                                 // learnSpell akan memberi pesan sukses dan tidak ada waitForEnter di dalamnya
+                learnedThisTurn = true; 
+            } else {
+                delayPrint(L"Pembelajaran dibatalkan.", 20);
+            }
+        } else if (!canCurrentlyLearnCheck) {
+            delayPrint(L"\n❌ Belum memenuhi prasyarat atau level untuk mempelajari skill ini.", 20);
+        } else { // Hanya bisa terjadi jika skill points == 0
+            delayPrint(L"\n❌ Skill Point tidak mencukupi.", 20);
+        }
+    }
+
+    if (!learnedThisTurn) { // Jika tidak belajar di giliran ini, tunggu enter untuk melihat detail
+         waitForEnter();
+    }
+    // Jika belajar, learnSpell sudah ada waitForEnter nya, jadi tidak perlu double
+    // Jika Anda hapus waitForEnter dari learnSpell, maka uncomment waitForEnter di sini:
+    // else { waitForEnter(); }
+
+
+    return learnedThisTurn; // Kembalikan status apakah spell dipelajari
 }
 
 // Menampilkan cabang spell secara rekursif dan beri nomor
 void displaySpellRecursive(const MagicSpell& spell, const map<string, MagicSpell>& allSpells,
                             const unordered_set<string>& knownSpells,
                             vector<const MagicSpell*>& selectableList,
-                            int indent = 0, int& counter = *(new int(1))) {
+                            int indent, int& counter) {
     wstring prefix(indent * 4, L' ');
     bool unlocked = knownSpells.count(spell.id);
 
@@ -2294,9 +2419,8 @@ void displaySpellRecursive(const MagicSpell& spell, const map<string, MagicSpell
     }
 }
 
-// Menampilkan skill tree dengan interaksi dan unlock
 void showSkillTreeMenu(Character& character) {
-    int choice;
+    int mainChoice; // Untuk pilihan elemen atau kembali ke Diary
     do {
         system("cls");
         printLine();
@@ -2305,54 +2429,131 @@ void showSkillTreeMenu(Character& character) {
         wcout << L"Pilih elemen untuk melihat skill tree:" << endl;
 
         vector<string> unlockedElementsSorted = character.unlockedMagicElements;
-        sort(unlockedElementsSorted.begin(), unlockedElementsSorted.end());
+        // Blok untuk pengujian jika player belum punya elemen (HAPUS ATAU SESUAIKAN DI GAME FINAL)
+        if (unlockedElementsSorted.empty() && character.name.find("Weiss von Astra") != string::npos && character.unlockedMagicElements.empty()) {
+            delayPrint(L"(DEBUG: Menambahkan elemen Fire & Ice untuk tes karena belum ada elemen terbuka)");
+            character.unlockedMagicElements.push_back("Fire");
+            if(character.level >=1) character.unlockedMagicElements.push_back("Ice"); // Contoh, sesuaikan level
+            unlockedElementsSorted = character.unlockedMagicElements; // Update setelah ditambah
+            waitForEnter();
+        }
 
-        for (size_t i = 0; i < unlockedElementsSorted.size(); ++i) {
-            wcout << L"  ❖ " << (i + 1) << L". " << utf8_to_wstring(unlockedElementsSorted[i]) << endl;
+        if (unlockedElementsSorted.empty()){
+            wcout << L"  Belum ada elemen magic yang terbuka." << endl;
+            wcout << L"  (Elemen akan terbuka seiring kenaikan level atau melalui progres cerita)" << endl;
+        } else {
+            sort(unlockedElementsSorted.begin(), unlockedElementsSorted.end());
+            for (size_t i = 0; i < unlockedElementsSorted.size(); ++i) {
+                wcout << L"  ❖ " << (i + 1) << L". " << utf8_to_wstring(unlockedElementsSorted[i]) << endl;
+            }
         }
         wcout << L"  ❖ 0. Kembali ke Diary" << endl;
         printLine(50, L'─');
         wcout << L"Pilih menu ✦: ";
-        cin >> choice;
 
+        cin >> mainChoice;
         if (cin.fail()) {
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            choice = -1;
+            delayPrint(L"Pilihan tidak valid. Masukkan angka.", 20);
+            waitForEnter();
+            mainChoice = -1; 
+            continue;
         }
+        cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
 
-        if (choice > 0 && choice <= unlockedElementsSorted.size()) {
-            string selectedElement = unlockedElementsSorted[choice - 1];
-            const auto& elementData = allMagicElements[selectedElement];
-
-            unordered_set<string> known(character.knownSpells.begin(), character.knownSpells.end());
-            vector<const MagicSpell*> selectable;
-            int counter = 1;
-
-            system("cls");
-            printLine();
-            centerText(utf8_to_wstring("✦ SKILL TREE: " + selectedElement));
-            printLine();
-
-            for (const auto& [id, spell] : elementData.spells) {
-                if (spell.prerequisites.empty()) {
-                    displaySpellRecursive(spell, elementData.spells, known, selectable, 0, counter);
+        if (mainChoice > 0 && (size_t)mainChoice <= unlockedElementsSorted.size()) {
+            string selectedElement = unlockedElementsSorted[mainChoice - 1];
+            
+            bool stayInElementView = true;
+            while(stayInElementView) { 
+                if (!allMagicElements.count(selectedElement)) {
+                    delayPrint(L"Error: Data elemen " + utf8_to_wstring(selectedElement) + L" tidak ditemukan!", 20);
+                    waitForEnter();
+                    stayInElementView = false; // Keluar dari loop elemen ini
+                    break;
                 }
-            }
+                const auto& elementData = allMagicElements.at(selectedElement); 
+                unordered_set<string> known(character.knownSpells.begin(), character.knownSpells.end()); 
+                vector<const MagicSpell*> selectableList; 
+                int counter = 1; 
 
-            printLine();
-            wcout << L"Masukkan nomor skill untuk melihat detail (0 untuk kembali): ";
-            int spellChoice;
-            cin >> spellChoice;
+                system("cls");
+                printLine();
+                centerText(L"✦ SKILL TREE: " + utf8_to_wstring(selectedElement) + L" ✦ SP: " + to_wstring(character.skillPoints) + L" ✦");
+                printLine();
+                wcout << utf8_to_wstring(elementData.description) << endl;
+                printLine(60, L'-');
 
-            if (!cin.fail() && spellChoice > 0 && spellChoice <= selectable.size()) {
-                showSpellDetailAndMaybeUnlock(character, *selectable[spellChoice - 1]);
-            } else {
-                cin.clear();
-                cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            }
+
+                for (const auto& spellPair : elementData.spells) {
+                    if (spellPair.second.prerequisites.empty()) { 
+                        displaySpellRecursive(spellPair.second, elementData.spells, known, selectableList, 0, counter);
+                    }
+                }
+
+                printLine(60, L'-');
+                wcout << L"Pilih spell (nomor dari daftar di atas) untuk melihat detail/mempelajari." << endl;
+                wcout << L"Ketik '0' untuk kembali ke pemilihan elemen." << endl;
+                if (!spellLearnUndoStack.empty()) {
+                    wcout << L"Ketik 'U' atau 'u' untuk membatalkan pembelajaran sihir terakhir." << endl;
+                }
+                wcout << L"Pilihan Anda ✦: ";
+
+                string inputSpellChoiceStr;
+                // Membersihkan buffer sebelum getline
+                if (cin.peek() == '\n') {
+                     cin.ignore(); 
+                }
+                getline(cin, inputSpellChoiceStr);
+
+                if (inputSpellChoiceStr == "U" || inputSpellChoiceStr == "u") {
+                    if (!spellLearnUndoStack.empty()) {
+                        undoLearnLastSpell(character); // Fungsi ini sudah punya waitForEnter()
+                    } else {
+                        delayPrint(L"Tidak ada yang bisa di-undo saat ini.", 20);
+                        waitForEnter();
+                    }
+                } else {
+                    int spellChoiceNum = -1;
+                    bool isValidNumericInput = true;
+                    try {
+                        spellChoiceNum = stoi(inputSpellChoiceStr);
+                    } catch (const std::invalid_argument& ia) {
+                        isValidNumericInput = false;
+                    } catch (const std::out_of_range& oor) {
+                        isValidNumericInput = false;
+                    }
+
+                    if (!isValidNumericInput && !inputSpellChoiceStr.empty()) { // Cek juga jika input bukan string kosong
+                        delayPrint(L"Pilihan tidak valid. Masukkan nomor, '0', atau 'U'.", 20);
+                        waitForEnter();
+                    } else if (inputSpellChoiceStr.empty()){
+                        // Jika input kosong (hanya Enter ditekan), anggap sebagai refresh atau abaikan
+                        // Atau bisa dianggap input tidak valid juga
+                        delayPrint(L"Tidak ada input. Coba lagi.", 20);
+                        waitForEnter();
+                    } else { // Input valid atau kosong
+                        if (spellChoiceNum == 0) {
+                            stayInElementView = false; 
+                        } else if (spellChoiceNum > 0 && (size_t)spellChoiceNum <= selectableList.size()) {
+                            // showSpellDetailAndMaybeUnlock akan memanggil learnSpell jika pemain setuju
+                            // dan learnSpell akan menangani pesan serta stack.
+                            // waitForEnter sudah ada di showSpellDetailAndMaybeUnlock.
+                            showSpellDetailAndMaybeUnlock(character, *selectableList[spellChoiceNum - 1]);
+                        } else if (spellChoiceNum != -1) { // Jika bukan karena konversi gagal, berarti nomor di luar range
+                            delayPrint(L"Nomor spell tidak ada dalam daftar.", 20);
+                            waitForEnter();
+                        }
+                        // Jika spellChoiceNum = -1 (karena input tidak valid atau 'U' sudah ditangani), loop akan berlanjut
+                    }
+                }
+            } 
+        } else if (mainChoice != 0) { 
+             delayPrint(L"Pilihan elemen tidak valid.", 20);
+             waitForEnter();
         }
-    } while (choice != 0);
+    } while (mainChoice != 0); 
 }
 
 
@@ -2568,87 +2769,222 @@ void showQuestBoard() {
         centerText(L"» RANK QUEST HARI INI: " + utf8_to_wstring(getQuestRankLetter()));
         printLine();
 
-        for (int i = 0; i < dailyQuests.size(); i++) {
-            DailyQuest& q = dailyQuests[i];
-            wcout << L"❖ " << i + 1 << L". " << utf8_to_wstring(q.title);
-            if (q.taken) wcout << L" [Diambil]";
-            if (q.completed) wcout << L" [Selesai]";
+        int index = 1;
+        vector<int> visibleQuestIndices;
+
+        for (size_t i = 0; i < dailyQuests.size(); ++i) {
+            const DailyQuest& q = dailyQuests[i];
+            if (q.completed) continue; // Sembunyikan quest yang sudah selesai
+
+            wcout << L"❖ " << index++ << L". " << utf8_to_wstring(q.title);
+
+            bool isTaken = false;
+            ActiveDailyQuestNode* current = activeDailyQuestsHead;
+            while (current != nullptr) {
+                if (current->data.title == q.title) {
+                    isTaken = true;
+                    wcout << (current->data.completed ? L" [Selesai]" : L" [Diambil]");
+                    break;
+                }
+                current = current->next;
+            }
+
+            if (!isTaken && q.taken) {
+                wcout << L" [Diambil - Belum di List Aktif?]";
+            }
+
             wcout << endl;
+            visibleQuestIndices.push_back(i); // Simpan indeks aslinya
+        }
+
+        if (visibleQuestIndices.empty()) {
+            wcout << L"~ Tidak ada quest tersedia saat ini." << endl;
         }
 
         printLine();
         wcout << L"❖ Pilih nomor untuk lihat detail quest, atau 0 untuk kembali: ";
-        int qchoice; cin >> qchoice;
-        if (qchoice == 0) break;
-        if (qchoice < 1 || qchoice > dailyQuests.size()) continue;
+        int qchoice;
+        cin >> qchoice;
 
-        DailyQuest& q = dailyQuests[qchoice - 1];
+        if (cin.fail()) {
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            delayPrint(L"Pilihan tidak valid. Masukkan angka.", 20);
+            waitForEnter();
+            continue;
+        }
+        cin.ignore(numeric_limits<streamsize>::max(), '\n'); // Bersihkan buffer
+
+        if (qchoice == 0) break;
+        if (qchoice < 1 || qchoice > visibleQuestIndices.size()) {
+            delayPrint(L"Nomor quest tidak valid.", 20);
+            waitForEnter();
+            continue;
+        }
+
+        // Ambil quest dari indeks asli di dailyQuests
+        DailyQuest& selectedQuest = dailyQuests[visibleQuestIndices[qchoice - 1]];
+
+        // Tampilkan detail quest
         system("cls");
         printLine();
         centerText(L"✦ DETAIL QUEST ✦");
         printLine();
-        wcout << L"✦ Judul     : " << utf8_to_wstring(q.title) << endl;
-        wcout << L"✦ Deskripsi : " << utf8_to_wstring(q.description) << endl;
-        wcout << L"✦ Target    : " << utf8_to_wstring(q.target) << endl;
-        wcout << L"✦ Rank      : " << utf8_to_wstring(q.rank) << endl;
-        wcout << L"✦ Reward    : " << q.expReward << L" EXP, " << q.goldReward << L" Gold" << endl;
+        wcout << L"✦ Judul     : " << utf8_to_wstring(selectedQuest.title) << endl;
+        wcout << L"✦ Deskripsi : " << utf8_to_wstring(selectedQuest.description) << endl;
+        wcout << L"✦ Target    : " << utf8_to_wstring(selectedQuest.target);
+        if (selectedQuest.type == "kill" && selectedQuest.dungeonFloor > 0 && !selectedQuest.dungeonName.empty()) {
+            wcout << L" (di " << utf8_to_wstring(selectedQuest.dungeonName)
+                  << L" Lt." << formatDungeonFloor(allDungeons[selectedQuest.dungeonName], selectedQuest.dungeonFloor) << L")";
+        } else if (selectedQuest.type == "travel" && selectedQuest.dungeonFloor > 0 && !selectedQuest.dungeonName.empty()) {
+            wcout << L" (Area: " << utf8_to_wstring(selectedQuest.dungeonName)
+                  << L", Lantai: " << formatDungeonFloor(allDungeons[selectedQuest.dungeonName], selectedQuest.dungeonFloor) << L")";
+        }
+        wcout << endl;
+        wcout << L"✦ Rank      : " << utf8_to_wstring(selectedQuest.rank) << endl;
+        wcout << L"✦ Reward    : " << selectedQuest.expReward << L" EXP, " << selectedQuest.goldReward << L" Gold" << endl;
         printLine();
 
-        if (!q.taken) {
-            wcout << L"Ambil quest ini? (y/n): ";
-            char confirm; cin >> confirm;
+        // Cek apakah sudah aktif
+        bool alreadyTaken = false;
+        for (ActiveDailyQuestNode* node = activeDailyQuestsHead; node != nullptr; node = node->next) {
+            if (node->data.title == selectedQuest.title) {
+                alreadyTaken = true;
+                break;
+            }
+        }
+
+        if (!alreadyTaken) {
+            wcout << L"Ambil quest ini? (y/n) ✦: ";
+            char confirm;
+            cin >> confirm;
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
             if (confirm == 'y' || confirm == 'Y') {
-                q.taken = true;
-                activeDailyQuests.push_back(q);
-                delayPrint(L"✓ Quest berhasil diambil!");
+                selectedQuest.taken = true;
+
+                // Tambahkan ke linked list aktif
+                ActiveDailyQuestNode* newNode = new ActiveDailyQuestNode();
+                newNode->data = selectedQuest;
+                newNode->data.taken = true;
+                newNode->data.completed = false;
+                newNode->next = nullptr;
+
+                if (!activeDailyQuestsHead) {
+                    activeDailyQuestsHead = newNode;
+                } else {
+                    ActiveDailyQuestNode* last = activeDailyQuestsHead;
+                    while (last->next != nullptr) last = last->next;
+                    last->next = newNode;
+                }
+
+                delayPrint(L"✓ Quest '" + utf8_to_wstring(selectedQuest.title) + L"' berhasil diambil!", 20);
             }
         } else {
-            delayPrint(L"Kamu sudah mengambil quest ini.");
+            delayPrint(L"Kamu sudah mengambil quest ini dan sedang aktif.", 20);
         }
-        system("pause");
+
+        waitForEnter();
     }
 }
 
 
 
 void showActiveQuestsInDiary() {
-    while (true) {
+    bool stayInQuestView = true; // Tambahkan loop agar pemain bisa kembali ke daftar setelah lihat detail
+    ActiveDailyQuestNode* selectedNode = nullptr; // Untuk menyimpan quest yang dipilih untuk detail
+
+    while (stayInQuestView) {
         system("cls");
         printLine();
         centerText(L"✦✦✦ QUEST AKTIF ✦✦✦");
         printLine();
 
-        if (activeDailyQuests.empty()) {
-            wcout << L"Belum ada quest aktif." << endl;
+        if (activeDailyQuestsHead == nullptr) {
+            wcout << L"Belum ada quest aktif yang diambil." << endl;
+            printLine();
+            wcout << L"Tekan Enter untuk kembali ke Diary...";
+            // Pastikan buffer bersih sebelum cin.get()
+            if (cin.peek() == '\n') {
+                cin.ignore();
+            }
+            cin.get();
+            stayInQuestView = false; // Keluar dari loop karena tidak ada quest
+            break; // Keluar dari switch di showDiaryMenu (atau dari loop ini)
+        }
+
+        vector<ActiveDailyQuestNode*> activeNodes; // Untuk menyimpan node yang bisa dipilih
+        ActiveDailyQuestNode* current = activeDailyQuestsHead;
+        int i = 0;
+        while (current != nullptr) {
+            wcout << L"❖ " << i + 1 << L". " << utf8_to_wstring(current->data.title);
+            if (current->data.completed) {
+                wcout << L" [✅ Selesai]";
+            } else if (current->data.taken) { // Seharusnya semua di sini sudah 'taken'
+                wcout << L" [⏳ Berlangsung]";
+            }
+            wcout << endl;
+            activeNodes.push_back(current); // Simpan pointer ke node untuk dipilih
+            current = current->next;
+            i++;
+        }
+
+        printLine();
+        wcout << L"Pilih nomor quest untuk detail, atau 0 untuk kembali ke Diary Menu: ";
+        int qsel;
+        cin >> qsel;
+
+        if (cin.fail()) {
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            delayPrint(L"Pilihan tidak valid. Masukkan angka.", 20);
+            waitForEnter();
+            continue; // Ulangi tampilan daftar quest aktif
+        }
+        // Membersihkan buffer setelah cin >> int
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+
+        if (qsel == 0) {
+            stayInQuestView = false; // Kembali ke Diary Menu
             break;
         }
 
-        for (int i = 0; i < activeDailyQuests.size(); i++) {
-            const DailyQuest& q = activeDailyQuests[i];
-            wcout << L"❖ " << i + 1 << L". " << utf8_to_wstring(q.title);
-            if (q.completed) wcout << L" [Selesai]";
+        if (qsel > 0 && (size_t)qsel <= activeNodes.size()) {
+            selectedNode = activeNodes[qsel - 1]; // Ambil node yang dipilih dari vector temporary
+
+            // Tampilkan detail quest yang dipilih
+            system("cls");
+            printLine();
+            centerText(L"✦ DETAIL QUEST DIARY ✦");
+            printLine();
+            wcout << L"✦ Judul     : " << utf8_to_wstring(selectedNode->data.title) << endl;
+            wcout << L"✦ Deskripsi : " << utf8_to_wstring(selectedNode->data.description) << endl;
+            wcout << L"✦ Target    : " << utf8_to_wstring(selectedNode->data.target);
+            if (selectedNode->data.type == "kill" && selectedNode->data.dungeonFloor > 0 && !selectedNode->data.dungeonName.empty()) {
+                 wcout << L" (di " << utf8_to_wstring(selectedNode->data.dungeonName) << L" Lt." << formatDungeonFloor(allDungeons[selectedNode->data.dungeonName],selectedNode->data.dungeonFloor) << L")";
+            } else if (selectedNode->data.type == "travel" && selectedNode->data.dungeonFloor > 0 && !selectedNode->data.dungeonName.empty()) {
+                 wcout << L" (Area: " << utf8_to_wstring(selectedNode->data.dungeonName) << L", Lantai: " << formatDungeonFloor(allDungeons[selectedNode->data.dungeonName],selectedNode->data.dungeonFloor) << L")";
+            }
             wcout << endl;
+            wcout << L"✦ Rank      : " << utf8_to_wstring(selectedNode->data.rank) << endl;
+            wcout << L"✦ Hadiah    : " << selectedNode->data.expReward << L" EXP, " << selectedNode->data.goldReward << L" Gold" << endl;
+            wcout << L"Status      : " << (selectedNode->data.completed ? L"✅ Selesai" : (selectedNode->data.taken ? L"⏳ Berlangsung" : L"Belum Diambil")) << endl;
+            printLine();
+            wcout << L"Tekan Enter untuk kembali ke daftar quest aktif...";
+            // Tidak perlu cin.ignore() ganda jika waitForEnter sudah benar, atau jika di sini langsung cin.get()
+            // waitForEnter(); // Jika Anda punya fungsi waitForEnter yang sudah handle buffer.
+            // Jika tidak, cara manual:
+            if (cin.peek() == '\n') {
+                 cin.ignore();
+            }
+            cin.get(); // Menunggu Enter
+            // Setelah melihat detail, loop akan berlanjut dan menampilkan daftar quest aktif lagi
+        } else {
+            delayPrint(L"Pilihan quest tidak valid.", 20);
+            waitForEnter();
+            // Loop akan berlanjut
         }
-
-        printLine();
-        wcout << L"Pilih nomor quest untuk detail, atau 0 untuk kembali: ";
-        int qsel; cin >> qsel;
-        if (qsel == 0) break;
-        if (qsel < 1 || qsel > activeDailyQuests.size()) continue;
-
-        const DailyQuest& q = activeDailyQuests[qsel - 1];
-        system("cls");
-        printLine();
-        centerText(L"✦ DETAIL QUEST DIARY ✦");
-        printLine();
-        wcout << L"✦ Judul     : " << utf8_to_wstring(q.title) << endl;
-        wcout << L"✦ Deskripsi : " << utf8_to_wstring(q.description) << endl;
-        wcout << L"✦ Target    : " << utf8_to_wstring(q.target) << endl;
-        wcout << L"✦ Rank      : " << utf8_to_wstring(q.rank) << endl;
-        wcout << L"✦ Hadiah    : " << q.expReward << L" EXP, " << q.goldReward << L" Gold" << endl;
-        wcout << L"Status      : " << (q.completed ? L"✅ Selesai" : L"⏳ Belum selesai") << endl;
-        printLine();
-        wcout << L"Tekan Enter untuk kembali..."; cin.ignore(); cin.get();
     }
 }
 
@@ -2723,19 +3059,6 @@ void displayEnemyASCII(const string& enemyName) {
     } else {
         centerText(L"(⚠ ASCII musuh tidak ditemukan)", totalWidth);
     }
-}
-
-
-
-
-// Helper to get spell details (you might want to make masterSpellList for this)
-const MagicSpell* getSpellDetails(const string& spellId) {
-    for (const auto& elemPair : allMagicElements) {
-        if (elemPair.second.spells.count(spellId)) {
-            return &elemPair.second.spells.at(spellId);
-        }
-    }
-    return nullptr;
 }
 
 // Process end-of-turn effects like enchantments
@@ -2842,7 +3165,7 @@ void processEndOfPlayerTurn(Character& character, vector<wstring>& battleLogMess
 
 
 
-bool startBattle(Enemy& baseEnemy) {
+bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
     Enemy enemy = baseEnemy;
     // Reset status musuh untuk pertarungan ini
     enemy.isStunned = false; enemy.stunDuration = 0;
@@ -2908,7 +3231,7 @@ bool startBattle(Enemy& baseEnemy) {
         if (cin.fail()) { cin.clear(); cin.ignore(numeric_limits<streamsize>::max(), '\n'); choice = 99; }
 
         // --- Kalkulasi Stat Pemain Final dengan SEMUA Buff ---
-        int playerBaseAttackPower = player.strength + (player.equippedWeapon ? player.equippedWeapon->attackPower : 0);
+        int playerBaseAttackPower = player.strength + player.temporaryStrengthBuff + (player.equippedWeapon ? player.equippedWeapon->attackPower : 0);
         int totalPlayerAttackBonus = 0, totalPlayerDefenseBonus = 0, totalPlayerEvasionBonus = 0, totalPlayerIntelligenceBonus = 0, totalPlayerAgilityBonus = 0;
         double totalPlayerCritChanceBonus = 0.0;
         bool playerIsPhysicallyImmune = false;
@@ -2928,7 +3251,8 @@ bool startBattle(Enemy& baseEnemy) {
         int finalPlayerDefense = player.defense + totalPlayerDefenseBonus;
         int finalPlayerAgility = player.agility + totalPlayerAgilityBonus;
         int finalPlayerEvasion = finalPlayerAgility + totalPlayerEvasionBonus;
-        int finalPlayerIntelligence = player.intelligence + totalPlayerIntelligenceBonus;
+        int finalPlayerIntelligence = player.intelligence + player.temporaryIntelligenceBuff + totalPlayerIntelligenceBonus;
+
         double finalPlayerCritChance = 0.05 + totalPlayerCritChanceBonus; // Base crit 5%
 
         // --- Kalkulasi Stat Musuh Final (dengan debuff) ---
@@ -3277,18 +3601,35 @@ bool startBattle(Enemy& baseEnemy) {
                 }
                 break;
             }
-            case 3: { // Item
-                turnActionLog = L"Menggunakan item... (Logika dasar item)";
-                delayPrint(turnActionLog, 20); battleLogMessages.push_back(turnActionLog);
-                // Contoh: Jika punya Health Potion dan menggunakannya
-                // if (player.inventory memiliki Health Potion) {
-                //    player.hp = min(player.maxHp, player.hp + 50);
-                //    battleLogMessages.push_back(L"Kamu menggunakan Health Potion, memulihkan 50 HP!");
-                //    hapus Health Potion dari inventory
-                // } else { battleLogMessages.push_back(L"Kamu tidak punya item itu!"); continue; } // Jika gagal, jangan habiskan giliran
-                system("pause"); // Sementara
-                break; // Habiskan giliran setelah pakai item
+            case 3: {
+                if (player.inventory.empty()) {
+                    battleLogMessages.push_back(L"Tidak ada item untuk digunakan!");
+                    break;
+                }
+
+                wcout << L"\n❖ INVENTORY:\n";
+                for (size_t i = 0; i < player.inventory.size(); ++i) {
+                    wcout << L"❖ " << (i + 1) << L". " << utf8_to_wstring(player.inventory[i]->name)
+                        << L" - " << utf8_to_wstring(player.inventory[i]->description) << endl;
+                }
+                wcout << L"❖ 0. Batal" << endl;
+                wcout << L"Pilih item: ";
+                int itemChoice;
+                cin >> itemChoice;
+
+                if (itemChoice <= 0 || itemChoice > player.inventory.size()) {
+                    battleLogMessages.push_back(L"Kamu batal menggunakan item.");
+                    break;
+                }
+
+                Item* selectedItem = player.inventory[itemChoice - 1];
+                applyItemEffect(selectedItem->name);
+                player.inventory.erase(player.inventory.begin() + itemChoice - 1);
+                battleLogMessages.push_back(L"Kamu menggunakan " + utf8_to_wstring(selectedItem->name) + L"!");
+                break;
             }
+
+
             case 4: { // Bertahan
                 turnActionLog = L"➤ Kamu memilih untuk bertahan. Damage musuh berikutnya akan dikurangi!";
                 delayPrint(turnActionLog, 20); battleLogMessages.push_back(turnActionLog);
@@ -3431,24 +3772,58 @@ bool startBattle(Enemy& baseEnemy) {
             wcout << "<< Tekan Enter Untuk Berpindah Ke Selanjutnya";
             cin.get();
             handleExperienceAndLevelUp(player, enemy.expReward);
-            for (auto& quest : activeDailyQuests) {
+            ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+            ActiveDailyQuestNode* prevQuestNode = nullptr;
+            int expFromCompletedQuests = 0; // Akumulasi EXP dari quest yang selesai di battle ini
+
+            while (currentQuestNode != nullptr) {
+                DailyQuest& quest = currentQuestNode->data; // Referensi ke data quest
+                bool wasThisQuestCompleted = false;
+
                 if (!quest.completed && quest.taken && quest.type == "kill" && enemy.name == quest.target) {
-                    quest.completed = true;
-                    player.exp += quest.expReward;
-                    player.gold += quest.goldReward;
-                    delayPrint(L"✓ Quest selesai: " + utf8_to_wstring(quest.title));
-                    delayPrint(L"Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold");
-                    handleExperienceAndLevelUp(player, quest.expReward);
-                    // ⬇️ Tambahkan ini di bawah quest selesai
-                    activeDailyQuests.erase(
-                        remove_if(activeDailyQuests.begin(), activeDailyQuests.end(),
-                            [](const DailyQuest& q) { return q.completed; }),
-                        activeDailyQuests.end()
-                    );
-    }
+                    bool dungeonRequirementMet = true; // Asumsi terpenuhi jika quest tidak spesifik dungeon
 
+                    if (!quest.dungeonName.empty()) { // Jika quest kill ini spesifik untuk dungeon tertentu
+                        if (quest.dungeonName != currentDungeonName) {
+                            dungeonRequirementMet = false;
+                        }
+                        // Jika Anda ingin quest kill juga spesifik lantai, tambahkan pengecekan di sini:
+                        // if (quest.dungeonFloor > 0 && quest.dungeonFloor != /* variabel_lantai_saat_ini_di_battle */ ) {
+                        //     dungeonRequirementMet = false;
+                        // }
+                        // Untuk saat ini, kita hanya cek nama dungeon.
+                    }
 
-}
+                    if (dungeonRequirementMet) {
+                        quest.completed = true; // Tandai selesai pada data di node
+                        expFromCompletedQuests += quest.expReward;
+                        player.gold += quest.goldReward;
+                        delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
+                        delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+                        
+                        wasThisQuestCompleted = true;
+                    }   
+                    }
+                    ActiveDailyQuestNode* nodeToDelete = nullptr;
+                    if (wasThisQuestCompleted) {
+                        nodeToDelete = currentQuestNode;
+                        if (prevQuestNode == nullptr) { // Menghapus head
+                            activeDailyQuestsHead = currentQuestNode->next;
+                            currentQuestNode = activeDailyQuestsHead; // Lanjutkan dari head baru
+                            // prevQuestNode tetap nullptr
+                        } else { // Menghapus node di tengah atau akhir
+                            prevQuestNode->next = currentQuestNode->next;
+                            currentQuestNode = prevQuestNode->next; // Lanjutkan dari node setelah yang dihapus
+                            // prevQuestNode tetap
+                        }
+                        delete nodeToDelete; // Hapus node
+                    } else {
+                        // Hanya pindah jika tidak ada node yang dihapus di iterasi ini
+                        prevQuestNode = currentQuestNode;
+                        currentQuestNode = currentQuestNode->next;
+                    }
+                    handleExperienceAndLevelUp(player, enemy.expReward + expFromCompletedQuests);
+                }
 
             printLine();
         } else if (playerRevivedThisBattle && enemy.hp > 0) {
@@ -3718,15 +4093,22 @@ void enterDungeon(string dungeonName) {
     consumeAction();
     Dungeon& dungeon = allDungeons[dungeonName];
     bool inDungeon = true;
+
     if (!dungeon.visitedCampAreas.empty()) {
-    wcout << L"Kamu pernah mencapai lantai " << dungeon.visitedCampAreas.back() << L".\n";
-    wcout << L"❖ 1. Mulai dari lantai 1\n❖ 2. Mulai dari Camp terakhir\nPilih: ";
-    int startChoice;
-    cin >> startChoice;
-    if (startChoice == 2) {
-        dungeon.currentFloor = dungeon.visitedCampAreas.back();
+        wcout << L"Kamu pernah mencapai lantai " << dungeon.visitedCampAreas.back() << L".\n";
+        wcout << L"❖ 1. Mulai dari lantai 1\n❖ 2. Mulai dari Camp terakhir\nPilih: ";
+        int startChoice;
+        cin >> startChoice;
+
+        if (startChoice == 2) {
+            dungeon.currentFloor = dungeon.visitedCampAreas.back();  // Lanjut dari camp
+        } else {
+            dungeon.currentFloor = 1;  // ⬅️ Mulai dari lantai 1
+        }
+    } else {
+        dungeon.currentFloor = 1; // Pertama kali masuk, otomatis lantai 1
     }
-}
+
 
     while (inDungeon) {
         system("cls");
@@ -3781,12 +4163,100 @@ void enterDungeon(string dungeonName) {
                         delayPrint(L"Kamu sudah menggunakan 2x istirahat di lantai ini.");
                     }
                     break;
-                case 2:
+                case 2: {
                     dungeon.currentFloor ++;
-                    break;
-                case 3:
+                    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+                    ActiveDailyQuestNode* prevQuestNode = nullptr;
+                    int expFromCompletedQuests = 0;
+
+                    while (currentQuestNode != nullptr) {
+                        DailyQuest& quest = currentQuestNode->data;
+                        bool wasThisQuestCompleted = false;
+
+                        if (quest.type == "travel" && quest.taken && !quest.completed &&
+                            !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && // dungeon.name adalah Dungeon& yang di-pass
+                            quest.dungeonFloor > 0 && quest.dungeonFloor == dungeon.currentFloor) {
+                            
+                            quest.completed = true;
+                            expFromCompletedQuests += quest.expReward;
+                            player.gold += quest.goldReward;
+                            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
+                            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+                            wasThisQuestCompleted = true;
+                        }
+
+                        ActiveDailyQuestNode* nodeToDelete = nullptr;
+                        if (wasThisQuestCompleted) {
+                            nodeToDelete = currentQuestNode;
+                            if (prevQuestNode == nullptr) {
+                                activeDailyQuestsHead = currentQuestNode->next;
+                                currentQuestNode = activeDailyQuestsHead;
+                            } else {
+                                prevQuestNode->next = currentQuestNode->next;
+                                currentQuestNode = prevQuestNode->next;
+                            }
+                            delete nodeToDelete;
+                        } else {
+                            prevQuestNode = currentQuestNode;
+                            currentQuestNode = currentQuestNode->next;
+                        }
+                    }
+
+                    if (expFromCompletedQuests > 0) {
+                        // Kita mungkin ingin memanggil handleExperienceAndLevelUp di sini,
+                        // atau menundanya sampai keluar dungeon/camp area untuk akumulasi.
+                        // Untuk saat ini, kita langsung panggil.
+                        handleExperienceAndLevelUp(player, expFromCompletedQuests);
+                        // waitForEnter(); // Mungkin perlu jika ada pesan level up.
+                    }
+                    break; }
+                case 3: {
                     dungeon.currentFloor --;
-                    break;
+                    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+                    ActiveDailyQuestNode* prevQuestNode = nullptr;
+                    int expFromCompletedQuests = 0;
+
+                    while (currentQuestNode != nullptr) {
+                        DailyQuest& quest = currentQuestNode->data;
+                        bool wasThisQuestCompleted = false;
+
+                        if (quest.type == "travel" && quest.taken && !quest.completed &&
+                            !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && // dungeon.name adalah Dungeon& yang di-pass
+                            quest.dungeonFloor > 0 && quest.dungeonFloor == dungeon.currentFloor) {
+                            
+                            quest.completed = true;
+                            expFromCompletedQuests += quest.expReward;
+                            player.gold += quest.goldReward;
+                            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
+                            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+                            wasThisQuestCompleted = true;
+                        }
+
+                        ActiveDailyQuestNode* nodeToDelete = nullptr;
+                        if (wasThisQuestCompleted) {
+                            nodeToDelete = currentQuestNode;
+                            if (prevQuestNode == nullptr) {
+                                activeDailyQuestsHead = currentQuestNode->next;
+                                currentQuestNode = activeDailyQuestsHead;
+                            } else {
+                                prevQuestNode->next = currentQuestNode->next;
+                                currentQuestNode = prevQuestNode->next;
+                            }
+                            delete nodeToDelete;
+                        } else {
+                            prevQuestNode = currentQuestNode;
+                            currentQuestNode = currentQuestNode->next;
+                        }
+                    }
+
+                    if (expFromCompletedQuests > 0) {
+                        // Kita mungkin ingin memanggil handleExperienceAndLevelUp di sini,
+                        // atau menundanya sampai keluar dungeon/camp area untuk akumulasi.
+                        // Untuk saat ini, kita langsung panggil.
+                        handleExperienceAndLevelUp(player, expFromCompletedQuests);
+                        // waitForEnter(); // Mungkin perlu jika ada pesan level up.
+                    }
+                    break; }
                 case 4:
                     showDiaryMenu();
                     break;
@@ -3831,7 +4301,7 @@ void enterDungeon(string dungeonName) {
                     }
 
                     if (enemyDatabase.count(enemyName)) {
-                        bool survived = startBattle(enemyDatabase[enemyName]);
+                        bool survived = startBattle(enemyDatabase[enemyName], dungeon.name);
                         if (!survived) return;
                         if (enemyDatabase[enemyName].isBoss) {
                             defeatedBosses[floorKey] = true;
@@ -3871,28 +4341,50 @@ void enterDungeon(string dungeonName) {
                     }
                     }
                     break;
-                case 4:
-                    showItemList(); // Panggil sistem item kamu
+                  case 4: {
+                if (player.inventory.empty()) {
+                    delayPrint(L"Inventaris kamu kosong.", 20);
+                    waitForEnter();
                     break;
+                }
+
+                int itemChoice = -1;
+                while (true) {
+                    system("cls");
+                    printLine();
+                    centerText(L"✦ INVENTORY ✦");
+                    printLine();
+                    for (size_t i = 0; i < player.inventory.size(); ++i) {
+                        wcout << L"❖ " << (i + 1) << L". " << utf8_to_wstring(player.inventory[i]->name)
+                            << L" - " << utf8_to_wstring(player.inventory[i]->description) << endl;
+                    }
+                    wcout << L"❖ 0. Batal" << endl;
+                    printLine();
+                    wcout << L"Pilih item untuk digunakan: ";
+                    cin >> itemChoice;
+
+                    if (cin.fail() || itemChoice < 0 || itemChoice > player.inventory.size()) {
+                        cin.clear();
+                        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                        delayPrint(L"Input tidak valid.", 20);
+                        continue;
+                    }
+
+                    if (itemChoice == 0) break;
+
+                    Item* selectedItem = player.inventory[itemChoice - 1];
+                    applyItemEffect(selectedItem->name);
+                    player.inventory.erase(player.inventory.begin() + itemChoice - 1);
+                    waitForEnter();
+                    break;
+                }
+                break;
+            }
+
                 default:
                     delayPrint(L"Aksi tidak valid.");
                     break;
-            }
-        }
-        for (auto& quest : dailyQuests) {
-        if (quest.type == "dungeon" && quest.taken && !quest.completed && dungeon.name == quest.dungeonName && dungeon.currentFloor == quest.dungeonFloor) {
-        quest.completed = true;
-        delayPrint(L"✓ Quest dungeon selesai: " + utf8_to_wstring(quest.title));
-        delayPrint(L"Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold");
-        player.exp += quest.expReward;
-        player.gold += quest.goldReward;
-        handleExperienceAndLevelUp(player, quest.expReward);
-        activeDailyQuests.erase(
-        remove_if(activeDailyQuests.begin(), activeDailyQuests.end(),
-        [](const DailyQuest& q) { return q.completed; }),
-        activeDailyQuests.end()
-        );
-    }
+            }   
 }
 
         wcout << L"\nTekan Enter untuk lanjut..."; cin.ignore(); cin.get();
@@ -3995,18 +4487,11 @@ void showDiaryMenu() {
                                     showItemDetail(selectedItem);
                                     cin >> detailChoice;
                                     
-                                    if(detailChoice == 1 && selectedItem->type == "consumable") {
-                                        wcout << L"Item " << selectedItem->name.c_str() << L" digunakan!" << endl;
-                                        // Apply item effect here
-                                        if(selectedItem->name == "Health Potion") {
-                                            player.hp = min(player.maxHp, player.hp + 50);
-                                        } else if(selectedItem->name == "Mana Potion") {
-                                            player.mana = min(player.maxMana, player.mana + 30);
-                                        }
-                                        player.inventory.erase(player.inventory.begin() + itemChoice - 1);
-                                        detailChoice = 2; // Go back
-                                        itemChoice = 0; // Refresh item list
-                                    }
+                                    if (detailChoice == 1 && selectedItem->type == "consumable") {
+                                    applyItemEffect(selectedItem->name);
+                                    detailChoice = 2; // kembali ke daftar item
+                                    itemChoice = 0;   // refresh ulang
+                                }
                                 } while(detailChoice != 2);
                             }
                         } while(itemChoice != 0);
@@ -6199,22 +6684,62 @@ void showLocationMenu() {
         cin >> subChoice;
         if (subChoice > 0 && subChoice <= subAreaList.size()) {
             currentSubArea = subAreaList[subChoice - 1];
-            for (auto& quest : dailyQuests) {
-            if (quest.type == "travel" && quest.taken && !quest.completed && currentSubArea == quest.target) {
-                quest.completed = true;
-                delayPrint(L"✓ Quest selesai: " + utf8_to_wstring(quest.title));
-                delayPrint(L"Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold");
-                player.exp += quest.expReward;
-                player.gold += quest.goldReward;
-                handleExperienceAndLevelUp(player, quest.expReward);
-                activeDailyQuests.erase(
-                remove_if(activeDailyQuests.begin(), activeDailyQuests.end(),
-                [](const DailyQuest& q) { return q.completed; }),
-                 activeDailyQuests.end()
-        );
-            }
+            ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+ActiveDailyQuestNode* prevQuestNode = nullptr;
+int expFromCompletedQuests = 0;
+
+while (currentQuestNode != nullptr) {
+    DailyQuest& quest = currentQuestNode->data;
+    bool wasThisQuestCompleted = false;
+
+    if (quest.type == "travel" && quest.taken && !quest.completed) {
+        bool targetLocationReached = false;
+
+        // Skenario: Target adalah SubArea di World tertentu
+        if (!quest.dungeonName.empty() &&
+            currentWorld == quest.dungeonName &&
+            currentSubArea == quest.target) {
+            targetLocationReached = true;
         }
 
+        // Skenario: Target hanya SubArea (tanpa spesifik World)
+        else if (quest.dungeonName.empty() &&
+                 currentSubArea == quest.target) {
+            targetLocationReached = true;
+        }
+
+        if (targetLocationReached) {
+            quest.completed = true;
+            expFromCompletedQuests += quest.expReward;
+            player.gold += quest.goldReward;
+            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
+            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+            wasThisQuestCompleted = true;
+        }
+    }
+
+    ActiveDailyQuestNode* nodeToDelete = nullptr;
+    if (wasThisQuestCompleted) {
+        nodeToDelete = currentQuestNode;
+        if (prevQuestNode == nullptr) {
+            activeDailyQuestsHead = currentQuestNode->next;
+            currentQuestNode = activeDailyQuestsHead;
+        } else {
+            prevQuestNode->next = currentQuestNode->next;
+            currentQuestNode = prevQuestNode->next;
+        }
+        delete nodeToDelete;
+    } else {
+        prevQuestNode = currentQuestNode;
+        currentQuestNode = currentQuestNode->next;
+    }
+}
+
+if (expFromCompletedQuests > 0) {
+    handleExperienceAndLevelUp(player, expFromCompletedQuests);
+    waitForEnter();
+}
+            
         }
     } else if (choice == 2) {
         // Tampilkan world map
@@ -6239,6 +6764,70 @@ void showLocationMenu() {
             currentWorld = worldList[worldChoice - 1];
             currentSubArea = allWorlds[currentWorld].startSubArea;
             consumeAction();
+            ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+    ActiveDailyQuestNode* prevQuestNode = nullptr;
+    int expFromCompletedQuests = 0;
+
+    while (currentQuestNode != nullptr) {
+        DailyQuest& quest = currentQuestNode->data;
+        bool wasThisQuestCompleted = false;
+
+        if (quest.type == "travel" && quest.taken && !quest.completed) {
+            bool targetLocationReached = false;
+
+            // Skenario 1: Target adalah SubArea di World tertentu
+            // (quest.dungeonName diisi nama World, quest.target diisi nama SubArea)
+            if (!quest.dungeonName.empty() && quest.dungeonFloor == 0 &&
+                currentWorld == quest.dungeonName && currentSubArea == quest.target) {
+                targetLocationReached = true;
+            }
+            // Skenario 2: Target adalah World (pemain sampai di startSubArea World tersebut)
+            // (quest.dungeonName kosong, quest.dungeonFloor 0, quest.target diisi nama World)
+            else if (quest.dungeonName.empty() && quest.dungeonFloor == 0 &&
+                     currentWorld == quest.target && currentSubArea == allWorlds[currentWorld].startSubArea) {
+                targetLocationReached = true;
+            }
+            // Skenario 3: Target adalah SubArea di World saat ini (tanpa spesifik World di quest)
+            // (quest.dungeonName kosong, quest.dungeonFloor 0, quest.target diisi nama SubArea)
+            // Ini hanya valid jika pemain pindah SubArea di dalam World yang sama dengan World target quest (jika ada)
+            // atau jika quest tidak menspesifikkan World (dianggap World saat ini).
+            // Kita bisa asumsikan jika dungeonName kosong di quest, itu merujuk pada World saat pemain mengambil quest.
+            // Untuk penyederhanaan, kita anggap jika dungeonName kosong, target SubArea bisa di World mana saja.
+            // ATAU, lebih baik, jika quest.dungeonName kosong, maka targetnya adalah World, bukan SubArea.
+            // Jadi, skenario 3 ini mungkin bisa dihilangkan atau dispesifikkan lebih lanjut.
+            // Untuk sekarang, kita fokus pada skenario 1 dan 2 yang lebih jelas.
+
+            if (targetLocationReached) {
+                quest.completed = true;
+                expFromCompletedQuests += quest.expReward;
+                player.gold += quest.goldReward;
+                delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
+                delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+                wasThisQuestCompleted = true;
+            }
+        }
+
+        ActiveDailyQuestNode* nodeToDelete = nullptr;
+        if (wasThisQuestCompleted) {
+            nodeToDelete = currentQuestNode;
+            if (prevQuestNode == nullptr) {
+                activeDailyQuestsHead = currentQuestNode->next;
+                currentQuestNode = activeDailyQuestsHead;
+            } else {
+                prevQuestNode->next = currentQuestNode->next;
+                currentQuestNode = prevQuestNode->next;
+            }
+            delete nodeToDelete;
+        } else {
+            prevQuestNode = currentQuestNode;
+            currentQuestNode = currentQuestNode->next;
+        }
+    }
+
+    if (expFromCompletedQuests > 0) {
+        handleExperienceAndLevelUp(player, expFromCompletedQuests);
+        waitForEnter(); // Agar pemain bisa melihat pesan level up jika ada
+    }
         }
     }
 }
