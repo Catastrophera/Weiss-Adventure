@@ -25,10 +25,10 @@ using namespace std;
 struct Item {
     string name;
     string type;
-    int value; // Mungkin nilai jual dasar atau nilai generik
+    int value; 
     string description;
     int statRequirement;
-    int price; // Harga beli dari toko
+    int price; 
 };
 
 struct Weapon {
@@ -36,11 +36,11 @@ struct Weapon {
     int attackPower;
     int strengthRequired;
     int intelligenceRequired;
-    string description; // Deskripsi akan dalam Bahasa Indonesia
+    string description; 
     bool equipped;
-    int price; // Harga beli dari penempa
-    string requiredStoryFlagKey; // Kunci flag cerita yang dibutuhkan, misal "blacksmith_tier1_unlocked"
-    int requiredStoryFlagValue;  // Nilai flag yang dibutuhkan, misal 1 (untuk true/terbuka)
+    int price; 
+    string requiredStoryFlagKey; 
+    int requiredStoryFlagValue;  
 };
 
 struct Magic {
@@ -61,11 +61,11 @@ struct MagicSpell {
     int manaCost;
     int basePower;                 // For damage or heal
     string targetType;              // "SingleEnemy", "AllEnemies", "Self", "Ally"
-    bool isEnchantment;             // True if this spell enchants a weapon
-    int enchantTurns;               // Duration of enchantment
-    int enchantAttackBonus;         // Bonus attack if enchantment
-    vector<string> prerequisites;   // List of spell IDs required to learn this
-    // bool unlockedByPlayer = false; // We will manage this via player.knownSpells
+    bool isEnchantment;          
+    int enchantTurns;               
+    int enchantAttackBonus;        
+    vector<string> prerequisites;  
+ 
 };
 
 struct ActiveEnchantment {
@@ -316,6 +316,7 @@ struct SocialLinkStory {
 
 
 unordered_map<string, WorldArea> allWorlds;
+unordered_map<string, vector<string>> locationGraph;
 unordered_map<string, Dungeon> allDungeons;
 unordered_map<string, Enemy> enemyDatabase;
 unordered_map<string, bool> defeatedBosses;
@@ -369,6 +370,7 @@ void showTutorial();
 void initializeGame();
 void showGameMenu();
 void exploreArea();
+void setupConnections();
 void showItemShop();
 void showBlacksmith();
 void showLocationMenu();
@@ -497,6 +499,21 @@ wstring formatDungeonFloor(const Dungeon& dungeon, int floor) {
         return to_wstring(floor);
     }
 }
+
+void dfsTravel(string current, string target, unordered_set<string>& visited, vector<string>& path) {
+    visited.insert(current);
+    path.push_back(current);
+    if (current == target) return;
+
+    for (const auto& neighbor : locationGraph[current]) {
+        if (visited.find(neighbor) == visited.end()) {
+            dfsTravel(neighbor, target, visited, path);
+            if (!path.empty() && path.back() == target) return;
+        }
+    }
+    path.pop_back(); // Backtrack jika buntu
+}
+
 
 void showTitleScreen() {
     system("cls");
@@ -1139,6 +1156,7 @@ void initializeMagicSystem() {
 void initializeGame() {
     srand(time(nullptr));   
     setupWorldAreas();
+    setupConnections();
 
     // Setup Player
     player.level = 1; 
@@ -2607,12 +2625,71 @@ void setupWorldAreas() {
     puncak.startSubArea = "Taman Norelia";
     puncak.subAreas = {
         {"Taman Norelia", { "Taman Norelia", {"Cek Sekitar", "Bicara dengan Masha", "Membuka Diary", "Pilih Lokasi"} }},
-        {"Bukit Myriad", { "Bukit Myriad", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }}
+        {"Bendungan", { "Bukit Myriad", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }}
     };
-    allWorlds["Puncak Patung Pahlawan Negara"] = puncak;
+    allWorlds["Puncak Arcadia"] = puncak;
     
 }
 
+void setupConnections() {
+    // Koneksi untuk Mansion Astra
+    if (allWorlds.count("Mansion Astra")) {
+        vector<pair<string, string>> koneksiMansion = {
+            {"Kamar Weiss", "Lorong Panjang"},
+            {"Lorong Panjang", "Taman Floresia"},
+            {"Lorong Panjang", "Dapur Mansion"}
+        };
+        for (const auto& conn : koneksiMansion) {
+            locationGraph[conn.first].push_back(conn.second);
+            locationGraph[conn.second].push_back(conn.first);
+        }
+    }
+
+    // Koneksi untuk Kota Arcadia
+    if (allWorlds.count("Kota Arcadia")) {
+        vector<pair<string, string>> koneksiKotaArcadia = {
+            {"Balai Kota", "Cross Guild"},
+            {"Balai Kota", "Perbelanjaan"}
+        };
+        for (const auto& conn : koneksiKotaArcadia) {
+            locationGraph[conn.first].push_back(conn.second);
+            locationGraph[conn.second].push_back(conn.first);
+        }
+    }
+
+    // Koneksi untuk Hutan Merah
+    if (allWorlds.count("Hutan Merah")) {
+        vector<pair<string, string>> koneksiHutanMerah = {
+            {"Pos Hutan", "Reruntuhan Kuno"}
+        };
+        for (const auto& conn : koneksiHutanMerah) {
+            locationGraph[conn.first].push_back(conn.second);
+            locationGraph[conn.second].push_back(conn.first);
+        }
+    }
+
+    // Koneksi untuk Goa Avernix
+    if (allWorlds.count("Goa Avernix")) {
+        vector<pair<string, string>> koneksiGoaAvernix = {
+            {"Camp Avernix", "Tambang Terbengkalai"}
+        };
+        for (const auto& conn : koneksiGoaAvernix) {
+            locationGraph[conn.first].push_back(conn.second);
+            locationGraph[conn.second].push_back(conn.first);
+        }
+    }
+
+    // Koneksi untuk Puncak Patung Pahlawan Negara (sebelumnya disebut Puncak Arcadia)
+    if (allWorlds.count("Puncak Patung Pahlawan Negara")) {
+        vector<pair<string, string>> koneksiPuncak = {
+            {"Taman Norelia", "Bendungan"}
+        };
+        for (const auto& conn : koneksiPuncak) {
+            locationGraph[conn.first].push_back(conn.second);
+            locationGraph[conn.second].push_back(conn.first);
+        }
+    }
+}
 
 
 void initializeAllQuests() {
@@ -4250,11 +4327,7 @@ void enterDungeon(string dungeonName) {
                     }
 
                     if (expFromCompletedQuests > 0) {
-                        // Kita mungkin ingin memanggil handleExperienceAndLevelUp di sini,
-                        // atau menundanya sampai keluar dungeon/camp area untuk akumulasi.
-                        // Untuk saat ini, kita langsung panggil.
                         handleExperienceAndLevelUp(player, expFromCompletedQuests);
-                        // waitForEnter(); // Mungkin perlu jika ada pesan level up.
                     }
                     break; }
                 case 4:
@@ -4347,7 +4420,6 @@ void enterDungeon(string dungeonName) {
                     waitForEnter();
                     break;
                 }
-
                 int itemChoice = -1;
                 while (true) {
                     system("cls");
@@ -6647,44 +6719,37 @@ void exploreArea() {
     cin.get();
 }
 
-void showLocationMenu() {
+void showWorldMapLocationMenu() {
     system("cls");
     printLine();
-    centerText(L"✦✦✦ PILIH LOKASI ✦✦✦");
+    centerText(L"✦✦✦ PILIH WORLD MAP ✦✦✦");
     printLine();
 
-    wcout << L"❖ 1. Area Lain di " << currentWorld.c_str() << endl;
-    wcout << L"❖ 2. World Map" << endl;
-    wcout << L"❖ 0. Batal" << endl;
-    printLine(50, L'─');
-    wcout << L"Pilih opsi ✦: ";
+    vector<string> availableWorlds;
+    for (const auto& [worldName, worldArea] : allWorlds) {
+        if (worldName != currentWorld) {
+            availableWorlds.push_back(worldName);
+        }
+    }
 
+    for (size_t i = 0; i < availableWorlds.size(); ++i) {
+        wcout << L"  " << (i + 1) << L". " << utf8_to_wstring(availableWorlds[i]) << endl;
+    }
+
+    size_t backOption = availableWorlds.size() + 1;
+    wcout << L"  " << backOption << L". Kembali" << endl;
+
+    wcout << L"Pilih world (1-" << backOption << L"): ";
     int choice;
     cin >> choice;
 
-    if (choice == 1) {
-        // Tampilkan sub-area di world sekarang
-        const auto& subAreas = allWorlds[currentWorld].subAreas;
-        int idx = 1;
-        vector<string> subAreaList;
-        system("cls");
-        printLine();
-        centerText(L"✦ SUB AREA - " + wstring(currentWorld.begin(), currentWorld.end()) + L" ✦");
-        printLine();
-        for (const auto& [name, _] : subAreas) {
-            wcout << L"❖ " << idx++ << L". " << name.c_str();
-            if (name == currentSubArea) wcout << L" [SEKARANG]";
-            wcout << endl;
-            subAreaList.push_back(name);
-        }
-        wcout << L"❖ 0. Kembali" << endl;
-        printLine(50, L'─');
-        wcout << L"Pilih sub-area ✦: ";
-        int subChoice;
-        cin >> subChoice;
-        if (subChoice > 0 && subChoice <= subAreaList.size()) {
-            currentSubArea = subAreaList[subChoice - 1];
-            ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+    if (choice >= 1 && choice <= availableWorlds.size()) {
+        string selectedWorld = availableWorlds[choice - 1];
+        currentWorld = selectedWorld;
+        currentSubArea = allWorlds[currentWorld].startSubArea;
+        wcout << L"Berpindah ke dunia: " << utf8_to_wstring(currentWorld) << endl;
+        consumeAction();
+        ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
 ActiveDailyQuestNode* prevQuestNode = nullptr;
 int expFromCompletedQuests = 0;
 
@@ -6695,14 +6760,11 @@ while (currentQuestNode != nullptr) {
     if (quest.type == "travel" && quest.taken && !quest.completed) {
         bool targetLocationReached = false;
 
-        // Skenario: Target adalah SubArea di World tertentu
         if (!quest.dungeonName.empty() &&
             currentWorld == quest.dungeonName &&
             currentSubArea == quest.target) {
             targetLocationReached = true;
         }
-
-        // Skenario: Target hanya SubArea (tanpa spesifik World)
         else if (quest.dungeonName.empty() &&
                  currentSubArea == quest.target) {
             targetLocationReached = true;
@@ -6737,100 +6799,118 @@ while (currentQuestNode != nullptr) {
 
 if (expFromCompletedQuests > 0) {
     handleExperienceAndLevelUp(player, expFromCompletedQuests);
-    waitForEnter();
 }
-            
-        }
-    } else if (choice == 2) {
-        // Tampilkan world map
-        int idx = 1;
-        vector<string> worldList;
-        system("cls");
-        printLine();
-        centerText(L"✦ WORLD MAP ✦");
-        printLine();
-        for (const auto& [name, world] : allWorlds) {
-            wcout << L"❖ " << idx++ << L". " << name.c_str();
-            if (name == currentWorld) wcout << L" [SEKARANG]";
-            wcout << endl;
-            worldList.push_back(name);
-        }
-        wcout << L"❖ 0. Batal" << endl;
-        printLine(50, L'─');
-        wcout << L"Pilih world ✦: ";
-        int worldChoice;
-        cin >> worldChoice;
-        if (worldChoice > 0 && worldChoice <= worldList.size()) {
-            currentWorld = worldList[worldChoice - 1];
-            currentSubArea = allWorlds[currentWorld].startSubArea;
-            consumeAction();
+    } else if (choice == backOption) {
+        return; // kembali ke showLocationMenu
+    } else {
+        wcout << L"Pilihan tidak valid." << endl;
+        waitForEnter();
+    }
+}
+
+
+
+void showLocationMenu() {
+    system("cls");
+    printLine();
+    centerText(L"✦✦✦ PILIH LOKASI ✦✦✦");
+    printLine();
+
+    vector<string> destinations = locationGraph[currentSubArea];
+    for (size_t i = 0; i < destinations.size(); ++i) {
+        wcout << L"  " << (i + 1) << L". " << utf8_to_wstring(destinations[i]) << endl;
+    }
+
+    size_t worldMapOption = destinations.size() + 1;
+    size_t backOption = destinations.size() + 2;
+
+    wcout << L"  " << worldMapOption << L". Ke World Map" << endl;
+    wcout << L"  " << backOption << L". Kembali" << endl;
+
+    wcout << L"Pilih tujuan (1-" << backOption << L"): ";
+    int choice;
+    cin >> choice;
+
+    if (choice >= 1 && choice <= destinations.size()) {
+        string targetSubArea = destinations[choice - 1];
+        unordered_set<string> visited;
+        vector<string> travelPath;
+
+        dfsTravel(currentSubArea, targetSubArea, visited, travelPath);
+
+        if (!travelPath.empty() && travelPath.back() == targetSubArea) {
+            for (const auto& step : travelPath) {
+                wcout << L"➤ Menuju " << utf8_to_wstring(step) << endl;
+                this_thread::sleep_for(chrono::milliseconds(300));
+            }
+            currentSubArea = targetSubArea;
             ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
-    ActiveDailyQuestNode* prevQuestNode = nullptr;
-    int expFromCompletedQuests = 0;
+ActiveDailyQuestNode* prevQuestNode = nullptr;
+int expFromCompletedQuests = 0;
 
-    while (currentQuestNode != nullptr) {
-        DailyQuest& quest = currentQuestNode->data;
-        bool wasThisQuestCompleted = false;
+while (currentQuestNode != nullptr) {
+    DailyQuest& quest = currentQuestNode->data;
+    bool wasThisQuestCompleted = false;
 
-        if (quest.type == "travel" && quest.taken && !quest.completed) {
-            bool targetLocationReached = false;
+    if (quest.type == "travel" && quest.taken && !quest.completed) {
+        bool targetLocationReached = false;
 
-            // Skenario 1: Target adalah SubArea di World tertentu
-            // (quest.dungeonName diisi nama World, quest.target diisi nama SubArea)
-            if (!quest.dungeonName.empty() && quest.dungeonFloor == 0 &&
-                currentWorld == quest.dungeonName && currentSubArea == quest.target) {
-                targetLocationReached = true;
-            }
-            // Skenario 2: Target adalah World (pemain sampai di startSubArea World tersebut)
-            // (quest.dungeonName kosong, quest.dungeonFloor 0, quest.target diisi nama World)
-            else if (quest.dungeonName.empty() && quest.dungeonFloor == 0 &&
-                     currentWorld == quest.target && currentSubArea == allWorlds[currentWorld].startSubArea) {
-                targetLocationReached = true;
-            }
-            // Skenario 3: Target adalah SubArea di World saat ini (tanpa spesifik World di quest)
-            // (quest.dungeonName kosong, quest.dungeonFloor 0, quest.target diisi nama SubArea)
-            // Ini hanya valid jika pemain pindah SubArea di dalam World yang sama dengan World target quest (jika ada)
-            // atau jika quest tidak menspesifikkan World (dianggap World saat ini).
-            // Kita bisa asumsikan jika dungeonName kosong di quest, itu merujuk pada World saat pemain mengambil quest.
-            // Untuk penyederhanaan, kita anggap jika dungeonName kosong, target SubArea bisa di World mana saja.
-            // ATAU, lebih baik, jika quest.dungeonName kosong, maka targetnya adalah World, bukan SubArea.
-            // Jadi, skenario 3 ini mungkin bisa dihilangkan atau dispesifikkan lebih lanjut.
-            // Untuk sekarang, kita fokus pada skenario 1 dan 2 yang lebih jelas.
-
-            if (targetLocationReached) {
-                quest.completed = true;
-                expFromCompletedQuests += quest.expReward;
-                player.gold += quest.goldReward;
-                delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
-                delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
-                wasThisQuestCompleted = true;
-            }
+        if (!quest.dungeonName.empty() &&
+            currentWorld == quest.dungeonName &&
+            currentSubArea == quest.target) {
+            targetLocationReached = true;
+        }
+        else if (quest.dungeonName.empty() &&
+                 currentSubArea == quest.target) {
+            targetLocationReached = true;
         }
 
-        ActiveDailyQuestNode* nodeToDelete = nullptr;
-        if (wasThisQuestCompleted) {
-            nodeToDelete = currentQuestNode;
-            if (prevQuestNode == nullptr) {
-                activeDailyQuestsHead = currentQuestNode->next;
-                currentQuestNode = activeDailyQuestsHead;
-            } else {
-                prevQuestNode->next = currentQuestNode->next;
-                currentQuestNode = prevQuestNode->next;
-            }
-            delete nodeToDelete;
+        if (targetLocationReached) {
+            quest.completed = true;
+            expFromCompletedQuests += quest.expReward;
+            player.gold += quest.goldReward;
+            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
+            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+            wasThisQuestCompleted = true;
+        }
+    }
+
+    ActiveDailyQuestNode* nodeToDelete = nullptr;
+    if (wasThisQuestCompleted) {
+        nodeToDelete = currentQuestNode;
+        if (prevQuestNode == nullptr) {
+            activeDailyQuestsHead = currentQuestNode->next;
+            currentQuestNode = activeDailyQuestsHead;
         } else {
-            prevQuestNode = currentQuestNode;
-            currentQuestNode = currentQuestNode->next;
+            prevQuestNode->next = currentQuestNode->next;
+            currentQuestNode = prevQuestNode->next;
         }
-    }
-
-    if (expFromCompletedQuests > 0) {
-        handleExperienceAndLevelUp(player, expFromCompletedQuests);
-        waitForEnter(); // Agar pemain bisa melihat pesan level up jika ada
-    }
-        }
+        delete nodeToDelete;
+    } else {
+        prevQuestNode = currentQuestNode;
+        currentQuestNode = currentQuestNode->next;
     }
 }
+
+if (expFromCompletedQuests > 0) {
+    handleExperienceAndLevelUp(player, expFromCompletedQuests);
+}
+        } else {
+            wcout << L"Tidak ada jalur ke lokasi tersebut." << endl;
+        }
+        waitForEnter();
+    } else if (choice == worldMapOption) {
+        showWorldMapLocationMenu(); // ke menu world map
+    } else if (choice == backOption) {
+        return; // kembali ke showGameMenu atau menu sebelumnya
+    } else {
+        wcout << L"Pilihan tidak valid." << endl;
+        waitForEnter();
+    }
+}
+
+
+
 
 
 int main() {
