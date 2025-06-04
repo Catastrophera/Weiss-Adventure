@@ -314,6 +314,12 @@ struct SocialLinkStory {
     unordered_set<int> lockedLevels; 
 };
 
+enum BattleResult {
+    PLAYER_DEAD,
+    PLAYER_ESCAPED,
+    ENEMY_DEAD
+};
+
 
 unordered_map<string, WorldArea> allWorlds;
 unordered_map<string, vector<string>> locationGraph;
@@ -383,15 +389,12 @@ void showCompanionDetail(Companion& companion);
 void showCalendar();
 void showDiaryMenu();
 void setupWorldAreas();
-bool startBattle(Enemy& baseEnemy, const string& dungeonName);
+BattleResult startBattle(Enemy& baseEnemy, const string& dungeonName);
 void displayEnemyASCII(const string& enemyName);
 void initializeAllQuests();
 void generateDailyQuests();
 void loadEnemyASCIIFromFile(const string& filename);
 void applySocialLinkBonus(const string& npcName);
-
-
-
 
 wstring utf8_to_wstring(const string& str_utf8) {
     
@@ -682,7 +685,7 @@ void showTutorial() {
     wcout << endl;
     
     delayPrint(L"=== TIPS BERTAHAN HIDUP ===", 20);
-    delayPrint(L"✦ Tingkatkan stats dengan EXP", 20);
+    delayPrint(L"✦ Tingkatkan level dengan exp", 20);
     delayPrint(L"✦ Pelajari sihir untuk melawan musuh", 20);
     delayPrint(L"✦ Bangun hubungan dengan companion", 20);
     delayPrint(L"✦ Perhatikan event yang dijadwalkan", 20);
@@ -704,28 +707,8 @@ void checkEndOfDay() {
         system("cls");
         printLine();
         centerText(L"⚠ Hari telah menuju malam...");
-        delayPrint(L"Aku merasa lelah... Sebaiknya aku segera kembali dan mengakhiri hariku.", 30);
-        currentDay++;
-        currentActionsRemaining = maxActionsPerDay;
-        talkedToday.clear(); 
-
-        printLine();
-        centerText(L"✦ Hari berganti! Sekarang Hari ke-" + to_wstring(currentDay) + L" ✦");
-        printLine();
-        
-        waitForEnter(); 
-
-        
-        ActiveDailyQuestNode* current = activeDailyQuestsHead;
-        ActiveDailyQuestNode* nextNode = nullptr;
-        while (current != nullptr) {
-            nextNode = current->next; 
-            delete current;           
-            current = nextNode;       
-        }
-        activeDailyQuestsHead = nullptr; 
-
-        generateDailyQuests(); 
+        delayPrint(L"Aku merasa lelah... Sebaiknya aku segera kembali beristirahat dan mengakhiri hariku.", 30);
+        waitForEnter();
     }
 }
 
@@ -2581,7 +2564,7 @@ void setupWorldAreas() {
     mansion.startSubArea = "Kamar Weiss";
     mansion.subAreas = {
         {"Kamar Weiss", { "Kamar Weiss", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }},
-        {"Dapur Mansion", { "Dapur Mansion", {"Cek Sekitar", "Bicara dengan Ruigerd", "Membuka Diary", "Pilih Lokasi"} }},
+        {"Dapur Mansion", { "Dapur Mansion", {"Cek Sekitar", "Bicara dengan Ruigerd", "Membuka Diary", "Pilih Lokasi", "Istirahat"} }},
         {"Taman Floresia", { "Taman Floresia", {"Cek Sekitar", "Bicara dengan Irene", "Membuka Diary", "Pilih Lokasi"} }},
         {"Lorong Panjang", { "Lorong Panjang", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }}
     };
@@ -3241,7 +3224,7 @@ void processEndOfPlayerTurn(Character& character, vector<wstring>& battleLogMess
 
 
 
-bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
+BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
     Enemy enemy = baseEnemy;
     
     enemy.isStunned = false; enemy.stunDuration = 0;
@@ -3720,7 +3703,7 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                     processEndOfPlayerTurn(player, battleLogMessages);
                     drawBattleScreen(enemy, player, battleLogMessages);
                     wcout << L"\nTekan Enter untuk lanjut..."; cin.ignore(numeric_limits<streamsize>::max(), '\n'); if(cin.peek()=='\n') cin.ignore(); cin.get();
-                    return false;
+                    return PLAYER_ESCAPED;
                 } else {
                     turnActionLog = L"➤ Gagal kabur!";
                 }
@@ -3834,8 +3817,11 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
             printLine(); 
             centerText(L"⚔️ PERTEMPURAN SELESAI! ⚔️");
             printLine();
-            delayPrint(L"",10); delayPrint(L"❌ Kamu telah dikalahkan...", 50);
+            delayPrint(L"",10); delayPrint(L"❌ Kamu telah mati dan gagal mengubah segalanya...", 50);
             printLine();
+            waitForEnter();
+            gameRunning = false; 
+            return PLAYER_DEAD;   
     } else {
         if (enemy.hp <=0) {
             printLine(); 
@@ -3913,7 +3899,11 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
     } else if (cin.peek() == '\n' && cin.peek() != EOF) { 
          cin.ignore();
     }
-    return (player.hp > 0);
+    if (player.hp <= 0) {
+    return PLAYER_DEAD;
+}
+return ENEMY_DEAD;
+
 }
 
 
@@ -4166,6 +4156,99 @@ void showCompanionDetailScreen(const Companion& companion) {
 }
 
 void enterDungeon(string dungeonName) {
+    if (allDungeons.count("Goa Avernix")) {
+    Dungeon& dungeon = allDungeons["Goa Avernix"];
+    int currentFloor = dungeon.currentFloor; // biasanya 1 saat masuk
+
+    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+    ActiveDailyQuestNode* prevQuestNode = nullptr;
+    int expFromCompletedQuests = 0;
+
+    while (currentQuestNode != nullptr) {
+        DailyQuest& quest = currentQuestNode->data;
+        bool wasThisQuestCompleted = false;
+
+        if (quest.type == "travel" && quest.taken && !quest.completed &&
+            quest.dungeonName == dungeon.name &&
+            quest.dungeonFloor > 0 && quest.dungeonFloor == currentFloor) {
+            
+            quest.completed = true;
+            expFromCompletedQuests += quest.expReward;
+            player.gold += quest.goldReward;
+            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
+            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+            wasThisQuestCompleted = true;
+        }
+
+        ActiveDailyQuestNode* nodeToDelete = nullptr;
+        if (wasThisQuestCompleted) {
+            nodeToDelete = currentQuestNode;
+            if (prevQuestNode == nullptr) {
+                activeDailyQuestsHead = currentQuestNode->next;
+                currentQuestNode = activeDailyQuestsHead;
+            } else {
+                prevQuestNode->next = currentQuestNode->next;
+                currentQuestNode = prevQuestNode->next;
+            }
+            delete nodeToDelete;
+        } else {
+            prevQuestNode = currentQuestNode;
+            currentQuestNode = currentQuestNode->next;
+        }
+    }
+
+    if (expFromCompletedQuests > 0) {
+        handleExperienceAndLevelUp(player, expFromCompletedQuests);
+        waitForEnter();
+    }
+}
+    if (allDungeons.count("Ancient Temple")) {
+    Dungeon& dungeon = allDungeons["Ancient Temple"];
+    int currentFloor = dungeon.currentFloor; // biasanya 1 saat masuk
+
+    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+    ActiveDailyQuestNode* prevQuestNode = nullptr;
+    int expFromCompletedQuests = 0;
+
+    while (currentQuestNode != nullptr) {
+        DailyQuest& quest = currentQuestNode->data;
+        bool wasThisQuestCompleted = false;
+
+        if (quest.type == "travel" && quest.taken && !quest.completed &&
+            quest.dungeonName == dungeon.name &&
+            quest.dungeonFloor > 0 && quest.dungeonFloor == currentFloor) {
+            
+            quest.completed = true;
+            expFromCompletedQuests += quest.expReward;
+            player.gold += quest.goldReward;
+            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
+            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+            wasThisQuestCompleted = true;
+        }
+
+        ActiveDailyQuestNode* nodeToDelete = nullptr;
+        if (wasThisQuestCompleted) {
+            nodeToDelete = currentQuestNode;
+            if (prevQuestNode == nullptr) {
+                activeDailyQuestsHead = currentQuestNode->next;
+                currentQuestNode = activeDailyQuestsHead;
+            } else {
+                prevQuestNode->next = currentQuestNode->next;
+                currentQuestNode = prevQuestNode->next;
+            }
+            delete nodeToDelete;
+        } else {
+            prevQuestNode = currentQuestNode;
+            currentQuestNode = currentQuestNode->next;
+        }
+    }
+
+    if (expFromCompletedQuests > 0) {
+        handleExperienceAndLevelUp(player, expFromCompletedQuests);
+        waitForEnter();
+    }
+}
+
     consumeAction();
     Dungeon& dungeon = allDungeons[dungeonName];
     bool inDungeon = true;
@@ -4373,8 +4456,15 @@ void enterDungeon(string dungeonName) {
                     }
 
                     if (enemyDatabase.count(enemyName)) {
-                        bool survived = startBattle(enemyDatabase[enemyName], dungeon.name);
-                        if (!survived) return;
+                        BattleResult result = startBattle(enemyDatabase[enemyName], dungeon.name);
+                        if (result == PLAYER_DEAD) {
+                            return;  
+                        } else if (result == PLAYER_ESCAPED) {
+                            delayPrint(L"Kamu berhasil kabur, tapi masih di lantai dungeon ini.", 20);
+                            continue;  
+                        } else if (result == ENEMY_DEAD && enemyDatabase[enemyName].isBoss) {
+                            defeatedBosses[floorKey] = true;
+                        }
                         if (enemyDatabase[enemyName].isBoss) {
                             defeatedBosses[floorKey] = true;
                         }
@@ -4403,8 +4493,15 @@ void enterDungeon(string dungeonName) {
                     }
 
                     if (enemyDatabase.count(enemyName)) {
-                        bool survived = startBattle(enemyDatabase[enemyName]);
-                        if (!survived) return;
+                        BattleResult result = startBattle(enemyDatabase[enemyName], dungeon.name);
+                        if (result == PLAYER_DEAD) {
+                            return;  
+                        } else if (result == PLAYER_ESCAPED) {
+                            delayPrint(L"Kamu berhasil kabur, tapi masih di lantai dungeon ini.", 20);
+                            continue;  
+                        } else if (result == ENEMY_DEAD && enemyDatabase[enemyName].isBoss) {
+                            defeatedBosses[floorKey] = true;
+                        }
                         if (enemyDatabase[enemyName].isBoss) {
                             defeatedBosses[floorKey] = true;
                         }
@@ -6634,7 +6731,45 @@ void showGameMenu() {
                 exploreArea();
             } else if (action == "Membuka Diary" || action == "Buka Diary") {
                 showDiaryMenu();
-            } else if (action == "Pilih Lokasi") {
+            } else if (action == "Istirahat") {
+            int pilihan;
+            system("cls");
+            printLine();
+            centerText(L"✦✦✦ ISTIRAHAT ✦✦✦");
+            printLine();
+            delayPrint(L"Tempat tidur tampak nyaman. Apakah kamu ingin beristirahat dan mengakhiri hari ini?", 20);
+            wcout << L"\n❖ 1. Ya, beristirahat\n❖ 2. Tidak, kembali ke aktivitas\n";
+            printLine();
+            wcout << L"Pilih opsi ✦: ";
+            cin >> pilihan;
+
+            if (pilihan == 1) {
+                currentActionsRemaining = 0;    
+                delayPrint(L"Kamu merebahkan diri di atas tempat tidur, membiarkan kelelahan hari ini larut dalam kehangatan selimut...", 30);
+                delayPrint(L"Zzz...", 40);
+                delayPrint(L"Lewat jendela, matahari pagi mulai menyapa.", 20);
+                delayPrint(L"--- Hari Baru Telah Tiba ---", 40);
+                currentDay++;
+                talkedToday.clear();
+                printLine();
+                centerText(L"✦ Hari berganti! Sekarang Hari ke-" + to_wstring(currentDay) + L" ✦");
+                printLine();
+                waitForEnter();
+
+
+                ActiveDailyQuestNode* current = activeDailyQuestsHead;
+                while (current != nullptr) {
+                    ActiveDailyQuestNode* next = current->next;
+                    delete current;
+                    current = next;
+                }
+                activeDailyQuestsHead = nullptr;
+                generateDailyQuests();
+            } else {
+                delayPrint(L"Kamu memutuskan untuk tetap terjaga dan melanjutkan aktivitas hari ini.", 20);
+                waitForEnter();
+            }
+            }  else if (action == "Pilih Lokasi") {
                 showLocationMenu();
             } else if (action == "Bicara dengan Ruigerd") {
                 interactWithNPC("Ruigerd");
@@ -6663,9 +6798,6 @@ void showGameMenu() {
                 enterDungeon("Ancient Temple");
             } else if (action == "Masuk ke Goa Avernix (Dungeon)") {
                 enterDungeon("Goa Avernix");
-            } else if (action == "Lawan Vallen") {
-                wcout << L"(Pertarungan dengan Vallen belum tersedia atau belum memenuhi syarat)" << endl;
-                wcout << L"Tekan Enter untuk kembali..."; cin.get();
             } else {
                 wcout << L"Aksi belum dikenali!" << endl;
                 wcout << L"Tekan Enter untuk kembali..."; cin.get();
