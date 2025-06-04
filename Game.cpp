@@ -21,7 +21,7 @@
 
 using namespace std;
 
-// Struktur Data Utama
+
 struct Item {
     string name;
     string type;
@@ -53,14 +53,14 @@ struct Magic {
 };
 
 struct MagicSpell {
-    string id;                      // Unique ID, e.g., "FIREBALL_1"
-    string name;                    // Display name, e.g., "Bola Api"
+    string id;                      
+    string name;                    
     string description;
-    string elementType;             // "Fire", "Ice", etc.
-    int tier;                       // 1, 2, atau 3
+    string elementType;             
+    int tier;                       
     int manaCost;
-    int basePower;                 // For damage or heal
-    string targetType;              // "SingleEnemy", "AllEnemies", "Self", "Ally"
+    int basePower;                 
+    string targetType;              
     bool isEnchantment;          
     int enchantTurns;               
     int enchantAttackBonus;        
@@ -70,7 +70,7 @@ struct MagicSpell {
 
 struct ActiveEnchantment {
     string spellId;
-    string spellName; // For display or easier reference
+    string spellName; 
     int remainingTurns;
     int attackBonus;
     int defenseBonus;
@@ -145,22 +145,22 @@ struct Character {
     int temporaryIntelligenceBuff = 0;
     vector<Item*> inventory;
     vector<Weapon*> weapons;
-    // vector<Magic*> knownMagic; // OLD: To be replaced
+    
     Weapon* equippedWeapon;
 
-    long long expToNextLevel; // Changed to long long to avoid overflow with higher levels
+    long long expToNextLevel; 
     int skillPoints;
-    vector<string> unlockedMagicElements; // Names of elements like "Fire", "Ice"
-    vector<string> knownSpells;         // IDs of learned MagicSpell
+    vector<string> unlockedMagicElements; 
+    vector<string> knownSpells;         
     vector<ActiveEnchantment> activeEnchantments;
     vector<ActiveHoTEffect> activeHoTs;
 };
 
 struct MagicElement {
-    string name; // "Fire", "Thunder", etc.
+    string name; 
     string description;
-    map<string, MagicSpell> spells; // Key is spellId, value is the MagicSpell object
-                                    // Tier and branching are handled by MagicSpell.tier and prerequisites
+    map<string, MagicSpell> spells; 
+                                    
 };
 
 struct Enemy {
@@ -175,7 +175,7 @@ struct Enemy {
     int magicDefense;
     bool isBoss;
 
-    // Status Effects
+    
     bool isStunned;
     int stunDuration;
     bool isFeared;
@@ -194,9 +194,9 @@ struct Enemy {
 
     string enemyType;
     vector<ActiveDoTEffect> activeDoTs;
-    vector<ActiveRuneEffect> activeRunes; // Tambahkan ini jika belum
+    vector<ActiveRuneEffect> activeRunes; 
 
-    // Constructor Lengkap dengan default arguments
+    
     Enemy(string n = "", int lvl = 1, int mHp = 10, int chp = 10, int atk = 5, int def = 0,
           int expr = 5, int gld = 1, int mdef = 0, bool boss = false,
           bool stunned = false, int stundur = 0,
@@ -248,7 +248,7 @@ struct Quest {
 struct DailyQuest {
     string title;
     string description;
-    string type; // "kill" / "travel"
+    string type; 
     string target;
     int dungeonFloor = 0;
     string dungeonName;
@@ -256,11 +256,11 @@ struct DailyQuest {
     bool completed = false;
     int expReward = 0;
     int goldReward = 0;
-    string rank = "C"; // C, B, A, S, SS
+    string rank = "C"; 
 };
 
 struct ActiveDailyQuestNode {
-    DailyQuest data; // Menyimpan objek DailyQuest
+    DailyQuest data; 
     ActiveDailyQuestNode* next;
 };
 
@@ -290,12 +290,12 @@ struct CampArea {
 
 struct Dungeon {
     string name;
-    string type; // "ascending" atau "descending"
+    string type; 
     int currentFloor = 1;
     int maxUnlockedFloor = 1;
     bool printAsBasement = false;
 
-    map<int, vector<string>> floorEnemies; // daftar nama enemy per lantai
+    map<int, vector<string>> floorEnemies; 
     map<int, string> miniBosses;
     map<int, string> finalBoss;
     vector<int> storyLockedFloors;
@@ -305,13 +305,13 @@ struct Dungeon {
 
 struct SocialLink {
     string characterName;
-    int currentLevel = 1; // Mulai dari level 1
+    int currentLevel = 1; 
     bool completed = false;
 };
 
 struct SocialLinkStory {
-    vector<wstring> levelDialogs; // Dialog per level
-    unordered_set<int> lockedLevels; // Level yang terkunci
+    vector<wstring> levelDialogs; 
+    unordered_set<int> lockedLevels; 
 };
 
 
@@ -329,7 +329,7 @@ string currentWorld = "Mansion Astra";
 string currentSubArea = "Kamar Weiss";
 string currentDungeonName;
 
-// Global Variables
+
 Character player;
 vector<Companion> companions;
 vector<Item> allItems;
@@ -338,7 +338,7 @@ vector<Magic> allMagic;
 vector<DailyQuest> allDailyQuestPool;
 vector<DailyQuest> dailyQuests;
 ActiveDailyQuestNode* activeDailyQuestsHead = nullptr;
-// vector<DailyQuest> activeDailyQuests;
+
 unordered_map<string, Item*> itemDatabase;
 unordered_map<string, Weapon*> weaponDatabase;
 unordered_map<string, Magic*> magicDatabase;
@@ -347,7 +347,6 @@ unordered_map<string, int> companionRelations;
 map<string, Location> worldMap;
 map<string, MagicElement> allMagicElements;
 queue<GameEvent> scheduledEvents;
-stack<Character> playerStateHistory;
 stack<PlayerSpellUndoState> spellLearnUndoStack;
 Quest* questHead = nullptr;
 const double BASE_XP = 7.0;
@@ -358,7 +357,7 @@ int maxActionsPerDay = 5;
 int currentActionsRemaining = 5;
 bool gameRunning = true;
 string currentLocation = "Noble's Room";
-// Function Declarations
+
 void delayPrint(const wstring& text, int delayMs = 10);
 void printLine(int len = 100, wchar_t ch = L'═');
 void centerText(const wstring& text, int width = 100);
@@ -393,25 +392,25 @@ void applySocialLinkBonus(const string& npcName);
 
 
 
-// Utility Functions
+
 wstring utf8_to_wstring(const string& str_utf8) {
-    // Menggunakan using namespace std; maka std:: tidak diperlukan lagi
+    
     if (str_utf8.empty()) {
         return wstring();
     }
     int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str_utf8[0], (int)str_utf8.length(), NULL, 0);
     if (size_needed == 0) {
-        // Anda mungkin ingin mencatat error di sini atau melempar exception
-        // DWORD error = GetLastError();
-        // wcout << L"MultiByteToWideChar failed to calculate size. Error: " << error << endl;
-        return wstring(); // Kembalikan string kosong atau tangani error dengan tepat
+        
+        
+        
+        return wstring(); 
     }
     wstring wstr_to(size_needed, 0);
     int chars_converted = MultiByteToWideChar(CP_UTF8, 0, &str_utf8[0], (int)str_utf8.length(), &wstr_to[0], size_needed);
     if (chars_converted == 0) {
-        // DWORD error = GetLastError();
-        // wcout << L"MultiByteToWideChar failed to convert. Error: " << error << endl;
-        return wstring(); // Kembalikan string kosong atau tangani error dengan tepat
+        
+        
+        return wstring(); 
     }
     return wstr_to;
 }
@@ -427,7 +426,7 @@ map<string, MagicSpell> getAllSpells() {
 }
 
 const MagicSpell* getSpellDetails(const string& spellId) {
-    static auto allSpells = getAllSpells();  // Cached result
+    static auto allSpells = getAllSpells();  
     auto it = allSpells.find(spellId);
     if (it != allSpells.end()) return &it->second;
     return nullptr;
@@ -511,7 +510,7 @@ void dfsTravel(string current, string target, unordered_set<string>& visited, ve
             if (!path.empty() && path.back() == target) return;
         }
     }
-    path.pop_back(); // Backtrack jika buntu
+    path.pop_back(); 
 }
 
 
@@ -634,7 +633,7 @@ void chooseInitialMagicElements(Character& character) {
     cin.ignore();
 }
 
-// Modify inputPlayerName()
+
 void inputPlayerName() {
     system("cls");
     printLine();
@@ -648,7 +647,7 @@ void inputPlayerName() {
     
     wcout << L"Siapa nama aslimu (sebelum reinkarnasi)? ✦: ";
     string realName;
-    // If previous cin was >> int, then ignore newline
+    
     if (cin.peek() == '\n') {
         cin.ignore();
     }
@@ -694,9 +693,9 @@ void showTutorial() {
     cin.get();
 }
 
-// Calculates EXP needed for the next level
+
 long long calculateExpToNextLevel(int currentLevel) {
-    if (currentLevel <= 0) return static_cast<long long>(BASE_XP); // Should not happen if level starts at 1
+    if (currentLevel <= 0) return static_cast<long long>(BASE_XP); 
     return static_cast<long long>(floor(BASE_XP * pow(static_cast<double>(currentLevel), XP_EXPONENT)));
 }
 
@@ -708,25 +707,25 @@ void checkEndOfDay() {
         delayPrint(L"Aku merasa lelah... Sebaiknya aku segera kembali dan mengakhiri hariku.", 30);
         currentDay++;
         currentActionsRemaining = maxActionsPerDay;
-        talkedToday.clear(); // Reset status bicara dengan NPC untuk hari berikutnya
+        talkedToday.clear(); 
 
         printLine();
         centerText(L"✦ Hari berganti! Sekarang Hari ke-" + to_wstring(currentDay) + L" ✦");
         printLine();
-        // system("pause"); // system("pause") kurang portabel, waitForEnter() lebih baik jika ada
-        waitForEnter(); // Menggunakan waitForEnter Anda
+        
+        waitForEnter(); 
 
-        // MODIFIKASI: Membersihkan linked list activeDailyQuestsHead
+        
         ActiveDailyQuestNode* current = activeDailyQuestsHead;
         ActiveDailyQuestNode* nextNode = nullptr;
         while (current != nullptr) {
-            nextNode = current->next; // Simpan node berikutnya
-            delete current;           // Hapus node saat ini
-            current = nextNode;       // Pindah ke node berikutnya
+            nextNode = current->next; 
+            delete current;           
+            current = nextNode;       
         }
-        activeDailyQuestsHead = nullptr; // Set head menjadi nullptr setelah semua node dihapus
+        activeDailyQuestsHead = nullptr; 
 
-        generateDailyQuests(); // Generate quest baru untuk hari berikutnya
+        generateDailyQuests(); 
     }
 }
 
@@ -739,7 +738,7 @@ void consumeAction() {
 
 
 void initializeSpellsForElement(MagicElement& element) {
-    // === FIRE ELEMENT (Diperluas) ===
+    
     if (element.name == "Fire") {
         element.description = "An element that controls scorching flames, burning enemies to ash.";
         MagicSpell f1_1, f1_2, f1_3, f1_4, f1_5;
@@ -753,7 +752,7 @@ void initializeSpellsForElement(MagicElement& element) {
         f1_2.targetType = "SingleEnemy"; f1_2.isEnchantment = false; element.spells[f1_2.id] = f1_2;
 
         f1_3.id = "FIRE_IGNITE_1"; f1_3.name = "Ignite"; f1_3.description = "Menyebabkan target terbakar, menerima damage api kecil selama beberapa giliran (DoT).";
-        f1_3.elementType = "Fire"; f1_3.tier = 1; f1_3.manaCost = 12; f1_3.basePower = 5; // DoT damage per turn
+        f1_3.elementType = "Fire"; f1_3.tier = 1; f1_3.manaCost = 12; f1_3.basePower = 5; 
         f1_3.targetType = "SingleEnemy"; f1_3.isEnchantment = false; element.spells[f1_3.id] = f1_3;
 
         f1_4.id = "FIRE_FLAME_WEAPON_1"; f1_4.name = "Flame Weapon"; f1_4.description = "Menyelimuti senjata dengan api, menambah sedikit fire damage pada serangan.";
@@ -770,11 +769,11 @@ void initializeSpellsForElement(MagicElement& element) {
         f2_1.targetType = "SingleEnemy"; f2_1.isEnchantment = false; f2_1.prerequisites = {"FIRE_BALL_1"}; element.spells[f2_1.id] = f2_1;
 
         f2_2.id = "FIRE_ENGULFING_FLAMES_2"; f2_2.name = "Engulfing Flames"; f2_2.description = "Menyelimuti satu target dengan api besar, memberikan damage tinggi dan efek terbakar yang kuat.";
-        f2_2.elementType = "Fire"; f2_2.tier = 2; f2_2.manaCost = 28; f2_2.basePower = 35; // Plus strong DoT
+        f2_2.elementType = "Fire"; f2_2.tier = 2; f2_2.manaCost = 28; f2_2.basePower = 35; 
         f2_2.targetType = "SingleEnemy"; f2_2.isEnchantment = false; f2_2.prerequisites = {"FIRE_IGNITE_1"}; element.spells[f2_2.id] = f2_2;
 
         f2_3.id = "FIRE_INTENSE_BURN_2"; f2_3.name = "Intense Burn"; f2_3.description = "Meningkatkan damage dari efek terbakar (DoT) yang sudah ada pada target.";
-        f2_3.elementType = "Fire"; f2_3.tier = 2; f2_3.manaCost = 25; f2_3.basePower = 10; // Boosts existing DoT damage
+        f2_3.elementType = "Fire"; f2_3.tier = 2; f2_3.manaCost = 25; f2_3.basePower = 10; 
         f2_3.targetType = "SingleEnemy"; f2_3.isEnchantment = false; f2_3.prerequisites = {"FIRE_IGNITE_1"}; element.spells[f2_3.id] = f2_3;
 
         f2_4.id = "FIRE_BLAZING_SOUL_2"; f2_4.name = "Blazing Soul"; f2_4.description = "Meningkatkan kekuatan sihir api (Intelligence) pengguna untuk sementara waktu.";
@@ -782,7 +781,7 @@ void initializeSpellsForElement(MagicElement& element) {
         f2_4.targetType = "Self"; f2_4.isEnchantment = true; f2_4.enchantTurns = 4; f2_4.prerequisites = {"FIRE_EMBER_1"}; element.spells[f2_4.id] = f2_4;
 
         f2_5.id = "FIRE_EXPLOSIVE_RUNE_2"; f2_5.name = "Explosive Rune"; f2_5.description = "Menanam rune api pada target yang akan meledak setelah beberapa giliran.";
-        f2_5.elementType = "Fire"; f2_5.tier = 2; f2_5.manaCost = 18; f2_5.basePower = 50; // Damage on explosion
+        f2_5.elementType = "Fire"; f2_5.tier = 2; f2_5.manaCost = 18; f2_5.basePower = 50; 
         f2_5.targetType = "SingleEnemy"; f2_5.isEnchantment = false; f2_5.prerequisites = {"FIRE_FLAME_WEAPON_1"}; element.spells[f2_5.id] = f2_5;
 
         MagicSpell f3_1, f3_2, f3_3, f3_4, f3_5;
@@ -799,14 +798,14 @@ void initializeSpellsForElement(MagicElement& element) {
         f3_3.targetType = "Self"; f3_3.isEnchantment = true; f3_3.enchantTurns = 5; f3_3.prerequisites = {"FIRE_BLAZING_SOUL_2"}; element.spells[f3_3.id] = f3_3;
 
         f3_4.id = "FIRE_VOLCANIC_ERUPTION_3"; f3_4.name = "Volcanic Eruption"; f3_4.description = "Menyebabkan tanah di bawah musuh meletus, damage besar berkelanjutan (DoT).";
-        f3_4.elementType = "Fire"; f3_4.tier = 3; f3_4.manaCost = 55; f3_4.basePower = 40; // Initial damage, plus strong DoT
+        f3_4.elementType = "Fire"; f3_4.tier = 3; f3_4.manaCost = 55; f3_4.basePower = 40; 
         f3_4.targetType = "SingleEnemy"; f3_4.isEnchantment = false; f3_4.prerequisites = {"FIRE_EXPLOSIVE_RUNE_2"}; element.spells[f3_4.id] = f3_4;
 
         f3_5.id = "FIRE_INFERNO_PILLAR_3"; f3_5.name = "Inferno Pillar"; f3_5.description = "Memanggil pilar api raksasa untuk menghanguskan satu target dengan damage masif.";
         f3_5.elementType = "Fire"; f3_5.tier = 3; f3_5.manaCost = 80; f3_5.basePower = 150;
         f3_5.targetType = "SingleEnemy"; f3_5.isEnchantment = false; f3_5.prerequisites = {"FIRE_METEOR_STRIKE_3", "FIRE_PHOENIX_BLESSING_3"}; element.spells[f3_5.id] = f3_5;
     }
-    // === ICE ELEMENT (Adjusted) ===
+    
     else if (element.name == "Ice") {
         element.description = "An element that manipulates freezing ice, stopping enemies in their tracks.";
         MagicSpell i1_1, i1_2, i1_3, i1_4, i1_5;
@@ -872,7 +871,7 @@ void initializeSpellsForElement(MagicElement& element) {
         i3_5.elementType = "Ice"; i3_5.tier = 3; i3_5.manaCost = 85; i3_5.basePower = 100;
         i3_5.targetType = "SingleEnemy"; i3_5.isEnchantment = false; i3_5.prerequisites = {"ICE_DIAMOND_DUST_3", "ICE_WINTERS_MANTLE_3"}; element.spells[i3_5.id] = i3_5;
     }
-    // === THUNDER ELEMENT (Adjusted) ===
+    
     else if (element.name == "Thunder") {
         element.description = "An element that wields the devastating power of lightning, striking with blinding speed.";
         MagicSpell t1_1, t1_2, t1_3, t1_4, t1_5;
@@ -885,7 +884,7 @@ void initializeSpellsForElement(MagicElement& element) {
         t1_2.targetType = "SingleEnemy"; t1_2.isEnchantment = false; element.spells[t1_2.id] = t1_2;
 
         t1_3.id = "THUNDER_STATIC_FIELD_1"; t1_3.name = "Static Field"; t1_3.description = "Menciptakan medan listrik statis di sekitar target, damage kecil per giliran (DoT).";
-        t1_3.elementType = "Thunder"; t1_3.tier = 1; t1_3.manaCost = 13; t1_3.basePower = 6; // DoT damage
+        t1_3.elementType = "Thunder"; t1_3.tier = 1; t1_3.manaCost = 13; t1_3.basePower = 6; 
         t1_3.targetType = "SingleEnemy"; t1_3.isEnchantment = false; element.spells[t1_3.id] = t1_3;
 
         t1_4.id = "THUNDER_CHARGE_WEAPON_1"; t1_4.name = "Charged Weapon"; t1_4.description = "Memberi muatan listrik pada senjata, menambah sedikit thunder damage.";
@@ -923,7 +922,7 @@ void initializeSpellsForElement(MagicElement& element) {
         t3_1.targetType = "SingleEnemy"; t3_1.isEnchantment = false; t3_1.prerequisites = {"THUNDER_LIGHTNING_STRIKE_2"}; element.spells[t3_1.id] = t3_1;
 
         t3_2.id = "THUNDER_STORM_CONDUIT_3"; t3_2.name = "Thunderstorm Conduit"; t3_2.description = "Pengguna menjadi saluran badai petir, menyambar musuh dengan petir kuat beberapa kali.";
-        t3_2.elementType = "Thunder"; t3_2.tier = 3; t3_2.manaCost = 68; t3_2.basePower = 30; // Multi-hit
+        t3_2.elementType = "Thunder"; t3_2.tier = 3; t3_2.manaCost = 68; t3_2.basePower = 30; 
         t3_2.targetType = "SingleEnemy"; t3_2.isEnchantment = false; t3_2.prerequisites = {"THUNDER_THUNDERCLAP_2", "THUNDER_MAGNETIC_OVERLOAD_2"}; element.spells[t3_2.id] = t3_2;
 
         t3_3.id = "THUNDER_MJOLNIR_AWAKENING_3"; t3_3.name = "Mjolnir's Awakening"; t3_3.description = "Menyihir senjata dengan kekuatan Mjolnir, damage listrik ekstrem, dan serangan berpeluang stun musuh.";
@@ -938,7 +937,7 @@ void initializeSpellsForElement(MagicElement& element) {
         t3_5.elementType = "Thunder"; t3_5.tier = 3; t3_5.manaCost = 90; t3_5.basePower = 140;
         t3_5.targetType = "SingleEnemy"; t3_5.isEnchantment = false; t3_5.prerequisites = {"THUNDER_JUDGEMENT_BOLT_3", "THUNDER_STORM_CONDUIT_3"}; element.spells[t3_5.id] = t3_5;
     }
-    // === WIND ELEMENT (Adjusted) ===
+    
     else if (element.name == "Wind") {
         element.description = "An element that manipulates gusts of wind and storms, prioritizing speed and agility.";
         MagicSpell w1_1, w1_2, w1_3, w1_4, w1_5;
@@ -985,7 +984,7 @@ void initializeSpellsForElement(MagicElement& element) {
 
         MagicSpell w3_1, w3_2, w3_3, w3_4, w3_5;
         w3_1.id = "WIND_TORNADO_OF_DESTRUCTION_3"; w3_1.name = "Tornado of Destruction"; w3_1.description = "Memanggil tornado yang menghantam target dengan damage besar berkelanjutan (DoT).";
-        w3_1.elementType = "Wind"; w3_1.tier = 3; w3_1.manaCost = 60; w3_1.basePower = 50; // Plus strong DoT
+        w3_1.elementType = "Wind"; w3_1.tier = 3; w3_1.manaCost = 60; w3_1.basePower = 50; 
         w3_1.targetType = "SingleEnemy"; w3_1.isEnchantment = false; w3_1.prerequisites = {"WIND_GALE_FORCE_2", "WIND_DISORIENTING_GUST_2"}; element.spells[w3_1.id] = w3_1;
 
         w3_2.id = "WIND_EYE_OF_THE_STORM_3"; w3_2.name = "Eye of the Storm"; w3_2.description = "Menciptakan zona tenang di sekitar pengguna, sangat meningkatkan evasion dan membalas serangan jarak dekat.";
@@ -1001,10 +1000,10 @@ void initializeSpellsForElement(MagicElement& element) {
         w3_4.targetType = "Self"; w3_4.isEnchantment = true; w3_4.enchantTurns = 3; w3_4.prerequisites = {"WIND_FEATHER_STEP_1", "WIND_SILENCING_GUST_2"}; element.spells[w3_4.id] = w3_4;
 
         w3_5.id = "WIND_ZEPHYRS_DANCE_3"; w3_5.name = "Zephyr's Dance"; w3_5.description = "Pengguna melancarkan serangkaian tebasan angin mematikan ke satu target dengan kecepatan tak terhindarkan.";
-        w3_5.elementType = "Wind"; w3_5.tier = 3; w3_5.manaCost = 88; w3_5.basePower = 130; // Multi-hit or high damage
+        w3_5.elementType = "Wind"; w3_5.tier = 3; w3_5.manaCost = 88; w3_5.basePower = 130; 
         w3_5.targetType = "SingleEnemy"; w3_5.isEnchantment = false; w3_5.prerequisites = {"WIND_TORNADO_OF_DESTRUCTION_3", "WIND_SKY_LORDS_WRATH_3"}; element.spells[w3_5.id] = w3_5;
     }
-    // === DARK ELEMENT (Adjusted) ===
+    
     else if (element.name == "Dark") {
         element.description = "An element that harnesses mysterious and potent dark energies, focusing on draining and weakening foes.";
         MagicSpell d1_1, d1_2, d1_3, d1_4, d1_5;
@@ -1070,7 +1069,7 @@ void initializeSpellsForElement(MagicElement& element) {
         d3_5.elementType = "Dark"; d3_5.tier = 3; d3_5.manaCost = 95; d3_5.basePower = 120;
         d3_5.targetType = "SingleEnemy"; d3_5.isEnchantment = false; d3_5.prerequisites = {"DARK_OBLITERATION_RAY_3", "DARK_SOUL_EATER_WEAPON_2"}; element.spells[d3_5.id] = d3_5;
     }
-    // === LIGHT ELEMENT (Adjusted) ===
+    
     else if (element.name == "Light") {
         element.description = "An element that radiates holy light, offering healing and protection to the worthy.";
         MagicSpell l1_1, l1_2, l1_3, l1_4, l1_5;
@@ -1152,13 +1151,13 @@ void initializeMagicSystem() {
     wcout << L"Sistem magic telah diinisialisasi dengan " << allMagicElements.size() << L" elemen." << endl;
 }
 
-// Initialize Game Data
+
 void initializeGame() {
     srand(time(nullptr));   
     setupWorldAreas();
     setupConnections();
 
-    // Setup Player
+    
     player.level = 1; 
     player.exp = 0;
     player.expToNextLevel = calculateExpToNextLevel(player.level);
@@ -1175,14 +1174,14 @@ void initializeGame() {
     player.gold = 1000;
     player.equippedWeapon = nullptr;
     player.activeHoTs.clear();
-    player.inventory.clear(); // Pastikan inventory kosong di awal
+    player.inventory.clear(); 
     player.weapons.clear();
     companions.clear();
     initializeAllQuests();
     generateDailyQuests();
     
     allItems = {
-        // Nama, Tipe, Nilai Jual (opsional), Deskripsi, Syarat Stat, Harga Beli
+        
         {"Health Potion", "consumable", 25, "Memulihkan 50 HP.", 0, 100},
         {"Mana Potion", "consumable", 20, "Memulihkan 30 Mana.", 0, 100},
         {"Big Health Potion", "consumable", 60, "Memulihkan 300 HP dengan cepat.", 0, 275},
@@ -1192,40 +1191,40 @@ void initializeGame() {
         {"Minor Focus Elixir", "consumable", 60, "Sedikit meningkatkan Int untuk sementara.", 0, 250}
     };
 
-    // Setup Weapons 
+    
     allWeapons = {
-        // Name, ATK, STR_REQ, INT_REQ, Description (Indonesian), Equipped, Price, FlagKey, FlagValue
+        
         {"Noble's Sword", 25, 5, 0, "Pedang turun temurun keluarga Weiss, lebih untuk pertarungan.", false, 750, "spesific_quest_completed", 0},
 
-        // Blacksmith Tier 0 (Always available or very early unlock)
+        
         {"Rusty Shortsword", 12, 5, 0, "Bilah terlupakan, lebih baik daripada tangan kosong.", false, 150, "no_flag", 0},
         {"Training Sword", 18, 8, 0, "Pedang standar untuk berlatih tebasan dasar.", false, 300, "no_flag", 0},
         {"Steel Dagger", 15, 3, 0, "Belati baja tajam dan ringan, cocok untuk serangan cepat.", false, 250, "no_flag", 0},
         {"Iron Kukri", 19, 7, 0, "Pedang melengkung dari besi, tebasannya cukup baik.", false, 350, "no_flag", 0},
         {"Light War Hammer", 20, 10, 0, "Palu tumpul ringan, efektif melawan armor sederhana.", false, 400, "no_flag", 0},
 
-        // Blacksmith Tier 1 (Example: unlocked by storyFlags["blacksmith_tier1_unlocked"] = 1)
+        
         {"Iron Longsword", 30, 12, 0, "Pedang panjang dari besi yang kokoh dan dapat diandalkan.", false, 1200, "blacksmith_tier1_unlocked", 1},
         {"Steel Kite Shield (Weapon)", 10, 15, 0, "Perisai yang juga bisa digunakan untuk memukul. (Dihitung sebagai senjata)", false, 1000, "blacksmith_tier1_unlocked", 1},
         {"Reinforced Staff", 28, 0, 20, "Tongkat yang diperkuat dengan lilitan logam.", false, 1100, "blacksmith_tier1_unlocked", 1},
         {"Cavalry Sword", 32, 14, 0, "Pedang lurus yang biasa digunakan pasukan berkuda.", false, 1500, "blacksmith_tier1_unlocked", 1},
         {"Steel War Axe", 35, 16, 0, "Kapak dari baja, membutuhkan kekuatan lebih untuk ayunan kuat.", false, 1700, "blacksmith_tier1_unlocked", 1},
 
-        // Blacksmith Tier 2 (Example: unlocked by storyFlags["blacksmith_tier2_unlocked"] = 1)
+        
         {"Knight's Arming Sword", 45, 18, 5, "Pedang seimbang yang pantas untuk seorang kesatria.", false, 3500, "blacksmith_tier2_unlocked", 1},
         {"Elven Thinblade", 40, 15, 10, "Bilah ringan dan cepat buatan peri, meningkatkan kelincahan.", false, 4000, "blacksmith_tier2_unlocked", 1},
         {"Battlemage's Rod", 38, 5, 25, "Gada dirancang untuk penyihir yang bertarung di garis depan.", false, 3200, "blacksmith_tier2_unlocked", 1},
         {"Bastard Flamberge", 48, 20, 0, "Pedang dengan bilah bergelombang, menakutkan dan mematikan.", false, 5000, "blacksmith_tier2_unlocked", 1},
         {"Moonlit Spellblade", 42, 17, 22, "Pedang yang bersinar lembut, dialiri energi bulan.", false, 5500, "blacksmith_tier2_unlocked", 1},
 
-        // Blacksmith Tier 3 (Example: unlocked by storyFlags["blacksmith_tier3_unlocked"] = 1)
+        
         {"Executioner's Greatsword", 70, 28, 0, "Pedang raksasa yang dirancang untuk kekuatan mentah.", false, 10000, "blacksmith_tier3_unlocked", 1},
         {"Crystal-Core Blade", 60, 22, 15, "Bilah dengan inti kristal yang dialiri sihir.", false, 12000, "blacksmith_tier3_unlocked", 1},
         {"Archmage's War Staff", 55, 10, 40, "Tongkat ampuh untuk sihir ofensif kuat dan pertarungan jarak dekat.", false, 9000, "blacksmith_tier3_unlocked", 1},
         {"Rune-Shatterer Claymore", 65, 25, 20, "Ditempa khusus untuk menetralkan atau menghancurkan sihir.", false, 15000, "blacksmith_tier3_unlocked", 1},
         {"Stormbringer Replica", 75, 30, 10, "Pedang legendaris yang konon bisa memanggil petir.", false, 18000, "blacksmith_tier3_unlocked", 1},
 
-        // Contoh senjata unik, mungkin dari quest atau drop langka
+        
         {"Lumanaire MoonSword", 99, 70, 50, "Pedang sihir kuat, tidak umum dijual.", false, 20000, "specific_quest_completed", 1}
     };
     
@@ -1248,7 +1247,7 @@ void initializeGame() {
         }
     }
 
-// --- MASHA VON AURORA ---
+
 Companion masha;
 masha.name = "Masha";
 masha.initialLoyalty = 10;
@@ -1279,7 +1278,7 @@ masha.detailedInfoPerLevel[10] = L"Berhasil menunda perjodohannya berkat proyek 
 masha.traitsRevealedPerLevel[10] = {L"Mandiri", L"Percaya Diri", L"Sahabat Setia"};
 companions.push_back(masha);
 
-// --- KINICH ---
+
 Companion kinich;
 kinich.name = "Kinich";
 kinich.initialLoyalty = 15;
@@ -1310,14 +1309,14 @@ kinich.detailedInfoPerLevel[10] = L"Menunjukkan 'Jantung Goa' kepada Weiss dan m
 kinich.traitsRevealedPerLevel[10] = {L"Sahabat Sejati", L"Penjaga Rahasia Goa", L"Sangat Loyal"};
 companions.push_back(kinich);
 
-// --- IRENE ---
+
 Companion irene;
 irene.name = "Irene";
 irene.initialLoyalty = 25;
 irene.personality = "Maid Setia dan Lembut";
 irene.description = "Pelayan baru di Mansion Astra yang rajin dan perhatian. Awalnya pemalu dan gugup, namun memiliki hati yang baik.";
 irene.coreAbilitiesOrTraits = {"Merawat Taman dengan Baik", "Perhatian pada Detail"};
-irene.met = true; // Asumsi langsung bertemu
+irene.met = true; 
 
 irene.detailedInfoPerLevel[1] = L"Sangat gugup dan canggung saat pertama kali diajak bicara. Menunjukkan kesukaannya pada taman sebagai tempat yang menenangkan.";
 irene.traitsRevealedPerLevel[1] = {L"Pemalu", L"Menyukai Ketenangan Taman"};
@@ -1341,7 +1340,7 @@ irene.detailedInfoPerLevel[10] = L"Memberikan jam saku pusaka keluarganya sebaga
 irene.traitsRevealedPerLevel[10] = {L"Sangat Loyal dan Berbakti", L"Menganggap Weiss Keluarga"};
 companions.push_back(irene);
 
-// --- RUIGERD ---
+
 Companion ruigerd;
 ruigerd.name = "Ruigerd";
 ruigerd.initialLoyalty = 30;
@@ -1372,7 +1371,7 @@ ruigerd.detailedInfoPerLevel[10] = L"Menciptakan hidangan 'Simfoni Astra' dan me
 ruigerd.traitsRevealedPerLevel[10] = {L"Sangat Setia dan Berdedikasi", L"Menganggap Weiss Keluarga"};
 companions.push_back(ruigerd);
 
-// --- ELLA ---
+
 Companion ella;
 ella.name = "Ella";
 ella.initialLoyalty = 5;
@@ -1403,7 +1402,7 @@ ella.detailedInfoPerLevel[10] = L"Menganugerahkan Lencana Kehormatan Guild Terti
 ella.traitsRevealedPerLevel[10] = {L"Sangat Mempercayai Weiss", L"Visioner", L"Mitra Setia"};
 companions.push_back(ella);
 
-// --- CHARLOTTE ---
+
 Companion charlotte;
 charlotte.name = "Charlotte";
 charlotte.initialLoyalty = 5;
@@ -1434,7 +1433,7 @@ charlotte.detailedInfoPerLevel[10] = L"Berhasil menerbitkan berita skandal besar
 charlotte.traitsRevealedPerLevel[10] = {L"Pembawa Perubahan", L"Sahabat Setia", L"Sangat Idealistis"};
 companions.push_back(charlotte);
 
-// --- MARS ---
+
 Companion mars;
 mars.name = "Mars";
 mars.initialLoyalty = 10;
@@ -1466,13 +1465,13 @@ mars.traitsRevealedPerLevel[10] = {L"Sahabat dan Saudara Setia", L"Pelindung War
 companions.push_back(mars);
 
 
-// Inisialisasi relasi untuk semua companion (pastikan ini dilakukan setelah semua companion di-push_back)
-companionRelations.clear(); // Kosongkan dulu untuk menghindari duplikasi jika fungsi dipanggil ulang
+
+companionRelations.clear(); 
 for(const auto& comp : companions) {
     companionRelations[comp.name] = comp.initialLoyalty;
 }
     
-    // Setup initial quests
+    
     Quest* quest1 = new Quest{"Avoid Death Flags", "Don't die like a typical villain", false, 100, nullptr};
     Quest* quest2 = new Quest{"Find Decent Tea", "Locate Earl Grey in this fantasy world", false, 50, nullptr};
     Quest* quest3 = new Quest{"Derail the Plot", "Prevent the protagonist from following the story", false, 200, nullptr};
@@ -1481,25 +1480,25 @@ for(const auto& comp : companions) {
     quest2->next = quest3;
     questHead = quest1;
     
-    // Setup scheduled events
+    
     scheduledEvents.push({"Magic Academy Entrance", "Time to enroll and meet the protagonist", 30, false});
     scheduledEvents.push({"Annual Magic Tournament", "Where villains typically lose", 60, false});
     scheduledEvents.push({"Royal Ball", "Social event with plot significance", 90, false});
     
-    // Initialize story flags
+    
     storyFlags["met_protagonist"] = 0;
     storyFlags["discovered_tea"] = 0;
     storyFlags["plot_derailed"] = 0;
     storyFlags["learned_forbidden_magic"] = 0;
 
-    //Blacksmith Flags
+    
     storyFlags["blacksmith_tier1_unlocked"] = 0;
     storyFlags["blacksmith_tier2_unlocked"] = 0;
     storyFlags["blacksmith_tier3_unlocked"] = 0;
 
 
 
- // --- Common Enemies: Level 1-5 ---
+ 
     enemyDatabase["Slime"] =                 {"Slime", 1, 30, 30, 10, 2, 10, 5, 2, false, false, 0, 0, 0, 0, 0, "Beast", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["GiantRat"] =              {"Giant Rat", 1, 25, 25, 8, 1, 8, 4, 2, false, false, 0, 0, 0, 0, 0, "Beast", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["FeralGoblinGrunt"] =      {"Feral Goblin Grunt", 1, 35, 35, 12, 2, 12, 6, 2, false, false, 0, 0, 0, 0, 0, "Humanoid", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
@@ -1512,7 +1511,7 @@ for(const auto& comp : companions) {
     enemyDatabase["DustMephit"] =            {"Dust Mephit", 5, 45, 45, 18, 5, 25, 10, 8, false, false, 0, 0, 0, 0, 0, "Elemental", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["LostPilgrimSpirit"] =     {"Lost Pilgrim Spirit", 5, 40, 40, 20, 3, 28, 12, 8, false, false, 0, 0, 0, 0, 0, "Undead", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 6-10 ---
+    
     enemyDatabase["KoboldPathguard"] =       {"Kobold Pathguard", 6, 60, 60, 22, 8, 30, 15, 10, false, false, 0, 0, 0, 0, 0, "Humanoid", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["CaveLurker"] =            {"Cave Lurker", 6, 55, 55, 24, 6, 32, 16, 10, false, false, 0, 0, 0, 0, 0, "Beast", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["AnimatedSword"] =         {"Animated Sword", 7, 70, 70, 28, 12, 40, 20, 10, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
@@ -1520,7 +1519,7 @@ for(const auto& comp : companions) {
     enemyDatabase["AncientSentryFragment"] = {"Ancient Sentry Fragment", 9, 80, 80, 32, 15, 50, 25, 10, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["ShadowPup"] =             {"Shadow Pup" , 9, 60, 60, 35, 8, 48, 24, 14, false, false, 0, 0, 0, 0, 0, "Dark", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 11-15 ---
+    
     enemyDatabase["GuardianOrb"] =           {"Guardian Orb", 11, 80, 80, 35, 12, 65, 30, 15, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["GoblinRockthrower"] =     {"Goblin Rockthrower", 11, 75, 75, 33, 10, 68, 32, 15, false, false, 0, 0, 0, 0, 0, "Humanoid", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["TempleAcolyte"] =         {"Temple Acolyte", 12, 90, 90, 38, 14, 70, 35, 17, false, false, 0, 0, 0, 0, 0, "Humanoid", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
@@ -1532,14 +1531,14 @@ for(const auto& comp : companions) {
     enemyDatabase["RuneGuardian"] =          {"Rune Guardian", 15, 120, 120, 40, 20, 100, 50, 16, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["BroodCavernSpider"] =     {"Brood Cavern Spider", 15, 110, 110, 43, 16, 110, 50, 21, false, false, 0, 0, 0, 0, 0, "Beast", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 16-20 ---
+    
     enemyDatabase["CorruptedCherub"] =       {"Corrupted Cherub", 16, 90, 90, 40, 12, 120, 55, 24, false, false, 0, 0, 0, 0, 0, "Dark", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["KoboldDigger"] =          {"Kobold Digger", 17, 100, 100, 42, 16, 130, 60, 23, false, false, 0, 0, 0, 0, 0, "Humanoid", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["ObsidianRazorfiend"] =    {"Obsidian Razorfiend", 18, 90, 90, 42, 12, 150, 70, 24, false, false, 0, 0, 0, 0, 0, "Demon", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["PhantomWarrior"] =        {"Phantom Warrior", 19, 140, 140, 45, 15, 160, 75, 23, false, false, 0, 0, 0, 0, 0, "Undead", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["AltarGuardian"] =         {"Altar Guardian", 19, 150, 150, 48, 22, 170, 80, 26, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 21-25 ---
+    
     enemyDatabase["CharredSalamander"] =     {"Charred Salamander", 21, 150, 150, 50, 20, 200, 90, 28, false, false, 0, 0, 0, 0, 0, "Elemental", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["ForestSpider"] =          {"Forest Spider", 21, 140, 140, 48, 18, 190, 85, 28, false, false, 0, 0, 0, 0, 0, "Beast", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["StoneLionCub"] =          {"Stone Lion Cub", 22, 160, 160, 55, 25, 220, 100, 30, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
@@ -1548,7 +1547,7 @@ for(const auto& comp : companions) {
     enemyDatabase["LesserGargoyle"] =        {"Lesser Gargoyle", 25, 180, 180, 55, 25, 280, 130, 32, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["DeepDwellerBrute"] =      {"Deep Dweller Brute", 25, 200, 200, 60, 28, 270, 125, 34, false, false, 0, 0, 0, 0, 0, "Humanoid", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 26-30 ---
+    
     enemyDatabase["HieroglyphicAnimator"] =  {"Hieroglyphic Animator", 26, 190, 190, 50, 30, 290, 135, 36, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["LeaderBanditThug"] =      {"Leader Bandit Thug", 27, 210, 210, 62, 26, 310, 140, 36, false, false, 0, 0, 0, 0, 0, "Humanoid", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["FearHound"] =             {"Fear Hound", 28, 180, 180, 58, 22, 330, 150, 39, false, false, 0, 0, 0, 0, 0, "Dark", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
@@ -1556,7 +1555,7 @@ for(const auto& comp : companions) {
     enemyDatabase["OrcGruntElite"] =         {"Orc Grunt Elite", 30, 250, 250, 70, 30, 380, 170, 42, false, false, 0, 0, 0, 0, 0, "Humanoid", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["RockGolemShard"] =        {"Rock Golem Shard", 30, 230, 230, 60, 40, 370, 165, 42, false, false, 0, 0, 0, 0, 0, "Elemental", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 31-35 ---
+    
     enemyDatabase["MoltenCoreElemental"] =   {"Molten Core Elemental", 31, 280, 280, 65, 40, 410, 180, 44, false, false, 0, 0, 0, 0, 0, "Elemental", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["ShadowedSunCleric"] =     {"Shadowed Sun Cleric", 32, 240, 240, 60, 30, 430, 190, 44, false, false, 0, 0, 0, 0, 0, "Dark", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["GuardianSpirit"] =        {"Guardian Spirit", 33, 250, 250, 65, 30, 450, 200, 48, false, false, 0, 0, 0, 0, 0, "Magical", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
@@ -1564,14 +1563,14 @@ for(const auto& comp : companions) {
     enemyDatabase["CrystalGolemCore"] =      {"Crystal Golem Core", 35, 300, 300, 70, 45, 550, 250, 50, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["HarpyMatriarch"] =        {"Harpy Matriarch", 35, 260, 260, 68, 28, 500, 230, 50, false, false, 0, 0, 0, 0, 0, "Beast", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 36-40 ---
+    
     enemyDatabase["LavaBehemothWhelp"] =     {"Lava Behemoth Whelp", 36, 320, 320, 75, 42, 600, 270, 52, false, false, 0, 0, 0, 0, 0, "Elemental", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["HellishDevilBat"] =       {"Hellish Devil Bat", 37, 220, 220, 72, 30, 620, 280, 52, false, false, 0, 0, 0, 0, 0, "Demon", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["SeraphicEcho"] =          {"Seraphic Echo", 38, 280, 280, 75, 38, 650, 290,54, false, false, 0, 0, 0, 0, 0, "Celestial", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["AncientCarnivorousPlant"]={"Ancient Carnivorous Plant", 39, 340, 340, 78, 35, 680, 300, 54, false, false, 0, 0, 0, 0, 0, "Plant", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["CorruptedArchonAcolyte"]={"Corrupted Archon Acolyte", 40, 300, 300, 80, 40, 720, 310, 55, false, false, 0, 0, 0, 0, 0, "Dark", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 41-45 ---
+    
     enemyDatabase["AbyssalWatcher"] =        {"Abyssal Watcher", 41, 330, 330, 75, 38, 650, 300, 57, false, false, 0, 0, 0, 0, 0, "Demon", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["InfernalVanguard"] =      {"Infernal Vanguard", 42, 360, 360, 82, 48, 780, 340, 58, false, false, 0, 0, 0, 0, 0, "Demon", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["SunstoneSentinel"] =      {"Sunstone Sentinel", 42, 350, 350, 80, 40, 700, 320,58, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
@@ -1579,13 +1578,13 @@ for(const auto& comp : companions) {
     enemyDatabase["DarkWolfAlpha"] =         {"Dark Wolf Alpha", 44, 370, 370, 88, 40, 850, 370, 59, false, false, 0, 0, 0, 0, 0, "Dark", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["SoulLeechWisp"] =         {"Soul Leech Wisp", 45, 330, 330, 78, 42, 920, 400,60, false, false, 0, 0, 0, 0, 0, "Undead", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Common Enemies: Level 46-49 ---
+    
     enemyDatabase["EchoOfALostSaint"] =      {"Echo of a Lost Saint", 46, 350, 350, 80, 45, 950, 420, 61, false, false, 0, 0, 0, 0, 0, "Undead", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["YoungPitFiend"] =         {"Young Pit Fiend", 47, 400, 400, 90, 50, 1000, 450, 61, false, false, 0, 0, 0, 0, 0, "Demon", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["TimelessTempleSentinel"] ={"Timeless Temple Sentinel", 49, 450, 450, 95, 55, 1100, 500, 63, false, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["AvernusDeathKnight"] =    {"Avernus Death Knight", 49, 460, 460, 98, 58, 1150, 520, 63, false, false, 0, 0, 0, 0, 0, "Undead", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Mini-Bosses ---
+    
     enemyDatabase["AncientGolemSentry"] =    {"Ancient Golem Sentry", 12, 300, 300, 50, 20, 250, 120, 18, true, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["GreaterSkeletonLord"] =   {"Greater Skeleton Lord", 24, 600, 600, 70, 30, 700, 300, 36, true, false, 0, 0, 0, 0, 0, "Undead", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["StoneColossusFragment"] = {"Stone Colossus Fragment", 36, 1000, 1000, 90, 45, 1500, 600, 40, true, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
@@ -1595,144 +1594,144 @@ for(const auto& comp : companions) {
     enemyDatabase["LavaBehemothSpawn"] =     {"Lava Behemoth Spawn", 36, 950, 950, 95, 42, 1450, 580, 40, true, false, 0, 0, 0, 0, 0, "Elemental", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["HeraldOfTheAbyss"] =      {"Herald of the Abyss", 48, 1400, 1400, 125, 52, 2900, 950, 53, true, false, 0, 0, 0, 0, 0, "Demon", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Final Bosses ---
+    
     enemyDatabase["AvatarOfTheForgottenDeity"] = {"Avatar of the Forgotten Deity", 60, 5000, 5000, 200, 80, 10000, 5000, 80, true, false, 0, 0, 0, 0, 0, "Divine", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["AvernusCoreGuardian"] =      {"Avernus Core Guardian", 60, 4800, 4800, 210, 75, 9800, 4800, 80, true, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
 
-    // --- Dungeon 1: Ancient Temple (Ascending) ---
+    
     Dungeon ancientTemple;
     ancientTemple.name = "Ancient Temple";
     ancientTemple.type = "ascending";
     ancientTemple.printAsBasement = false;
-    ancientTemple.storyLockedFloors = {11, 21, 31, 41}; // Contoh lantai terkunci
+    ancientTemple.storyLockedFloors = {11, 21, 31, 41}; 
     for (int i : {5, 15, 25, 35, 45}) { ancientTemple.campAreas[i] = CampArea{i}; }
 
     for (int i = 1; i <= 50; ++i) {
-        ancientTemple.floorEnemies[i].clear(); // Pastikan kosong sebelum diisi
-        // SEGMENT 1: Lantai 1-9 (Menuju MB Lvl 12 "AncientGolemSentry" di Lantai 10)
-        if (i >= 1 && i <= 3) {     // Common Lvl 1-2
+        ancientTemple.floorEnemies[i].clear(); 
+        
+        if (i >= 1 && i <= 3) {     
             ancientTemple.floorEnemies[i] = {"Slime", "GiantRat", "StoneSprite"};
-        } else if (i >= 4 && i <= 6) { // Common Lvl 3-5
+        } else if (i >= 4 && i <= 6) { 
             ancientTemple.floorEnemies[i] = {"TempleRatSwarm", "TempleGuardDog", "DustMephit"};
-        } else if (i >= 7 && i <= 9) { // Common Lvl 5-9
+        } else if (i >= 7 && i <= 9) { 
             ancientTemple.floorEnemies[i] = {"AnimatedSword", "AncientSentryFragment","LostPilgrimSpirit", "ShadowPup"};
         } else if (i == 10) { ancientTemple.miniBosses[i] = "AncientGolemSentry"; }
 
-        // SEGMENT 2: Lantai 11-19 (Menuju MB Lvl 24 "GreaterSkeletonLord" di Lantai 20)
-        else if (i >= 11 && i <= 13) { // Common Lvl 11-12
+        
+        else if (i >= 11 && i <= 13) { 
             ancientTemple.floorEnemies[i] = {"GuardianOrb", "GoblinRockthrower", "TempleAcolyte", "LesserImpVariant"};
-        } else if (i >= 14 && i <= 16) { // Common Lvl 13-16
+        } else if (i >= 14 && i <= 16) { 
             ancientTemple.floorEnemies[i] = {"DarkCultInitiate", "TempleKnightAspirant", "WildBoarStrong", "CorruptedCherub"};
-        } else if (i >= 17 && i <= 19) { // Common Lvl 17-19
+        } else if (i >= 17 && i <= 19) { 
             ancientTemple.floorEnemies[i] = {"KoboldDiggerElite", "ObsidianRazorfiend", "PhantomWarrior", "AltarGuardianMinor"};
         } else if (i == 20) { ancientTemple.miniBosses[i] = "GreaterSkeletonLord"; }
 
-        // SEGMENT 3: Lantai 21-29 (Menuju MB Lvl 36 "StoneColossusFragment" di Lantai 30)
-        else if (i >= 21 && i <= 23) { // Common Lvl 21-23
+        
+        else if (i >= 21 && i <= 23) { 
             ancientTemple.floorEnemies[i] = {"CharredSalamander", "ForestSpiderVariant", "StoneLionCub", "RiverSerpentVariant"};
-        } else if (i >= 24 && i <= 26) { // Common Lvl 24-26
+        } else if (i >= 24 && i <= 26) { 
             ancientTemple.floorEnemies[i] = {"SkeletonSoldierElite", "LesserGargoyle", "DeepDwellerBrute", "HieroglyphicAnimator"};
-        } else if (i >= 27 && i <= 29) { // Common Lvl 27-29
+        } else if (i >= 27 && i <= 29) { 
             ancientTemple.floorEnemies[i] = {"BanditThugLeader", "FearHound", "FallenTempleJusticar"};
         } else if (i == 30) { ancientTemple.miniBosses[i] = "StoneColossusFragment"; }
 
-        // SEGMENT 4: Lantai 31-39 (Menuju MB Lvl 48 "CorruptedArchon" di Lantai 40)
-        else if (i >= 31 && i <= 33) { // Common Lvl 30-33
+        
+        else if (i >= 31 && i <= 33) { 
             ancientTemple.floorEnemies[i] = {"OrcGruntElite", "RockGolemShardStrong", "MoltenCoreElemental", "ShadowedSunCleric", "GuardianSpirit"};
-        } else if (i >= 34 && i <= 36) { // Common Lvl 34-36
+        } else if (i >= 34 && i <= 36) { 
             ancientTemple.floorEnemies[i] = {"AbyssalRitualist", "CrystalGolemCore", "HarpyFledglingMatriarch", "LavaBehemothWhelp"};
-        } else if (i >= 37 && i <= 39) { // Common Lvl 37-39
+        } else if (i >= 37 && i <= 39) { 
             ancientTemple.floorEnemies[i] = {"HellishBatSwarm", "SeraphicEcho", "CarnivorousPlantAncient"};
         } else if (i == 40) { ancientTemple.miniBosses[i] = "CorruptedArchon"; }
 
-        // SEGMENT 5: Lantai 41-49 (Menuju FB Lvl 60 "AvatarOfTheForgottenDeity" di Lantai 50)
-        else if (i >= 41 && i <= 43) { // Common Lvl 40-43
+        
+        else if (i >= 41 && i <= 43) { 
             ancientTemple.floorEnemies[i] = {"CorruptedArchonAcolyte", "AbyssalWatcherMinor", "InfernalVanguard", "DivineConstructSentry"};
-        } else if (i >= 44 && i <= 46) { // Common Lvl 44-46
+        } else if (i >= 44 && i <= 46) { 
             ancientTemple.floorEnemies[i] = {"DarkWolfAlpha", "SoulLeechWisp", "EchoOfALostSaint"};
-        } else if (i >= 47 && i <= 49) { // Common Lvl 47-49
-            ancientTemple.floorEnemies[i] = {"YoungPitFiend", "TimelessTempleSentinel", "AvernusDeathKnight"}; // AvernusDeathKnight mungkin lebih cocok di Goa, ganti jika perlu
-                                                                                                               // Ganti "AvernusDeathKnight" dengan varian Temple yang kuat, misal "CelestialKnightRemnant"
-            ancientTemple.floorEnemies[i] = {"YoungPitFiend", "TimelessTempleSentinel", "SeraphicEcho"}; // Menggunakan Seraphic Echo lagi untuk tema temple
+        } else if (i >= 47 && i <= 49) { 
+            ancientTemple.floorEnemies[i] = {"YoungPitFiend", "TimelessTempleSentinel", "AvernusDeathKnight"}; 
+                                                                                                               
+            ancientTemple.floorEnemies[i] = {"YoungPitFiend", "TimelessTempleSentinel", "SeraphicEcho"}; 
         } else if (i == 50) { ancientTemple.finalBoss[i] = "AvatarOfTheForgottenDeity"; }
     }
     allDungeons["Ancient Temple"] = ancientTemple;
 
 
-    // --- Dungeon 2: Goa Avernix (Descending) ---
+    
     Dungeon goaAvernix;
     goaAvernix.name = "Goa Avernix";
     goaAvernix.type = "ascending";
     goaAvernix.printAsBasement = true;
-    goaAvernix.storyLockedFloors = {11, 21, 31, 41}; // Contoh
+    goaAvernix.storyLockedFloors = {11, 21, 31, 41}; 
     for (int i : {5, 15, 25, 35, 45}) { goaAvernix.campAreas[i] = CampArea{i}; }
 
     for (int i = 1; i <= 50; ++i) {
-        goaAvernix.floorEnemies[i].clear(); // Pastikan kosong sebelum diisi
-        // SEGMENT 1: Lantai B1-B9 (Menuju MB Lvl 12 "GiantCaveCrawler" di Lantai B10)
-        if (i >= 1 && i <= 3) {     // Common Lvl 1-2
+        goaAvernix.floorEnemies[i].clear(); 
+        
+        if (i >= 1 && i <= 3) {     
             goaAvernix.floorEnemies[i] = {"GiantRat", "FeralGoblinGrunt", "GiantCaveCricket"};
-        } else if (i >= 4 && i <= 6) { // Common Lvl 3-6
+        } else if (i >= 4 && i <= 6) { 
             goaAvernix.floorEnemies[i] = {"KoboldScavenger", "GlowShroomCluster", "CaveLurker", "KoboldPathguard"};
-        } else if (i >= 7 && i <= 9) { // Common Lvl 7-9
-            goaAvernix.floorEnemies[i] = {"AnimatedSword", "UmbralCrawler", "ShadowPup"}; // Animated Sword mungkin kurang pas di goa, ganti jika perlu
-                                                                                                // Ganti dengan: {"UmbralCrawler", "ShadowPupVariant", "AncientSentryFragment"} (jika fragmen kuno ada di goa)
-            goaAvernix.floorEnemies[i] = {"UmbralCrawler", "ShadowPupVariant", "KoboldPathguard"}; // Lebih banyak kobold
+        } else if (i >= 7 && i <= 9) { 
+            goaAvernix.floorEnemies[i] = {"AnimatedSword", "UmbralCrawler", "ShadowPup"}; 
+                                                                                                
+            goaAvernix.floorEnemies[i] = {"UmbralCrawler", "ShadowPupVariant", "KoboldPathguard"}; 
         } else if (i == 10) { goaAvernix.miniBosses[i] = "GiantCaveCrawler"; }
 
-        // SEGMENT 2: Lantai B11-B19 (Menuju MB Lvl 24 "UnderdarkOverseer" di Lantai B20)
-        else if (i >= 11 && i <= 13) { // Common Lvl 11-13
+        
+        else if (i >= 11 && i <= 13) { 
             goaAvernix.floorEnemies[i] = {"GoblinRockthrower", "YoungCaveTroll", "LesserImpVariant", "DarkCultInitiate"};
-        } else if (i >= 14 && i <= 16) { // Common Lvl 14-16
-            goaAvernix.floorEnemies[i] = {"WildBoarStrong", "BroodCavernSpider", "CorruptedCherub" }; // Cherub mungkin kurang pas di goa
-                                                                                                    // Ganti "CorruptedCherub" dengan misal "ObsidianRazorfiend" (Lvl 18) atau "DeepSpiderHatchling" (Lvl 17)
+        } else if (i >= 14 && i <= 16) { 
+            goaAvernix.floorEnemies[i] = {"WildBoarStrong", "BroodCavernSpider", "CorruptedCherub" }; 
+                                                                                                    
             goaAvernix.floorEnemies[i] = {"WildBoarStrong", "BroodCavernSpider", "DeepSpiderHatchling" };
-        } else if (i >= 17 && i <= 19) { // Common Lvl 17-19
-            goaAvernix.floorEnemies[i] = {"KoboldDiggerElite", "ObsidianRazorfiend", "PhantomWarrior"}; // PhantomWarrior mungkin kurang pas
-                                                                                                      // Ganti dengan: {"KoboldDiggerElite", "ObsidianRazorfiend", "AltarGuardianMinor" (jika ada altar gelap)}
+        } else if (i >= 17 && i <= 19) { 
+            goaAvernix.floorEnemies[i] = {"KoboldDiggerElite", "ObsidianRazorfiend", "PhantomWarrior"}; 
+                                                                                                      
             goaAvernix.floorEnemies[i] = {"KoboldDiggerElite", "ObsidianRazorfiend", "BroodCavernSpider"};
         } else if (i == 20) { goaAvernix.miniBosses[i] = "UnderdarkOverseer"; }
 
-        // SEGMENT 3: Lantai B21-B29 (Menuju MB Lvl 36 "LavaBehemothSpawn" di Lantai B30)
-        else if (i >= 21 && i <= 23) { // Common Lvl 21-23
-            goaAvernix.floorEnemies[i] = {"CharredSalamander", "ForestSpiderVariant", "StoneLionCub"}; // StoneLionCub kurang pas
-                                                                                                     // Ganti dengan: {"CharredSalamander", "ForestSpiderVariant", "RiverSerpentVariant"}
+        
+        else if (i >= 21 && i <= 23) { 
+            goaAvernix.floorEnemies[i] = {"CharredSalamander", "ForestSpiderVariant", "StoneLionCub"}; 
+                                                                                                     
             goaAvernix.floorEnemies[i] = {"CharredSalamander", "ForestSpiderVariant", "MagmaWriggler"};
-        } else if (i >= 24 && i <= 26) { // Common Lvl 24-26
+        } else if (i >= 24 && i <= 26) { 
             goaAvernix.floorEnemies[i] = {"SkeletonSoldierElite", "DeepDwellerBrute", "BanditThugLeader"};
-        } else if (i >= 27 && i <= 29) { // Common Lvl 27-29
+        } else if (i >= 27 && i <= 29) { 
             goaAvernix.floorEnemies[i] = {"FearHound", "OrcGruntElite", "RockGolemShardStrong"};
         } else if (i == 30) { goaAvernix.miniBosses[i] = "LavaBehemothSpawn"; }
 
-        // SEGMENT 4: Lantai B31-B39 (Menuju MB Lvl 48 "HeraldOfTheAbyss" di Lantai B40)
-        else if (i >= 31 && i <= 33) { // Common Lvl 31-33
-            goaAvernix.floorEnemies[i] = {"MoltenCoreElemental", "ShadowedSunCleric", "GuardianSpirit"}; // SunCleric & GuardianSpirit kurang pas
-                                                                                                        // Ganti dengan: {"MoltenCoreElemental", "AbyssalRitualist", "FearHound"}
+        
+        else if (i >= 31 && i <= 33) { 
+            goaAvernix.floorEnemies[i] = {"MoltenCoreElemental", "ShadowedSunCleric", "GuardianSpirit"}; 
+                                                                                                        
             goaAvernix.floorEnemies[i] = {"MoltenCoreElemental", "AbyssalRitualist", "DeepDwellerBrute"};
-        } else if (i >= 34 && i <= 36) { // Common Lvl 34-36
-            goaAvernix.floorEnemies[i] = {"AbyssalRitualist", "CrystalGolemCore", "HarpyFledglingMatriarch", "LavaBehemothWhelp"}; // Harpy & CrystalGolem kurang pas
-                                                                                                               // Ganti dengan: {"AbyssalRitualist", "LavaBehemothWhelp", "MoltenCoreElemental"}
+        } else if (i >= 34 && i <= 36) { 
+            goaAvernix.floorEnemies[i] = {"AbyssalRitualist", "CrystalGolemCore", "HarpyFledglingMatriarch", "LavaBehemothWhelp"}; 
+                                                                                                               
             goaAvernix.floorEnemies[i] = {"AbyssalRitualist", "LavaBehemothWhelp", "HellishBatSwarm"};
-        } else if (i >= 37 && i <= 39) { // Common Lvl 37-39
-            goaAvernix.floorEnemies[i] = {"HellishBatSwarm", "SeraphicEcho", "CarnivorousPlantAncient"}; // SeraphicEcho kurang pas
-                                                                                                        // Ganti dengan: {"HellishBatSwarm", "CarnivorousPlantAncient", "AbyssalRitualist"}
-            goaAvernix.floorEnemies[i] = {"HellishBatSwarm", "CarnivorousPlantAncient", "CorruptedArchonAcolyte"}; // ArchonAcolyte kurang pas
-            goaAvernix.floorEnemies[i] = {"HellishBatSwarm", "CarnivorousPlantAncient", "YoungPitFiend" }; // YoungPitFiend (Lvl 47) terlalu tinggi untuk segmen ini
-            goaAvernix.floorEnemies[i] = {"HellishBatSwarm", "CarnivorousPlantAncient", "FearHound" }; // Re-use FearHound
+        } else if (i >= 37 && i <= 39) { 
+            goaAvernix.floorEnemies[i] = {"HellishBatSwarm", "SeraphicEcho", "CarnivorousPlantAncient"}; 
+                                                                                                        
+            goaAvernix.floorEnemies[i] = {"HellishBatSwarm", "CarnivorousPlantAncient", "CorruptedArchonAcolyte"}; 
+            goaAvernix.floorEnemies[i] = {"HellishBatSwarm", "CarnivorousPlantAncient", "YoungPitFiend" }; 
+            goaAvernix.floorEnemies[i] = {"HellishBatSwarm", "CarnivorousPlantAncient", "FearHound" }; 
         } else if (i == 40) { goaAvernix.miniBosses[i] = "HeraldOfTheAbyss"; }
 
-        // SEGMENT 5: Lantai B41-B49 (Menuju FB Lvl 60 "AvernusCoreGuardian" di Lantai B50)
-        else if (i >= 41 && i <= 43) { // Common Lvl 41-43
-            goaAvernix.floorEnemies[i] = {"AbyssalWatcherMinor", "InfernalVanguard", "DivineConstructSentry"}; // DivineConstructSentry kurang pas
-                                                                                                              // Ganti dengan: {"AbyssalWatcherMinor", "InfernalVanguard", "MoltenCoreElemental"}
+        
+        else if (i >= 41 && i <= 43) { 
+            goaAvernix.floorEnemies[i] = {"AbyssalWatcherMinor", "InfernalVanguard", "DivineConstructSentry"}; 
+                                                                                                              
             goaAvernix.floorEnemies[i] = {"AbyssalWatcherMinor", "InfernalVanguard", "DarkWolfAlpha"};
-        } else if (i >= 44 && i <= 46) { // Common Lvl 44-46
-            goaAvernix.floorEnemies[i] = {"DarkWolfAlpha", "SoulLeechWisp", "EchoOfALostSaint"}; // Echo kurang pas
-                                                                                               // Ganti dengan: {"DarkWolfAlpha", "SoulLeechWisp", "InfernalVanguard"}
-            goaAvernix.floorEnemies[i] = {"DarkWolfAlpha", "SoulLeechWisp", "YoungPitFiend"}; // YoungPitFiend (Lvl 47) cocok di akhir segmen
-        } else if (i >= 47 && i <= 49) { // Common Lvl 47-49
-            goaAvernix.floorEnemies[i] = {"YoungPitFiend", "TimelessTempleSentinel", "AvernusDeathKnight"}; // TempleSentinel kurang pas
-                                                                                                          // Ganti dengan: {"YoungPitFiend", "AvernusDeathKnight", "InfernalVanguard"}
+        } else if (i >= 44 && i <= 46) { 
+            goaAvernix.floorEnemies[i] = {"DarkWolfAlpha", "SoulLeechWisp", "EchoOfALostSaint"}; 
+                                                                                               
+            goaAvernix.floorEnemies[i] = {"DarkWolfAlpha", "SoulLeechWisp", "YoungPitFiend"}; 
+        } else if (i >= 47 && i <= 49) { 
+            goaAvernix.floorEnemies[i] = {"YoungPitFiend", "TimelessTempleSentinel", "AvernusDeathKnight"}; 
+                                                                                                          
             goaAvernix.floorEnemies[i] = {"YoungPitFiend", "AvernusDeathKnight", "SoulLeechWisp"};
         } else if (i == 50) { goaAvernix.finalBoss[i] = "AvernusCoreGuardian"; }
     }
@@ -1766,10 +1765,10 @@ void applyItemEffect(const string& itemName) {
         delayPrint(L"✓ Kamu memulihkan " + to_wstring(heal) + L" HP!", 20);
     } else if (itemName == "Minor Strength Elixir") {
         delayPrint(L"✓ Kekuatanmu meningkat sementara!", 20);
-        player.temporaryStrengthBuff += 5; // kamu bisa buat sistem buff temporer
+        player.temporaryStrengthBuff += 5; 
     } else if (itemName == "Minor Focus Elixir") {
         delayPrint(L"✓ Konsentrasimu meningkat sementara!", 20);
-        player.temporaryIntelligenceBuff += 5; // buff sementara
+        player.temporaryIntelligenceBuff += 5; 
     } else {
         delayPrint(L"Efek item tidak dikenali.", 20);
     }
@@ -1780,16 +1779,16 @@ void showItemShop() {
     int choice;
     vector<Item*> shopStock;
 
-    // Populate shop stock - ambil semua item yang punya harga > 0 dari itemDatabase
+    
     for (auto const& [name, itemPtr] : itemDatabase) {
-        if (itemPtr->price > 0) { // Jika item punya harga, diasumsikan bisa dijual
+        if (itemPtr->price > 0) { 
             shopStock.push_back(itemPtr);
         }
     }
-    // Urutkan untuk tampilan yang konsisten
+    
     sort(shopStock.begin(), shopStock.end(), [](Item* a, Item* b){
-        if (a->type != b->type) return a->type < b->type; // Urutkan berdasarkan tipe dulu
-        return a->name < b->name; // Lalu berdasarkan nama
+        if (a->type != b->type) return a->type < b->type; 
+        return a->name < b->name; 
     });
 
     do {
@@ -1817,7 +1816,7 @@ void showItemShop() {
         wcout << L"Pilih item untuk dibeli ✦: ";
 
         cin >> choice;
-        if (cin.fail() || choice < 0 || choice > static_cast<int>(shopStock.size())) { // Perbaikan validasi
+        if (cin.fail() || choice < 0 || choice > static_cast<int>(shopStock.size())) { 
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), L'\n');
             choice = -1;
@@ -1837,7 +1836,7 @@ void showItemShop() {
 
             if (player.gold >= selectedItem->price) {
                 wcout << L"Beli item ini? (y/n) ✦: ";
-                char confirm_char; // Ubah nama variabel untuk menghindari konflik
+                char confirm_char; 
                 cin >> confirm_char;
                 if (tolower(confirm_char) == 'y') {
                     player.gold -= selectedItem->price;
@@ -1850,20 +1849,20 @@ void showItemShop() {
                 delayPrint(L"❌ Emas Anda tidak cukup.", 20);
             }
             wcout << L"Tekan Enter untuk kembali ke toko...";
-            if(cin.peek() == '\n') cin.ignore(); // Membersihkan newline dari input char
+            if(cin.peek() == '\n') cin.ignore(); 
             cin.ignore(numeric_limits<streamsize>::max(), L'\n');
-            // cin.get(); // Tidak perlu cin.get() ganda jika sudah ignore max
+            
         } else if (choice != 0) {
             delayPrint(L"Pilihan tidak valid.", 20);
             wcout << L"Tekan Enter untuk melanjutkan...";
             cin.ignore(numeric_limits<streamsize>::max(), L'\n');
-            // cin.get(); // Tidak perlu cin.get() ganda jika sudah ignore max
+            
         }
-         // Tunggu input Enter di akhir loop jika bukan keluar
+         
         if (choice != 0) {
-            if(cin.peek() != '\n') { // Jika buffer belum bersih (misal setelah cin >> char dan tidak ada ignore yang cukup)
+            if(cin.peek() != '\n') { 
                  cin.ignore(numeric_limits<streamsize>::max(), L'\n');
-            } else { // Jika hanya ada newline, consume
+            } else { 
                  cin.ignore();
             }
         }
@@ -1873,7 +1872,7 @@ void showItemShop() {
     delayPrint(L"Terima kasih sudah berkunjung!", 20);
     wcout << L"Tekan Enter untuk melanjutkan...";
     if(cin.peek() == '\n') cin.ignore();
-    // cin.get(); // Ini akan menunggu Enter terakhir sebelum keluar fungsi
+    
 }
 
 void showBlacksmith() {
@@ -1882,7 +1881,7 @@ void showBlacksmith() {
 
     do {
         availableWeapons.clear();
-        for (auto& weapon : allWeapons) { // Iterasi dari allWeapons global
+        for (auto& weapon : allWeapons) { 
             bool isUnlocked = false;
             if (weapon.requiredStoryFlagKey == "no_flag" || weapon.requiredStoryFlagKey.empty()) {
                 isUnlocked = true;
@@ -1891,7 +1890,7 @@ void showBlacksmith() {
             }
 
             if (isUnlocked && weapon.price > 0) {
-                availableWeapons.push_back(&weapon); // Tambahkan pointer ke senjata
+                availableWeapons.push_back(&weapon); 
             }
         }
         sort(availableWeapons.begin(), availableWeapons.end(), [](Weapon* a, Weapon* b){
@@ -1905,18 +1904,18 @@ void showBlacksmith() {
         printLine();
         wcout << L"Butuh senjata baru, Tuan Muda? Lihatlah koleksiku!" << endl;
         wcout << L"Emas Anda: " << player.gold << L" 💰" << endl;
-        printLine(80, L'─'); // Perlebar garis untuk info senjata
+        printLine(80, L'─'); 
 
         if (availableWeapons.empty()) {
             wcout << L"Maaf, sepertinya belum ada senjata yang cocok untuk Anda saat ini." << endl;
             wcout << L"Kembalilah lagi nanti jika sudah lebih berpengalaman." << endl;
         } else {
             for (size_t i = 0; i < availableWeapons.size(); ++i) {
-                wcout << L" ❖ " << (i + 1) << L". " << padRight(utf8_to_wstring(availableWeapons[i]->name), 28) // Sesuaikan padding
+                wcout << L" ❖ " << (i + 1) << L". " << padRight(utf8_to_wstring(availableWeapons[i]->name), 28) 
                       << L" ATK: " << setw(3) << availableWeapons[i]->attackPower
                       << L" | STR Req: " << setw(2) << availableWeapons[i]->strengthRequired
                       << L" | INT Req: " << setw(2) << availableWeapons[i]->intelligenceRequired
-                      << L" - Harga: " << setw(5) << right << availableWeapons[i]->price << L" G" << endl; // Harga rata kanan
+                      << L" - Harga: " << setw(5) << right << availableWeapons[i]->price << L" G" << endl; 
                 wcout << L"      └─ " << utf8_to_wstring(availableWeapons[i]->description) << endl;
             }
         }
@@ -1926,7 +1925,7 @@ void showBlacksmith() {
         wcout << L"Pilih senjata untuk dibeli ✦: ";
 
         cin >> choice;
-         if (cin.fail() || choice < 0 || choice > static_cast<int>(availableWeapons.size())) { // Perbaikan validasi
+         if (cin.fail() || choice < 0 || choice > static_cast<int>(availableWeapons.size())) { 
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), L'\n');
             choice = -1;
@@ -1958,11 +1957,11 @@ void showBlacksmith() {
                 delayPrint(L"⚠️ Anda sudah memiliki senjata ini.", 20);
             } else if (player.gold >= selectedWeapon->price) {
                 wcout << L"Beli senjata ini? (y/n) ✦: ";
-                char confirm_char_weapon; // Variabel berbeda
+                char confirm_char_weapon; 
                 cin >> confirm_char_weapon;
                 if (tolower(confirm_char_weapon) == 'y') {
                     player.gold -= selectedWeapon->price;
-                    player.weapons.push_back(selectedWeapon); // Tambahkan pointer
+                    player.weapons.push_back(selectedWeapon); 
                     delayPrint(L"✅ Pembelian berhasil! " + utf8_to_wstring(selectedWeapon->name) + L" ditambahkan ke gudang senjata Anda.", 20);
                 } else {
                     delayPrint(L"Pembelian dibatalkan.", 20);
@@ -1971,16 +1970,16 @@ void showBlacksmith() {
                 delayPrint(L"❌ Emas Anda tidak cukup untuk membeli senjata ini.", 20);
             }
             wcout << L"Tekan Enter untuk kembali ke penempa...";
-            if(cin.peek() == '\n') cin.ignore(); // Membersihkan newline dari input char
+            if(cin.peek() == '\n') cin.ignore(); 
             cin.ignore(numeric_limits<streamsize>::max(), L'\n');
-            // cin.get(); // Tidak perlu ganda
+            
         } else if (choice != 0) {
             delayPrint(L"Pilihan tidak valid.", 20);
             wcout << L"Tekan Enter untuk melanjutkan...";
             cin.ignore(numeric_limits<streamsize>::max(), L'\n');
-            // cin.get(); // Tidak perlu ganda
+            
         }
-        // Tunggu input Enter di akhir loop jika bukan keluar
+        
         if (choice != 0) {
              if(cin.peek() != '\n') {
                  cin.ignore(numeric_limits<streamsize>::max(), L'\n');
@@ -1993,7 +1992,7 @@ void showBlacksmith() {
     delayPrint(L"Hati-hati di jalan, Tuan Muda!", 20);
     wcout << L"Tekan Enter untuk melanjutkan...";
     if(cin.peek() == '\n') cin.ignore();
-    // cin.get(); // Tunggu Enter terakhir
+    
 }
 
 
@@ -2020,7 +2019,7 @@ void unlockNewMagicElementIfNeeded(Character& character) {
                 character.unlockedMagicElements.push_back(newElement);
                 delayPrint(L"✨ Selamat! Kamu telah membuka akses ke elemen magic baru: " + utf8_to_wstring(newElement) + L"!", 30);
 
-                // Automatically learn Tier 1 spells of the new element
+                
                 if (allMagicElements.count(newElement)) {
                     for (const auto& spellPair : allMagicElements[newElement].spells) {
                         const MagicSpell& spell = spellPair.second;
@@ -2039,10 +2038,10 @@ void unlockNewMagicElementIfNeeded(Character& character) {
                         }
                     }
                 }
-                // Give a free skill point for the new element or guide to skill tree
+                
                 character.skillPoints++;
                 delayPrint(L"  Kamu mendapatkan 1 Skill Point tambahan!", 20);
-                break; // Unlock one element per milestone level achieved in one go
+                break; 
             }
         }
     }
@@ -2051,14 +2050,14 @@ void unlockNewMagicElementIfNeeded(Character& character) {
 void levelUpCharacter(Character& character) {
     character.level++;
     centerText(L" ");
-    printLine(); // Garis horizontal
+    printLine(); 
     centerText(L"✦ LEVEL UP! ✦");
     printLine();
 
     delayPrint(L"📈 Selamat! Kamu mencapai Level " + to_wstring(character.level) + L"!", 30);
     delayPrint(L"═══════════════════════════════════════════════", 5);
 
-    // Stat increases (simple example)
+    
     int hpGain = 5 + rand() % 6;       
     int manaGain = 5 + rand() % 4;     
     character.maxHp += hpGain;
@@ -2082,9 +2081,9 @@ void levelUpCharacter(Character& character) {
     character.expToNextLevel = calculateExpToNextLevel(character.level);
     delayPrint(L"✦ EXP ke Level berikutnya: " + to_wstring(character.expToNextLevel), 20);
 
-    unlockNewMagicElementIfNeeded(character); // Cek element baru
+    unlockNewMagicElementIfNeeded(character); 
 
-    printLine(); // Penutup visual
+    printLine(); 
 }
 
 
@@ -2096,21 +2095,21 @@ void handleExperienceAndLevelUp(Character& character, int expGained) {
     while (character.exp >= character.expToNextLevel) {
         character.exp -= character.expToNextLevel;
         levelUpCharacter(character);
-        leveledUp = true; // To ensure subsequent expToNextLevel is for the new level
+        leveledUp = true; 
     }
 
-    if (!leveledUp) { // If no level up, just show current EXP status
+    if (!leveledUp) { 
         printLine();
         delayPrint(L"Total EXP: " + to_wstring(character.exp) + L"/" + to_wstring(character.expToNextLevel), 20);
     }
 }
 
 bool canLearnSpell(const Character& character, const MagicSpell& spell) {
-    // Check tier requirement based on player level
-    if (spell.tier == 2 && character.level < 30) return false; // Tier 2 unlocks at Lvl 15
-    if (spell.tier == 3 && character.level < 60) return false; // Tier 3 unlocks at Lvl 30
+    
+    if (spell.tier == 2 && character.level < 30) return false; 
+    if (spell.tier == 3 && character.level < 60) return false; 
 
-    // Check prerequisites
+    
     for (const string& prereqId : spell.prerequisites) {
         bool found = false;
         for (const string& knownSpellId : character.knownSpells) {
@@ -2130,7 +2129,7 @@ void learnSpell(Character& character, const string& spellIdToLearn) {
     for (const auto& elemPair : allMagicElements) {
         if (elemPair.second.spells.count(spellIdToLearn)) {
             spellToLearn = &elemPair.second.spells.at(spellIdToLearn);
-            // elementOfSpell = elemPair.first;
+            
             break;
         }
     }
@@ -2152,7 +2151,7 @@ void learnSpell(Character& character, const string& spellIdToLearn) {
         return;
     }
 
-    // Check if already known
+    
     for (const string& knownSpellId : character.knownSpells) {
         if (knownSpellId == spellIdToLearn) {
             delayPrint(L"❌ Kamu sudah mempelajari spell ini!", 20);
@@ -2194,7 +2193,7 @@ void undoLearnLastSpell(Character& character) {
 
         string unlearnedSpellName = "Sihir Tak Dikenal";
         if (character.knownSpells.size() > previousState.knownSpells.size()) {
-            string unlearnedSpellId = character.knownSpells.back(); // Ambil ID sihir terakhir
+            string unlearnedSpellId = character.knownSpells.back(); 
              const MagicSpell* spellDetails = nullptr;
             for (const auto& elemPair : allMagicElements) {
                 if (elemPair.second.spells.count(unlearnedSpellId)) {
@@ -2207,7 +2206,7 @@ void undoLearnLastSpell(Character& character) {
 
 
         character.skillPoints = previousState.skillPoints;
-        character.knownSpells = previousState.knownSpells; // Kembalikan ke daftar sihir sebelumnya
+        character.knownSpells = previousState.knownSpells; 
 
         delayPrint(L"Pembelajaran sihir '" + utf8_to_wstring(unlearnedSpellName) + L"' telah dibatalkan.", 30);
         delayPrint(L"Skill Point Anda telah dikembalikan menjadi: " + to_wstring(character.skillPoints), 30);
@@ -2226,15 +2225,15 @@ void displayElementSkillTree(Character& character, const string& elementName) {
     for(const auto& spellPair : element.spells) {
         spellsByTier[spellPair.second.tier].push_back(&spellPair.second);
     }
-    // Sort spells within each tier by name or ID for consistent display
+    
     for (auto& tierPair : spellsByTier) {
         sort(tierPair.second.begin(), tierPair.second.end(), [](const MagicSpell* a, const MagicSpell* b){
-            return a->id < b->id; // Or a->name < b->name
+            return a->id < b->id; 
         });
     }
 
 
-    vector<const MagicSpell*> learnableSpellsList; // For user selection by number
+    vector<const MagicSpell*> learnableSpellsList; 
 
     int spellDisplayIndex = 1;
     bool canGoBack = false;
@@ -2251,7 +2250,7 @@ void displayElementSkillTree(Character& character, const string& elementName) {
         learnableSpellsList.clear();
         spellDisplayIndex = 1;
 
-        for (int tier = 1; tier <= 3; ++tier) { // Assuming max 3 tiers
+        for (int tier = 1; tier <= 3; ++tier) { 
             if (spellsByTier.count(tier)) {
                 bool tierAccessible = (tier == 1 && character.level >=1) ||
                                       (tier == 2 && character.level >=15) ||
@@ -2279,7 +2278,7 @@ void displayElementSkillTree(Character& character, const string& elementName) {
                          learnableSpellsList.push_back(spell);
                          spellDisplayIndex++;
                     } else {
-                        displayStr += L"    "; // Indent if not selectable by number
+                        displayStr += L"    "; 
                     }
 
                     displayStr += utf8_to_wstring(spell->name) + L" (MP: " + to_wstring(spell->manaCost) + L", Power: " + to_wstring(spell->basePower) + L")";
@@ -2300,7 +2299,7 @@ void displayElementSkillTree(Character& character, const string& elementName) {
                         wcout << L"      Prerequisites: ";
                         for (size_t k = 0; k < spell->prerequisites.size(); ++k) {
                             string prereqName = "Unknown";
-                            // Find prereq name
+                            
                             for(const auto& elPair : allMagicElements){
                                 if(elPair.second.spells.count(spell->prerequisites[k])){
                                     prereqName = elPair.second.spells.at(spell->prerequisites[k]).name;
@@ -2323,7 +2322,7 @@ void displayElementSkillTree(Character& character, const string& elementName) {
         if (cin.fail()) {
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            choice = -1; // Invalid choice
+            choice = -1; 
         }
 
         if (choice == 0) {
@@ -2332,7 +2331,7 @@ void displayElementSkillTree(Character& character, const string& elementName) {
             learnSpell(character, learnableSpellsList[choice-1]->id);
             wcout << L"Tekan Enter untuk lanjut...";
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cin.get(); // Consume the choice input newline
+            cin.get(); 
         } else {
             wcout << L"Pilihan tidak valid. Tekan Enter...";
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
@@ -2342,7 +2341,7 @@ void displayElementSkillTree(Character& character, const string& elementName) {
 }
 
 bool showSpellDetailAndMaybeUnlock(Character& character, const MagicSpell& spell) {
-    // auto allSpells = getAllSpells(); // Anda sudah punya getSpellDetails global
+    
     system("cls");
     printLine(); 
     centerText(L"✦ DETAIL SKILL: " + utf8_to_wstring(spell.name) + L" ✦"); 
@@ -2357,7 +2356,7 @@ bool showSpellDetailAndMaybeUnlock(Character& character, const MagicSpell& spell
     if (!spell.prerequisites.empty()) {
         wcout << L"Prasyarat   : ";
         for (size_t i = 0; i < spell.prerequisites.size(); ++i) {
-            const MagicSpell* prereqSpell = getSpellDetails(spell.prerequisites[i]); // Panggil getSpellDetails
+            const MagicSpell* prereqSpell = getSpellDetails(spell.prerequisites[i]); 
             if (prereqSpell) {
                 wcout << utf8_to_wstring(prereqSpell->name) << (i < spell.prerequisites.size() - 1 ? L", " : L"");
             } else {
@@ -2376,12 +2375,12 @@ bool showSpellDetailAndMaybeUnlock(Character& character, const MagicSpell& spell
     }
 
     wcout << L"Status      : " << (alreadyKnown ? L"✅ Dimiliki" : L"🔒 Belum dimiliki") << endl;
-    bool learnedThisTurn = false; // Untuk menandakan apakah menu tree perlu di-refresh
+    bool learnedThisTurn = false; 
 
     if (!alreadyKnown) {
-        wcout << L"Skill Point Tersisa: " << character.skillPoints << endl; // Tampilkan SP yang dimiliki
+        wcout << L"Skill Point Tersisa: " << character.skillPoints << endl; 
 
-        bool canCurrentlyLearnCheck = canLearnSpell(character, spell); // Cek apakah bisa dipelajari
+        bool canCurrentlyLearnCheck = canLearnSpell(character, spell); 
 
         if (canCurrentlyLearnCheck && character.skillPoints > 0) {
             wcout << L"\nKamu bisa mempelajari skill ini. Gunakan 1 Skill Point? (y/n) ✦: ";
@@ -2390,31 +2389,31 @@ bool showSpellDetailAndMaybeUnlock(Character& character, const MagicSpell& spell
             cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
 
             if (input == 'y' || input == 'Y') {
-                learnSpell(character, spell.id); // PANGGIL FUNGSI learnSpell YANG SUDAH HANDLE UNDO STACK
-                                                 // learnSpell akan memberi pesan sukses dan tidak ada waitForEnter di dalamnya
+                learnSpell(character, spell.id); 
+                                                 
                 learnedThisTurn = true; 
             } else {
                 delayPrint(L"Pembelajaran dibatalkan.", 20);
             }
         } else if (!canCurrentlyLearnCheck) {
             delayPrint(L"\n❌ Belum memenuhi prasyarat atau level untuk mempelajari skill ini.", 20);
-        } else { // Hanya bisa terjadi jika skill points == 0
+        } else { 
             delayPrint(L"\n❌ Skill Point tidak mencukupi.", 20);
         }
     }
 
-    if (!learnedThisTurn) { // Jika tidak belajar di giliran ini, tunggu enter untuk melihat detail
+    if (!learnedThisTurn) { 
          waitForEnter();
     }
-    // Jika belajar, learnSpell sudah ada waitForEnter nya, jadi tidak perlu double
-    // Jika Anda hapus waitForEnter dari learnSpell, maka uncomment waitForEnter di sini:
-    // else { waitForEnter(); }
+    
+    
+    
 
 
-    return learnedThisTurn; // Kembalikan status apakah spell dipelajari
+    return learnedThisTurn; 
 }
 
-// Menampilkan cabang spell secara rekursif dan beri nomor
+
 void displaySpellRecursive(const MagicSpell& spell, const map<string, MagicSpell>& allSpells,
                             const unordered_set<string>& knownSpells,
                             vector<const MagicSpell*>& selectableList,
@@ -2438,7 +2437,7 @@ void displaySpellRecursive(const MagicSpell& spell, const map<string, MagicSpell
 }
 
 void showSkillTreeMenu(Character& character) {
-    int mainChoice; // Untuk pilihan elemen atau kembali ke Diary
+    int mainChoice; 
     do {
         system("cls");
         printLine();
@@ -2447,12 +2446,12 @@ void showSkillTreeMenu(Character& character) {
         wcout << L"Pilih elemen untuk melihat skill tree:" << endl;
 
         vector<string> unlockedElementsSorted = character.unlockedMagicElements;
-        // Blok untuk pengujian jika player belum punya elemen (HAPUS ATAU SESUAIKAN DI GAME FINAL)
+        
         if (unlockedElementsSorted.empty() && character.name.find("Weiss von Astra") != string::npos && character.unlockedMagicElements.empty()) {
             delayPrint(L"(DEBUG: Menambahkan elemen Fire & Ice untuk tes karena belum ada elemen terbuka)");
             character.unlockedMagicElements.push_back("Fire");
-            if(character.level >=1) character.unlockedMagicElements.push_back("Ice"); // Contoh, sesuaikan level
-            unlockedElementsSorted = character.unlockedMagicElements; // Update setelah ditambah
+            if(character.level >=1) character.unlockedMagicElements.push_back("Ice"); 
+            unlockedElementsSorted = character.unlockedMagicElements; 
             waitForEnter();
         }
 
@@ -2488,7 +2487,7 @@ void showSkillTreeMenu(Character& character) {
                 if (!allMagicElements.count(selectedElement)) {
                     delayPrint(L"Error: Data elemen " + utf8_to_wstring(selectedElement) + L" tidak ditemukan!", 20);
                     waitForEnter();
-                    stayInElementView = false; // Keluar dari loop elemen ini
+                    stayInElementView = false; 
                     break;
                 }
                 const auto& elementData = allMagicElements.at(selectedElement); 
@@ -2519,7 +2518,7 @@ void showSkillTreeMenu(Character& character) {
                 wcout << L"Pilihan Anda ✦: ";
 
                 string inputSpellChoiceStr;
-                // Membersihkan buffer sebelum getline
+                
                 if (cin.peek() == '\n') {
                      cin.ignore(); 
                 }
@@ -2527,7 +2526,7 @@ void showSkillTreeMenu(Character& character) {
 
                 if (inputSpellChoiceStr == "U" || inputSpellChoiceStr == "u") {
                     if (!spellLearnUndoStack.empty()) {
-                        undoLearnLastSpell(character); // Fungsi ini sudah punya waitForEnter()
+                        undoLearnLastSpell(character); 
                     } else {
                         delayPrint(L"Tidak ada yang bisa di-undo saat ini.", 20);
                         waitForEnter();
@@ -2543,27 +2542,27 @@ void showSkillTreeMenu(Character& character) {
                         isValidNumericInput = false;
                     }
 
-                    if (!isValidNumericInput && !inputSpellChoiceStr.empty()) { // Cek juga jika input bukan string kosong
+                    if (!isValidNumericInput && !inputSpellChoiceStr.empty()) { 
                         delayPrint(L"Pilihan tidak valid. Masukkan nomor, '0', atau 'U'.", 20);
                         waitForEnter();
                     } else if (inputSpellChoiceStr.empty()){
-                        // Jika input kosong (hanya Enter ditekan), anggap sebagai refresh atau abaikan
-                        // Atau bisa dianggap input tidak valid juga
+                        
+                        
                         delayPrint(L"Tidak ada input. Coba lagi.", 20);
                         waitForEnter();
-                    } else { // Input valid atau kosong
+                    } else { 
                         if (spellChoiceNum == 0) {
                             stayInElementView = false; 
                         } else if (spellChoiceNum > 0 && (size_t)spellChoiceNum <= selectableList.size()) {
-                            // showSpellDetailAndMaybeUnlock akan memanggil learnSpell jika pemain setuju
-                            // dan learnSpell akan menangani pesan serta stack.
-                            // waitForEnter sudah ada di showSpellDetailAndMaybeUnlock.
+                            
+                            
+                            
                             showSpellDetailAndMaybeUnlock(character, *selectableList[spellChoiceNum - 1]);
-                        } else if (spellChoiceNum != -1) { // Jika bukan karena konversi gagal, berarti nomor di luar range
+                        } else if (spellChoiceNum != -1) { 
                             delayPrint(L"Nomor spell tidak ada dalam daftar.", 20);
                             waitForEnter();
                         }
-                        // Jika spellChoiceNum = -1 (karena input tidak valid atau 'U' sudah ditangani), loop akan berlanjut
+                        
                     }
                 }
             } 
@@ -2576,7 +2575,7 @@ void showSkillTreeMenu(Character& character) {
 
 
 void setupWorldAreas() {
-    // Mansion Astra
+    
     WorldArea mansion;
     mansion.name = "Mansion Astra";
     mansion.startSubArea = "Kamar Weiss";
@@ -2588,7 +2587,7 @@ void setupWorldAreas() {
     };
     allWorlds["Mansion Astra"] = mansion;
 
-    // Kota Arcadia
+    
     WorldArea arcadia;
     arcadia.name = "Kota Arcadia";
     arcadia.startSubArea = "Balai Kota";
@@ -2599,7 +2598,7 @@ void setupWorldAreas() {
     };
     allWorlds["Kota Arcadia"] = arcadia;
 
-    // Hutan Merah
+    
     WorldArea hutan;
     hutan.name = "Hutan Merah";
     hutan.startSubArea = "Pos Hutan";
@@ -2609,7 +2608,7 @@ void setupWorldAreas() {
     };
     allWorlds["Hutan Merah"] = hutan;
 
-    // Goa Avernix
+    
     WorldArea goa;
     goa.name = "Goa Avernix";
     goa.startSubArea = "Camp Avernix";
@@ -2619,7 +2618,7 @@ void setupWorldAreas() {
     };
     allWorlds["Goa Avernix"] = goa;
 
-    // Puncak Patung Pahlawan Negara
+    
     WorldArea puncak;
     puncak.name = "Puncak Arcadia";
     puncak.startSubArea = "Taman Norelia";
@@ -2632,7 +2631,7 @@ void setupWorldAreas() {
 }
 
 void setupConnections() {
-    // Koneksi untuk Mansion Astra
+    
     if (allWorlds.count("Mansion Astra")) {
         vector<pair<string, string>> koneksiMansion = {
             {"Kamar Weiss", "Lorong Panjang"},
@@ -2645,7 +2644,7 @@ void setupConnections() {
         }
     }
 
-    // Koneksi untuk Kota Arcadia
+    
     if (allWorlds.count("Kota Arcadia")) {
         vector<pair<string, string>> koneksiKotaArcadia = {
             {"Balai Kota", "Cross Guild"},
@@ -2657,7 +2656,7 @@ void setupConnections() {
         }
     }
 
-    // Koneksi untuk Hutan Merah
+    
     if (allWorlds.count("Hutan Merah")) {
         vector<pair<string, string>> koneksiHutanMerah = {
             {"Pos Hutan", "Reruntuhan Kuno"}
@@ -2668,7 +2667,7 @@ void setupConnections() {
         }
     }
 
-    // Koneksi untuk Goa Avernix
+    
     if (allWorlds.count("Goa Avernix")) {
         vector<pair<string, string>> koneksiGoaAvernix = {
             {"Camp Avernix", "Tambang Terbengkalai"}
@@ -2679,7 +2678,7 @@ void setupConnections() {
         }
     }
 
-    // Koneksi untuk Puncak Patung Pahlawan Negara (sebelumnya disebut Puncak Arcadia)
+    
     if (allWorlds.count("Puncak Patung Pahlawan Negara")) {
         vector<pair<string, string>> koneksiPuncak = {
             {"Taman Norelia", "Bendungan"}
@@ -2695,10 +2694,10 @@ void setupConnections() {
 void initializeAllQuests() {
     allDailyQuestPool.clear();
 
-    // ==========================================================================
-    // ====== RANK C QUESTS (Lantai Dungeon 1-10, Area Awal/Mudah) ======
-    // ==========================================================================
-    // Kill Quests - Rank C
+    
+    
+    
+    
     allDailyQuestPool.push_back({"Perburuan Slime Dasar", "Bunuh 1 monster Slime.", "kill", "Slime", 0, "", false, false, 30, 20, "C"});
     allDailyQuestPool.push_back({"Ancaman Tikus Biasa", "Kalahkan 1 Giant Rat.", "kill", "GiantRat", 0, "", false, false, 35, 25, "C"});
     allDailyQuestPool.push_back({"Masalah Goblin Grunt", "Habisi 1 Feral Goblin Grunt.", "kill", "FeralGoblinGrunt", 2, "Goa Avernix", false, false, 40, 30, "C"});
@@ -2707,7 +2706,7 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Gerombolan Tikus Kuil", "Singkirkan 1 Temple Rat Swarm.", "kill", "TempleRatSwarm", 3, "Ancient Temple", false, false, 55, 45, "C"});
     allDailyQuestPool.push_back({"Pencuri Kobold", "Kalahkan 1 Kobold Scavenger.", "kill", "KoboldScavenger", 4, "Goa Avernix", false, false, 60, 50, "C"});
     allDailyQuestPool.push_back({"Jamur Aneh", "Selidiki dan kalahkan 1 Glow Shroom Cluster.", "kill", "GlowShroomCluster", 0, "", false, false, 65, 55, "C"});
-    // Travel Quests - Rank C
+    
     allDailyQuestPool.push_back({"Kunjungan ke Dapur", "Kunjungi Dapur Mansion.", "travel", "Dapur Mansion", 0, "Mansion Astra", false, false, 20, 15, "C"});
     allDailyQuestPool.push_back({"Menikmati Taman Floresia", "Jalan-jalan santai di Taman Floresia.", "travel", "Taman Floresia", 0, "Mansion Astra", false, false, 25, 20, "C"});
     allDailyQuestPool.push_back({"Menyusuri Lorong Kediaman", "Periksa Lorong Panjang di Mansion Astra.", "travel", "Lorong Panjang", 0, "Mansion Astra", false, false, 20, 15, "C"});
@@ -2719,10 +2718,10 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Anjing Penjaga", "Hadapi 1 Temple Guard Dog.", "kill", "TempleGuardDog", 6, "Ancient Temple", false, false, 90, 75, "C"});
 
 
-    // ========================================================================
-    // ====== RANK B QUESTS (Lantai Dungeon 11-20, Area Menengah) ======
-    // ========================================================================
-    // Kill Quests - Rank B
+    
+    
+    
+    
     allDailyQuestPool.push_back({"Kobold Penjaga Jalur", "Kalahkan 1 Kobold Pathguard.", "kill", "KoboldPathguard", 8, "Goa Avernix", false, false, 150, 100, "B"});
     allDailyQuestPool.push_back({"Pengintai Gua", "Hadapi 1 Cave Lurker.", "kill", "CaveLurker", 0, "", false, false, 160, 110, "B"});
     allDailyQuestPool.push_back({"Pedang Animasi", "Hancurkan 1 Animated Sword di reruntuhan.", "kill", "AnimatedSword", 11, "Ancient Temple", false, false, 170, 120, "B"});
@@ -2731,7 +2730,7 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Anak Anjing Bayangan", "Tenangkan 1 Shadow Pup.", "kill", "ShadowPup", 0, "", false, false, 200, 150, "B"});
     allDailyQuestPool.push_back({"Orb Penjaga", "Hancurkan 1 Guardian Orb.", "kill", "GuardianOrb", 11, "Ancient Temple", false, false, 210, 160, "B"});
     allDailyQuestPool.push_back({"Pelempar Batu Goblin", "Lumpuhkan 1 Goblin Rockthrower.", "kill", "GoblinRockthrower", 12, "Goa Avernix", false, false, 220, 170, "B"});
-    // Travel Quests - Rank B
+    
     allDailyQuestPool.push_back({"Jelajah Reruntuhan Kuno", "Kunjungi area Reruntuhan Kuno di Hutan Merah.", "travel", "Reruntuhan Kuno", 0, "Hutan Merah", false, false, 100, 80, "B"});
     allDailyQuestPool.push_back({"Ke Distrik Perbelanjaan", "Cari barang di Perbelanjaan, Kota Arcadia.", "travel", "Perbelanjaan", 0, "Kota Arcadia", false, false, 110, 90, "B"});
     allDailyQuestPool.push_back({"Menemui Informan Guild", "Datangi Cross Guild di Kota Arcadia.", "travel", "Cross Guild", 0, "Kota Arcadia", false, false, 120, 100, "B"});
@@ -2743,10 +2742,10 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Inisiat Kultus Gelap", "Hentikan 1 Dark Cult Initiate.", "kill", "DarkCultInitiate", 0, "", false, false, 215, 165, "B"});
 
 
-    // =========================================================================
-    // ====== RANK A QUESTS (Lantai Dungeon 21-30, Area Sulit) ======
-    // =========================================================================
-    // Kill Quests - Rank A
+    
+    
+    
+    
     allDailyQuestPool.push_back({"Ksatria Kuil Aspiran", "Ujilah kekuatan 1 Temple Knight Aspirant.", "kill", "TempleKnightAspirant", 22, "Ancient Temple", false, false, 400, 250, "A"});
     allDailyQuestPool.push_back({"Babi Hutan Perkasa", "Burulah 1 Wild Boar (Strong).", "kill", "WildBoarStrong", 0, "", false, false, 420, 260, "A"});
     allDailyQuestPool.push_back({"Penjaga Rune Aktif", "Nonaktifkan 1 Rune Guardian.", "kill", "RuneGuardian", 25, "Ancient Temple", false, false, 440, 270, "A"});
@@ -2756,7 +2755,7 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Iblis Pisau Obsidian", "Lawan 1 Obsidian Razorfiend.", "kill", "ObsidianRazorfiend", 0, "", false, false, 520, 310, "A"});
     allDailyQuestPool.push_back({"Prajurit Hantu", "Tenangkan arwah 1 Phantom Warrior.", "kill", "PhantomWarrior", 28, "Ancient Temple", false, false, 540, 320, "A"});
     allDailyQuestPool.push_back({"Penjaga Altar Kuno", "Kalahkan 1 Altar Guardian.", "kill", "AltarGuardian", 29, "Ancient Temple", false, false, 560, 330, "A"});
-    // Travel Quests - Rank A
+    
     allDailyQuestPool.push_back({"Inspeksi Tambang Terbengkalai", "Selidiki Tambang Terbengkalai di Goa Avernix.", "travel", "Tambang Terbengkalai", 0, "Goa Avernix", false, false, 200, 150, "A"});
     allDailyQuestPool.push_back({"Menjelajahi Kuil Dalam", "Capai Lantai 25 di Ancient Temple.", "travel", "Ancient Temple Lt.25", 25, "Ancient Temple", false, false, 600, 350, "A"});
     allDailyQuestPool.push_back({"Menerobos Goa Avernix (Dalam)", "Capai Lantai B28 (lantai 28) di Goa Avernix.", "travel", "Goa Avernix Lt.B28", 28, "Goa Avernix", false, false, 620, 360, "A"});
@@ -2766,10 +2765,10 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Ular Sungai Berbisa", "Lumpuhkan 1 River Serpent.", "kill", "RiverSerpent", 0, "", false, false, 600, 370, "A"});
 
 
-    // ===========================================================================
-    // ====== RANK S QUESTS (Lantai Dungeon 31-40, Area Sangat Sulit) ======
-    // ===========================================================================
-    // Kill Quests - Rank S
+    
+    
+    
+    
     allDailyQuestPool.push_back({"Elite Prajurit Tengkorak", "Musnahkan 1 Skeleton Soldier Elite.", "kill", "SkeletonSoldierElite", 31, "Ancient Temple", false, false, 800, 500, "S"});
     allDailyQuestPool.push_back({"Gargoyle Penjaga", "Kalahkan 1 Lesser Gargoyle.", "kill", "LesserGargoyle", 33, "Ancient Temple", false, false, 830, 520, "S"});
     allDailyQuestPool.push_back({"Brute Penghuni Kedalaman", "Hadapi 1 Deep Dweller Brute.", "kill", "DeepDwellerBrute", 32, "Goa Avernix", false, false, 860, 540, "S"});
@@ -2779,7 +2778,7 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Justicar Kuil Terkutuk", "Adili 1 Fallen Temple Justicar.", "kill", "FallenTempleJusticar", 38, "Ancient Temple", false, false, 980, 620, "S"});
     allDailyQuestPool.push_back({"Suku Orc Elit", "Kalahkan 1 Orc Grunt Elite.", "kill", "OrcGruntElite", 0, "", false, false, 1010, 640, "S"});
     allDailyQuestPool.push_back({"Pecahan Golem Batu Raksasa", "Hancurkan 1 Rock Golem Shard.", "kill", "RockGolemShard", 39, "Goa Avernix", false, false, 1040, 660, "S"});
-    // Travel Quests - Rank S
+    
     allDailyQuestPool.push_back({"Menjelajahi Jantung Kuil", "Capai Lantai 35 di Ancient Temple.", "travel", "Ancient Temple Lt.35", 35, "Ancient Temple", false, false, 1100, 700, "S"});
     allDailyQuestPool.push_back({"Menuruni Inti Avernix", "Capai Lantai B38 (lantai 38) di Goa Avernix.", "travel", "Goa Avernix Lt.B38", 38, "Goa Avernix", false, false, 1150, 720, "S"});
     allDailyQuestPool.push_back({"Elemental Inti Cair", "Taklukkan 1 Molten Core Elemental.", "kill", "MoltenCoreElemental", 31, "Goa Avernix", false, false, 1050, 670, "S"});
@@ -2789,10 +2788,10 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Inti Golem Kristal", "Ambil inti dari 1 Crystal Golem Core.", "kill", "CrystalGolemCore", 35, "Goa Avernix", false, false, 1090, 710, "S"});
 
 
-    // ===================================================================================
-    // ====== RANK SS QUESTS (Lantai Dungeon 41-50, Area/Monster Legendaris) ======
-    // ===================================================================================
-    // Kill Quests - Rank SS
+    
+    
+    
+    
     allDailyQuestPool.push_back({"Matriark Harpy Penguasa", "Kalahkan 1 Harpy Matriarch.", "kill", "HarpyMatriarch", 0, "", false, false, 1500, 1000, "SS"});
     allDailyQuestPool.push_back({"Anakan Behemoth Lava", "Lumpuhkan 1 Lava Behemoth Whelp.", "kill", "LavaBehemothWhelp", 41, "Goa Avernix", false, false, 1550, 1050, "SS"});
     allDailyQuestPool.push_back({"Kelelawar Iblis Neraka", "Basmi 1 Hellish Devil Bat.", "kill", "HellishDevilBat", 0, "", false, false, 1600, 1100, "SS"});
@@ -2803,14 +2802,14 @@ void initializeAllQuests() {
     allDailyQuestPool.push_back({"Barisan Depan Inferno", "Hadapi 1 Infernal Vanguard.", "kill", "InfernalVanguard", 44, "Goa Avernix", false, false, 1850, 1350, "SS"});
     allDailyQuestPool.push_back({"Benteng Batu Matahari", "Hancurkan 1 Sunstone Sentinel.", "kill", "SunstoneSentinel", 0, "", false, false, 1900, 1400, "SS"});
     allDailyQuestPool.push_back({"Penjaga Konstruk Ilahi", "Nonaktifkan 1 Divine Construct Sentry.", "kill", "DivineConstructSentry", 46, "Ancient Temple", false, false, 1950, 1450, "SS"});
-    // Travel Quests - Rank SS
+    
     allDailyQuestPool.push_back({"Menaklukkan Puncak Kuil Suci", "Capai Lantai 45 Ancient Temple.", "travel", "Ancient Temple Lt.45", 45, "Ancient Temple", false, false, 2000, 1500, "SS"});
     allDailyQuestPool.push_back({"Menuruni Dasar Avernix", "Capai Lantai B48 (lantai 48) Goa Avernix.", "travel", "Goa Avernix Lt.B48", 48, "Goa Avernix", false, false, 2100, 1550, "SS"});
     allDailyQuestPool.push_back({"Alfa Serigala Kegelapan", "Burulah pemimpin Dark Wolf Alpha.", "kill", "DarkWolfAlpha", 0, "", false, false, 2200, 1600, "SS"});
     allDailyQuestPool.push_back({"Wisp Penyerap Jiwa", "Musnahkan 1 Soul Leech Wisp.", "kill", "SoulLeechWisp", 47, "Ancient Temple", false, false, 2300, 1650, "SS"});
     allDailyQuestPool.push_back({"Gema Orang Suci yang Hilang", "Tenangkan 1 Echo of a Lost Saint.", "kill", "EchoOfALostSaint", 0, "", false, false, 2400, 1700, "SS"});
     allDailyQuestPool.push_back({"Iblis Muda dari Jurang", "Kalahkan 1 Young Pit Fiend.", "kill", "YoungPitFiend", 49, "Goa Avernix", false, false, 2500, 1750, "SS"});
-    allDailyQuestPool.push_back({"Penjaga Kuil Abadi", "Hadapi 1 Timeless Temple Sentinel.", "kill", "TimelessTempleSentinel", 50, "Ancient Temple", false, false, 3000, 2000, "SS"}); // Monster kuat di lantai akhir
+    allDailyQuestPool.push_back({"Penjaga Kuil Abadi", "Hadapi 1 Timeless Temple Sentinel.", "kill", "TimelessTempleSentinel", 50, "Ancient Temple", false, false, 3000, 2000, "SS"}); 
 }
 
 void generateDailyQuests() {
@@ -2851,7 +2850,7 @@ void showQuestBoard() {
 
         for (size_t i = 0; i < dailyQuests.size(); ++i) {
             const DailyQuest& q = dailyQuests[i];
-            if (q.completed) continue; // Sembunyikan quest yang sudah selesai
+            if (q.completed) continue; 
 
             wcout << L"❖ " << index++ << L". " << utf8_to_wstring(q.title);
 
@@ -2871,7 +2870,7 @@ void showQuestBoard() {
             }
 
             wcout << endl;
-            visibleQuestIndices.push_back(i); // Simpan indeks aslinya
+            visibleQuestIndices.push_back(i); 
         }
 
         if (visibleQuestIndices.empty()) {
@@ -2890,7 +2889,7 @@ void showQuestBoard() {
             waitForEnter();
             continue;
         }
-        cin.ignore(numeric_limits<streamsize>::max(), '\n'); // Bersihkan buffer
+        cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
 
         if (qchoice == 0) break;
         if (qchoice < 1 || qchoice > visibleQuestIndices.size()) {
@@ -2899,10 +2898,10 @@ void showQuestBoard() {
             continue;
         }
 
-        // Ambil quest dari indeks asli di dailyQuests
+        
         DailyQuest& selectedQuest = dailyQuests[visibleQuestIndices[qchoice - 1]];
 
-        // Tampilkan detail quest
+        
         system("cls");
         printLine();
         centerText(L"✦ DETAIL QUEST ✦");
@@ -2922,7 +2921,7 @@ void showQuestBoard() {
         wcout << L"✦ Reward    : " << selectedQuest.expReward << L" EXP, " << selectedQuest.goldReward << L" Gold" << endl;
         printLine();
 
-        // Cek apakah sudah aktif
+        
         bool alreadyTaken = false;
         for (ActiveDailyQuestNode* node = activeDailyQuestsHead; node != nullptr; node = node->next) {
             if (node->data.title == selectedQuest.title) {
@@ -2940,7 +2939,7 @@ void showQuestBoard() {
             if (confirm == 'y' || confirm == 'Y') {
                 selectedQuest.taken = true;
 
-                // Tambahkan ke linked list aktif
+                
                 ActiveDailyQuestNode* newNode = new ActiveDailyQuestNode();
                 newNode->data = selectedQuest;
                 newNode->data.taken = true;
@@ -2968,8 +2967,8 @@ void showQuestBoard() {
 
 
 void showActiveQuestsInDiary() {
-    bool stayInQuestView = true; // Tambahkan loop agar pemain bisa kembali ke daftar setelah lihat detail
-    ActiveDailyQuestNode* selectedNode = nullptr; // Untuk menyimpan quest yang dipilih untuk detail
+    bool stayInQuestView = true; 
+    ActiveDailyQuestNode* selectedNode = nullptr; 
 
     while (stayInQuestView) {
         system("cls");
@@ -2981,27 +2980,27 @@ void showActiveQuestsInDiary() {
             wcout << L"Belum ada quest aktif yang diambil." << endl;
             printLine();
             wcout << L"Tekan Enter untuk kembali ke Diary...";
-            // Pastikan buffer bersih sebelum cin.get()
+            
             if (cin.peek() == '\n') {
                 cin.ignore();
             }
             cin.get();
-            stayInQuestView = false; // Keluar dari loop karena tidak ada quest
-            break; // Keluar dari switch di showDiaryMenu (atau dari loop ini)
+            stayInQuestView = false; 
+            break; 
         }
 
-        vector<ActiveDailyQuestNode*> activeNodes; // Untuk menyimpan node yang bisa dipilih
+        vector<ActiveDailyQuestNode*> activeNodes; 
         ActiveDailyQuestNode* current = activeDailyQuestsHead;
         int i = 0;
         while (current != nullptr) {
             wcout << L"❖ " << i + 1 << L". " << utf8_to_wstring(current->data.title);
             if (current->data.completed) {
                 wcout << L" [✅ Selesai]";
-            } else if (current->data.taken) { // Seharusnya semua di sini sudah 'taken'
+            } else if (current->data.taken) { 
                 wcout << L" [⏳ Berlangsung]";
             }
             wcout << endl;
-            activeNodes.push_back(current); // Simpan pointer ke node untuk dipilih
+            activeNodes.push_back(current); 
             current = current->next;
             i++;
         }
@@ -3016,21 +3015,21 @@ void showActiveQuestsInDiary() {
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
             delayPrint(L"Pilihan tidak valid. Masukkan angka.", 20);
             waitForEnter();
-            continue; // Ulangi tampilan daftar quest aktif
+            continue; 
         }
-        // Membersihkan buffer setelah cin >> int
+        
         cin.ignore(numeric_limits<streamsize>::max(), '\n');
 
 
         if (qsel == 0) {
-            stayInQuestView = false; // Kembali ke Diary Menu
+            stayInQuestView = false; 
             break;
         }
 
         if (qsel > 0 && (size_t)qsel <= activeNodes.size()) {
-            selectedNode = activeNodes[qsel - 1]; // Ambil node yang dipilih dari vector temporary
+            selectedNode = activeNodes[qsel - 1]; 
 
-            // Tampilkan detail quest yang dipilih
+            
             system("cls");
             printLine();
             centerText(L"✦ DETAIL QUEST DIARY ✦");
@@ -3049,81 +3048,81 @@ void showActiveQuestsInDiary() {
             wcout << L"Status      : " << (selectedNode->data.completed ? L"✅ Selesai" : (selectedNode->data.taken ? L"⏳ Berlangsung" : L"Belum Diambil")) << endl;
             printLine();
             wcout << L"Tekan Enter untuk kembali ke daftar quest aktif...";
-            // Tidak perlu cin.ignore() ganda jika waitForEnter sudah benar, atau jika di sini langsung cin.get()
-            // waitForEnter(); // Jika Anda punya fungsi waitForEnter yang sudah handle buffer.
-            // Jika tidak, cara manual:
+            
+            
+            
             if (cin.peek() == '\n') {
                  cin.ignore();
             }
-            cin.get(); // Menunggu Enter
-            // Setelah melihat detail, loop akan berlanjut dan menampilkan daftar quest aktif lagi
+            cin.get(); 
+            
         } else {
             delayPrint(L"Pilihan quest tidak valid.", 20);
             waitForEnter();
-            // Loop akan berlanjut
+            
         }
     }
 }
 
 
 
-// Pastikan fungsi utf8_to_wstring sudah ada di atas fungsi ini
-// wstring utf8_to_wstring(const string& str_utf8) { ... }
+
+
 
 void loadEnemyASCIIFromFile(const string& filename) {
     ifstream file(filename);
     if (!file.is_open()) {
         wcout << L"❌ Gagal membuka file ASCII enemy: " << utf8_to_wstring(filename).c_str() << endl;
-        // Anda mungkin ingin menambahkan return di sini jika file gagal dibuka,
-        // atau setidaknya memberi tahu pengguna dengan lebih jelas.
-        // Contoh: system("pause"); return;
+        
+        
+        
         return;
     }
 
     string line;
-    string currentNameKey = "";       // Nama musuh yang sedang diproses (key untuk map)
-    vector<wstring> currentArtLines; // Baris-baris ASCII art untuk currentNameKey
+    string currentNameKey = "";       
+    vector<wstring> currentArtLines; 
 
     while (getline(file, line)) {
-        string trimmedLineForTag = trim(line); // Trim hanya untuk deteksi tag dan baris struktur
+        string trimmedLineForTag = trim(line); 
 
         if (trimmedLineForTag.length() > 1 && trimmedLineForTag.front() == '[' && trimmedLineForTag.back() == ']') {
-            // Ini adalah tag nama musuh, contoh: [Kobold Pathguard]
+            
 
-            // 1. Simpan art untuk musuh sebelumnya (jika ada)
+            
             if (!currentNameKey.empty() && !currentArtLines.empty()) {
                 asciiArtMap[currentNameKey] = currentArtLines;
-                // wcout << L"[DEBUG] Saved art for: [" << utf8_to_wstring(currentNameKey) << L"] with " << currentArtLines.size() << L" lines." << endl;
+                
             }
 
-            // 2. Siapkan untuk musuh baru
-            currentArtLines.clear(); // Kosongkan buffer art untuk musuh baru
+            
+            currentArtLines.clear(); 
             string extractedName = trimmedLineForTag.substr(1, trimmedLineForTag.length() - 2);
-            currentNameKey = trim(extractedName); // Nama musuh baru, sudah di-trim
-            // wcout << L"[DEBUG] New enemy tag found: [" << utf8_to_wstring(currentNameKey) << L"]" << endl;
+            currentNameKey = trim(extractedName); 
+            
 
         } else { 
-            // Ini bukan tag nama musuh, berarti ini adalah baris ASCII art atau baris kosong pemisah
-            if (!currentNameKey.empty()) { // Hanya tambahkan art jika kita sudah punya nama musuh aktif
-                // Tambahkan baris ASLI (line, bukan trimmedLineForTag) ke currentArtLines.
-                // Ini penting untuk menjaga spasi/formatting di dalam ASCII art.
-                // Baris kosong (line.empty()) juga akan ditambahkan sebagai wstring kosong,
-                // yang akan menjaga baris baru pada art.
+            
+            if (!currentNameKey.empty()) { 
+                
+                
+                
+                
                 currentArtLines.push_back(utf8_to_wstring(line));
             }
-            // Jika currentNameKey kosong (misalnya, baris kosong di awal file sebelum tag pertama),
-            // baris ini akan diabaikan, yang mana sudah benar.
+            
+            
         }
     }
 
-    // Simpan art untuk musuh terakhir di file (setelah loop selesai)
+    
     if (!currentNameKey.empty() && !currentArtLines.empty()) {
         asciiArtMap[currentNameKey] = currentArtLines;
-        // wcout << L"[DEBUG] Saved art for last enemy: [" << utf8_to_wstring(currentNameKey) << L"] with " << currentArtLines.size() << L" lines." << endl;
+        
     }
 
     file.close();
-    // wcout << L"[DEBUG] Total unique enemy arts loaded: " << asciiArtMap.size() << endl;
+    
 }
 
 void displayEnemyASCII(const string& enemyName) {
@@ -3138,7 +3137,7 @@ void displayEnemyASCII(const string& enemyName) {
     }
 }
 
-// Process end-of-turn effects like enchantments
+
 void processEndOfPlayerTurn(Character& character) {
     for (auto it = character.activeEnchantments.begin(); it != character.activeEnchantments.end(); ) {
         it->remainingTurns--;
@@ -3156,19 +3155,19 @@ void drawBattleScreen(const Enemy& enemy, const Character& character, const vect
     const int totalWidth = 100;
     system("cls");
 
-    // Header
+    
     wcout << L"╔" << wstring(totalWidth - 2, L'═') << L"╗" << endl;
     centerText(L"✦✦✦  PERTARUNGAN DIMULAI  ✦✦✦", totalWidth);
     wcout << L"╚" << wstring(totalWidth - 2, L'═') << L"╝" << endl;
 
-    // Status Player dan Musuh
+    
     wcout << L"👤 Kamu  ♥ HP: " << character.hp << L"/" << character.maxHp
           << L"  ♦ Mana: " << character.mana << L"/" << character.maxMana
           << setw(15) << L""
           << L"☠ " << utf8_to_wstring(enemy.name)
           << L"  ♥ HP: " << enemy.hp << L"/" << enemy.maxHp << endl;
 
-    // Buff Aktif
+    
     if (!character.activeEnchantments.empty()) {
         wcout << L"  🔮 Buffs: ";
         for (size_t i = 0; i < character.activeEnchantments.size(); ++i) {
@@ -3179,10 +3178,10 @@ void drawBattleScreen(const Enemy& enemy, const Character& character, const vect
         wcout << endl;
     }
 
-    // ASCII musuh
+    
     displayEnemyASCII(enemy.name);
 
-    // Battle log
+    
     wcout << L"╟" << wstring(totalWidth - 2, L'─') << L"╢" << endl;
     if (battleLog.empty()) {
         centerText(L"» Apa yang ingin kamu lakukan?", totalWidth);
@@ -3192,7 +3191,7 @@ void drawBattleScreen(const Enemy& enemy, const Character& character, const vect
         }
     }
 
-    // Aksi
+    
     wcout << L"╟" << wstring(totalWidth - 2, L'─') << L"╢" << endl;
     centerText(L"❖ 1. ⚔ Serang   ❖ 2. ✹ Magic   ❖ 3. ⊕ Item   ❖ 4. 🛡 Bertahan   ❖ 5. ➤ Kabur", totalWidth);
     printLine();
@@ -3202,10 +3201,10 @@ void processPlayerHoTs(Character& character, vector<wstring>& battleLogMessages)
     if (!character.activeHoTs.empty()) {
         bool processedHot = false;
         for (auto it = character.activeHoTs.begin(); it != character.activeHoTs.end(); ) {
-            if (character.hp < character.maxHp) { // Hanya heal jika HP tidak penuh
+            if (character.hp < character.maxHp) { 
                 int actualHeal = min(it->healPerTurn, character.maxHp - character.hp);
                 character.hp += actualHeal;
-                if (!processedHot) { // Tambahkan header hanya jika ada HoT yang aktif
+                if (!processedHot) { 
                      battleLogMessages.push_back(L"-- Regenerasi HP Aktif --");
                      processedHot = true;
                 }
@@ -3222,29 +3221,29 @@ void processPlayerHoTs(Character& character, vector<wstring>& battleLogMessages)
     }
 }
 
-// Modifikasi processEndOfPlayerTurn untuk memanggil processPlayerHoTs
-void processEndOfPlayerTurn(Character& character, vector<wstring>& battleLogMessages) { // Tambahkan battleLogMessages
-    // Proses Enchantment
+
+void processEndOfPlayerTurn(Character& character, vector<wstring>& battleLogMessages) { 
+    
     for (auto it = character.activeEnchantments.begin(); it != character.activeEnchantments.end(); ) {
         it->remainingTurns--;
         if (it->remainingTurns <= 0) {
             wstring enchEndLog = L"Efek '" + utf8_to_wstring(it->spellName) + L"' telah berakhir.";
-            delayPrint(enchEndLog, 20); // Bisa juga dimasukkan ke battleLog
+            delayPrint(enchEndLog, 20); 
             battleLogMessages.push_back(enchEndLog);
             it = character.activeEnchantments.erase(it);
         } else {
             ++it;
         }
     }
-    // Proses HoT
-    processPlayerHoTs(character, battleLogMessages); // Panggil fungsi HoT
+    
+    processPlayerHoTs(character, battleLogMessages); 
 }
 
 
 
 bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
     Enemy enemy = baseEnemy;
-    // Reset status musuh untuk pertarungan ini
+    
     enemy.isStunned = false; enemy.stunDuration = 0;
     enemy.attackDebuffValue = 0; enemy.attackDebuffDuration = 0;
     enemy.accuracyDebuffValue = 0; enemy.accuracyDebuffDuration = 0;
@@ -3257,15 +3256,15 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
 
     system("cls");
     vector<wstring> battleLogMessages;
-    bool playerRevivedThisBattle = false; // Flag untuk memastikan revive hanya sekali per pertarungan jika mekanismenya begitu
+    bool playerRevivedThisBattle = false; 
 
     while (player.hp > 0 && enemy.hp > 0) {
         battleLogMessages.clear();
 
-        // --- PROSES EFEK BERKELANJUTAN MUSUH (DoT & Rune Meledak) ---
+        
         if (enemy.hp > 0) {
             bool processedPersistentEffectHeader = false;
-            // Proses DoT
+            
             if (!enemy.activeDoTs.empty()) {
                 for (auto it = enemy.activeDoTs.begin(); it != enemy.activeDoTs.end(); ) {
                     if (it->remainingTurns > 0) {
@@ -3279,7 +3278,7 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                     } else { it = enemy.activeDoTs.erase(it); }
                 }
             }
-            // Proses Rune
+            
             if (!enemy.activeRunes.empty()) {
                 for (auto it = enemy.activeRunes.begin(); it != enemy.activeRunes.end(); ) {
                     it->turnsUntilTrigger--;
@@ -3307,7 +3306,7 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
         cin >> choice;
         if (cin.fail()) { cin.clear(); cin.ignore(numeric_limits<streamsize>::max(), '\n'); choice = 99; }
 
-        // --- Kalkulasi Stat Pemain Final dengan SEMUA Buff ---
+        
         int playerBaseAttackPower = player.strength + player.temporaryStrengthBuff + (player.equippedWeapon ? player.equippedWeapon->attackPower : 0);
         int totalPlayerAttackBonus = 0, totalPlayerDefenseBonus = 0, totalPlayerEvasionBonus = 0, totalPlayerIntelligenceBonus = 0, totalPlayerAgilityBonus = 0;
         double totalPlayerCritChanceBonus = 0.0;
@@ -3330,9 +3329,9 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
         int finalPlayerEvasion = finalPlayerAgility + totalPlayerEvasionBonus;
         int finalPlayerIntelligence = player.intelligence + player.temporaryIntelligenceBuff + totalPlayerIntelligenceBonus;
 
-        double finalPlayerCritChance = 0.05 + totalPlayerCritChanceBonus; // Base crit 5%
+        double finalPlayerCritChance = 0.05 + totalPlayerCritChanceBonus; 
 
-        // --- Kalkulasi Stat Musuh Final (dengan debuff) ---
+        
         int currentEnemyAttack = enemy.attack;
         if (enemy.attackDebuffDuration > 0) { currentEnemyAttack = max(0, enemy.attack - enemy.attackDebuffValue); }
         int finalEnemyPhysicalDefense = max(0, enemy.defense - enemy.physicalDefenseDebuffValue);
@@ -3345,7 +3344,7 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
         wstring turnActionLog;
 
         switch (choice) {
-            case 1: { // Serang Biasa
+            case 1: { 
                 bool isCriticalHit = (rand() % 100 < (finalPlayerCritChance * 100));
                 int damageToEnemy = max(0, finalPlayerAttackPower - finalEnemyPhysicalDefense);
                 if (isCriticalHit) {
@@ -3358,7 +3357,7 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
 
                 if (totalPlayerAttackBonus > 0) { battleLogMessages.push_back(L"  (Bonus ATK dari enchantment: +" + to_wstring(totalPlayerAttackBonus) + L")"); }
 
-                // Efek on-hit dari enchantment senjata
+                
                 for(const auto& ench : player.activeEnchantments) {
                     if (ench.spellId == "THUNDER_MJOLNIR_AWAKENING_3" && !enemy.isStunned && rand() % 100 < 30) {
                         enemy.isStunned = true; enemy.stunDuration = 1;
@@ -3379,7 +3378,7 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                 }
                 break;
             }
-            case 2: { // Gunakan Magic
+            case 2: { 
                 if (player.knownSpells.empty()) {
                     battleLogMessages.push_back(L"Kamu tidak tahu spell apapun!");
                     continue; 
@@ -3389,12 +3388,12 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                 wcout << L"                  ✹✹✹ PILIHAN MAGIC ✹✹✹                     \n";
                 wcout << L"═════════════════════════════════════════════════════════════\n";
                 int spellIdx_display = 1;
-                vector<const MagicSpell*> displayedSpells_battle; // Vector untuk spell yang ditampilkan dan bisa dipilih
+                vector<const MagicSpell*> displayedSpells_battle; 
 
                 for (const string& spellId : player.knownSpells) {
-                    const MagicSpell* spell = getSpellDetails(spellId); // Ambil detail spell
+                    const MagicSpell* spell = getSpellDetails(spellId); 
                     if (spell) {
-                        displayedSpells_battle.push_back(spell); // Tambahkan ke daftar yang akan dipilih
+                        displayedSpells_battle.push_back(spell); 
                         wcout << L" " << setw(2) << left << spellIdx_display++ << L". ✧ " << padRight(utf8_to_wstring(spell->name), 25)
                               << L" ✦ MP: " << setw(3) << spell->manaCost;
                         if (player.mana < spell->manaCost) {
@@ -3415,31 +3414,31 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                     cin.clear();
                     cin.ignore(numeric_limits<streamsize>::max(), '\n');
                     battleLogMessages.push_back(L"Pilihan magic tidak valid.");
-                    // continue; // Jika ingin pemain memilih lagi
-                    break;    // Atau giliran hangus
+                    
+                    break;    
                 }
-                if (magicChoice_input == 0) { // Pemain memilih batal
-                    // continue; // Jika ingin pemain memilih lagi
-                    break;    // Atau giliran hangus
+                if (magicChoice_input == 0) { 
+                    
+                    break;    
                 }
 
-                // --- DEKLARASI DAN INISIALISASI chosenSpell YANG BENAR ---
+                
                 const MagicSpell* chosenSpell = displayedSpells_battle[magicChoice_input - 1];
 
                 if (chosenSpell && player.mana >= chosenSpell->manaCost) {
                     player.mana -= chosenSpell->manaCost;
-                    // 'turnActionLog' sebaiknya diisi di sini jika belum
+                    
                     turnActionLog = L"➤ Kamu menggunakan " + utf8_to_wstring(chosenSpell->name) + L"!";
-                    delayPrint(turnActionLog, 20); // Tampilkan aksi utama
-                    battleLogMessages.push_back(turnActionLog); // Tambahkan ke log utama untuk giliran ini
+                    delayPrint(turnActionLog, 20); 
+                    battleLogMessages.push_back(turnActionLog); 
 
-                    // ---- MULAI LOGIKA EFEK SPELL ----
+                    
                        if (chosenSpell->isEnchantment) {
                             bool alreadyActive = false; int enchIndex = -1;
                             for(size_t i=0; i < player.activeEnchantments.size(); ++i){ if(player.activeEnchantments[i].spellId == chosenSpell->id){ enchIndex = i; alreadyActive = true; break; }}
                             ActiveEnchantment newEnch(chosenSpell->id, chosenSpell->name, chosenSpell->enchantTurns, chosenSpell->enchantAttackBonus);
-                            // Set bonus spesifik berdasarkan ID spell
-                            if(chosenSpell->id == "FIRE_FLAME_WEAPON_1") newEnch.attackBonus = 8; // Attack bonus dari spell definition
+                            
+                            if(chosenSpell->id == "FIRE_FLAME_WEAPON_1") newEnch.attackBonus = 8; 
                             else if(chosenSpell->id == "ICE_ICY_EDGE_1") newEnch.attackBonus = 9;
                             else if(chosenSpell->id == "THUNDER_CHARGE_WEAPON_1") newEnch.attackBonus = 9;
                             else if(chosenSpell->id == "WIND_AERO_BLADE_1") newEnch.attackBonus = 7;
@@ -3447,9 +3446,9 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                             else if(chosenSpell->id == "LIGHT_RADIANT_WEAPON_1") newEnch.attackBonus = 7;
                             else if(chosenSpell->id == "THUNDER_VOLTAIC_EDGE_2") { newEnch.attackBonus = 20; newEnch.agilityBonus = 10 + finalPlayerAgility/15; }
                             else if(chosenSpell->id == "WIND_TEMPEST_BLADES_2") { newEnch.attackBonus = 19; newEnch.agilityBonus = 8 + finalPlayerAgility/18;}
-                            else if(chosenSpell->id == "DARK_SOUL_EATER_WEAPON_2") newEnch.attackBonus = 15; // MP Drain on hit dihandle di case 1
+                            else if(chosenSpell->id == "DARK_SOUL_EATER_WEAPON_2") newEnch.attackBonus = 15; 
                             else if(chosenSpell->id == "LIGHT_DIVINE_EDGE_2") { newEnch.attackBonus = 22; newEnch.defenseBonus = 5 + player.level/5; }
-                            else if(chosenSpell->id == "THUNDER_MJOLNIR_AWAKENING_3") newEnch.attackBonus = 50; // Stun on hit dihandle di case 1
+                            else if(chosenSpell->id == "THUNDER_MJOLNIR_AWAKENING_3") newEnch.attackBonus = 50; 
                             else if(chosenSpell->id == "WIND_SKY_LORDS_WRATH_3") { newEnch.attackBonus = 48; newEnch.criticalChanceBonus = 0.15 + (double)finalPlayerAgility / 150.0; battleLogMessages.push_back(L"  🌪️ Seranganmu menjadi lebih mematikan!");}
 
                             else if(chosenSpell->id == "ICE_FROST_ARMOR_1") newEnch.defenseBonus = 10;
@@ -3482,7 +3481,7 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                                 if(!hotExists && healVal > 0) {player.activeHoTs.push_back({chosenSpell->id, chosenSpell->name, healVal, chosenSpell->enchantTurns}); battleLogMessages.push_back(L"  ✨ Kamu merasakan energi penyembuhan berkala!");}
                             }
 
-                        } else { // Mantra non-enchantment
+                        } else { 
                             float defenseMultiplier = 1.0f;
                             if (chosenSpell->id == "DARK_OBLITERATION_RAY_3") { defenseMultiplier = 0.3f; battleLogMessages.push_back(L"  💥 Sinar Pemusnahan menembus pertahanan sihir!"); }
                             int baseMagicDmgCalc = chosenSpell->basePower + finalPlayerIntelligence + player.level * 1.5;
@@ -3497,23 +3496,23 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                                             bonusDamage = static_cast<int>(baseMagicDmgCalc * 0.5); battleLogMessages.push_back(L"  ✨ Sangat efektif melawan " + utf8_to_wstring(enemy.enemyType) + L"!");
                                         }
                                         int totalDamageToEnemy = magicDamage + bonusDamage;
-                                        if (chosenSpell->id == "THUNDER_STORM_CONDUIT_3" || chosenSpell->id == "WIND_ZEPHYRS_DANCE_3") { // Multi-hit
-                                            int hits = (chosenSpell->id == "THUNDER_STORM_CONDUIT_3" ? (2 + rand()%3) : (3 + rand()%2) ); // Conduit 2-4, Zephyr 3-4
+                                        if (chosenSpell->id == "THUNDER_STORM_CONDUIT_3" || chosenSpell->id == "WIND_ZEPHYRS_DANCE_3") { 
+                                            int hits = (chosenSpell->id == "THUNDER_STORM_CONDUIT_3" ? (2 + rand()%3) : (3 + rand()%2) ); 
                                             int damagePerHitCalc = (chosenSpell->id == "THUNDER_STORM_CONDUIT_3" ? chosenSpell->basePower + finalPlayerIntelligence/2 : chosenSpell->basePower/2 + finalPlayerIntelligence/3);
                                             int damagePerHit = max(0,(int)(damagePerHitCalc - effectiveEnemyMagicDefense));
                                             totalDamageToEnemy = 0;
                                             battleLogMessages.push_back(L"  " + utf8_to_wstring(chosenSpell->name) + L" mengenai " + to_wstring(hits) + L" kali!");
                                             for(int i=0; i<hits; ++i) { enemy.hp -= damagePerHit; totalDamageToEnemy += damagePerHit; battleLogMessages.push_back(L"    ↳ Serangan ke-" + to_wstring(i+1) + L": " + to_wstring(damagePerHit) + L" damage!"); if(enemy.hp <= 0) break;}
-                                            magicDamage = totalDamageToEnemy; // Update magicDamage untuk life leech dll.
+                                            magicDamage = totalDamageToEnemy; 
                                         } else { enemy.hp -= totalDamageToEnemy; battleLogMessages.push_back(L"  " + utf8_to_wstring(enemy.name) + L" terkena " + to_wstring(totalDamageToEnemy) + L" magic damage!");}
                                     if (totalDamageToEnemy > 0 && !(chosenSpell->id == "FIRE_IGNITE_1" || chosenSpell->id == "THUNDER_STATIC_FIELD_1" /*spell DoT murni lainnya*/)) {
-                                        enemy.hp -= totalDamageToEnemy; // Terapkan total damage yang sudah dihitung
+                                        enemy.hp -= totalDamageToEnemy; 
                                         battleLogMessages.push_back(L"  " + utf8_to_wstring(enemy.name) + L" terkena " + to_wstring(totalDamageToEnemy) + L" " + utf8_to_wstring(chosenSpell->elementType) + L" damage!");
                                     } else if (totalDamageToEnemy == 0 && chosenSpell->basePower > 0) {
                                         battleLogMessages.push_back(L"  Serangan " + utf8_to_wstring(chosenSpell->name) + L" tidak memberikan damage (mungkin di-resist atau defense terlalu tinggi).");
                             }
                                     }
-                                // --- Implementasi Stun LENGKAP ---
+                                
                                 bool applyStun = false; int stunTurns = 1;
                                 if (chosenSpell->id == "ICE_FROZEN_LANCE_2" && rand() % 100 < 50) { applyStun = true; stunTurns = 1;}
                                 else if (chosenSpell->id == "THUNDER_THUNDERCLAP_2" && rand() % 100 < 70) { applyStun = true; stunTurns = 1;}
@@ -3526,25 +3525,25 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
 
                                 if (applyStun && !enemy.isStunned) { enemy.isStunned = true; enemy.stunDuration = stunTurns; battleLogMessages.push_back(L"  " + utf8_to_wstring(enemy.name) + L" terkena STUN (" + to_wstring(stunTurns) + L" giliran)!");}
                                 else if (applyStun && enemy.isStunned) { battleLogMessages.push_back(L"  " + utf8_to_wstring(enemy.name) + L" sudah STUN.");}
-                                // --- AKHIR STUN ---
+                                
 
-                                // --- FEAR ---
-                                if (chosenSpell->id == "DARK_NIGHTMARE_BLAST_2" && !enemy.isFeared && rand()%100 < 40) { // 40% chance
-                                    enemy.isFeared = true; enemy.fearDuration = 2; // Misal 2 giliran
+                                
+                                if (chosenSpell->id == "DARK_NIGHTMARE_BLAST_2" && !enemy.isFeared && rand()%100 < 40) { 
+                                    enemy.isFeared = true; enemy.fearDuration = 2; 
                                     battleLogMessages.push_back(L"  👻 " + utf8_to_wstring(enemy.name) + L" diliputi ketakutan!");
                                 }
-                                // --- SILENCE ---
-                                if (chosenSpell->id == "WIND_SILENCING_GUST_2" && !enemy.isSilenced && rand()%100 < 60) { // 60% chance
-                                    enemy.isSilenced = true; enemy.silenceDuration = 2; // Misal 2 giliran
+                                
+                                if (chosenSpell->id == "WIND_SILENCING_GUST_2" && !enemy.isSilenced && rand()%100 < 60) { 
+                                    enemy.isSilenced = true; enemy.silenceDuration = 2; 
                                     battleLogMessages.push_back(L"  🔇 " + utf8_to_wstring(enemy.name) + L" terkena Silence!");
                                 }
-                                // --- DEBUFF ATTACK ---
+                                
                                 if (chosenSpell->id == "DARK_CURSE_OF_FATIGUE_1") {
-                                    enemy.attackDebuffValue = max(enemy.attackDebuffValue, 5 + finalPlayerIntelligence/10); // Ambil yang terbesar jika sudah ada debuff
-                                    enemy.attackDebuffDuration = max(enemy.attackDebuffDuration, 3); // Ambil durasi terlama
+                                    enemy.attackDebuffValue = max(enemy.attackDebuffValue, 5 + finalPlayerIntelligence/10); 
+                                    enemy.attackDebuffDuration = max(enemy.attackDebuffDuration, 3); 
                                     battleLogMessages.push_back(L"  ⚔ Serangan " + utf8_to_wstring(enemy.name) + L" melemah!");
                                 }
-                                // --- DEBUFF ACCURACY ---
+                                
                                 if (chosenSpell->id == "FIRE_SCORCHING_HAZE_1") {
                                     enemy.accuracyDebuffValue = max(enemy.accuracyDebuffValue, 15 + finalPlayerIntelligence / 10);
                                     enemy.accuracyDebuffDuration = max(enemy.accuracyDebuffDuration, 3);
@@ -3556,14 +3555,14 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                                     enemy.accuracyDebuffDuration = max(enemy.accuracyDebuffDuration, accDebuffDur);
                                     battleLogMessages.push_back(L"  🌬️ " + utf8_to_wstring(enemy.name) + L" kesulitan melihat dengan jelas!");
                                 }
-                                // --- DEBUFF DEFENSE ---
+                                
                                 if (chosenSpell->id == "THUNDER_MAGNETIC_OVERLOAD_2" || chosenSpell->id == "THUNDER_SKY_SOVEREIGNS_FURY_3") {
                                     int mDefDebuffVal = (chosenSpell->id == "THUNDER_MAGNETIC_OVERLOAD_2" ? 15 : 20) + finalPlayerIntelligence / 8;
                                     int mDefDebuffDur = (chosenSpell->id == "THUNDER_MAGNETIC_OVERLOAD_2" ? 3 : 4);
                                     enemy.magicDefenseDebuffValue = max(enemy.magicDefenseDebuffValue, mDefDebuffVal);
                                     enemy.magicDefenseDebuffDuration = max(enemy.magicDefenseDebuffDuration, mDefDebuffDur);
                                     battleLogMessages.push_back(L"  🧲 Pertahanan sihir " + utf8_to_wstring(enemy.name) + L" melemah!");
-                                    if (chosenSpell->id == "THUNDER_SKY_SOVEREIGNS_FURY_3") { // Juga lemahkan defense fisik
+                                    if (chosenSpell->id == "THUNDER_SKY_SOVEREIGNS_FURY_3") { 
                                         enemy.physicalDefenseDebuffValue = max(enemy.physicalDefenseDebuffValue, 15 + finalPlayerIntelligence / 8);
                                         enemy.physicalDefenseDebuffDuration = max(enemy.physicalDefenseDebuffDuration, 4);
                                     }
@@ -3573,17 +3572,17 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                                     enemy.magicDefenseDebuffValue = max(enemy.magicDefenseDebuffValue, (chosenSpell->id == "DARK_CURSE_OF_VULNERABILITY_2" ? 10 : 15) + finalPlayerIntelligence / 10);
                                     enemy.magicDefenseDebuffDuration = max(enemy.magicDefenseDebuffDuration, 4);
                                     battleLogMessages.push_back(L"  ☠️ " + utf8_to_wstring(enemy.name) + L" menjadi sangat rentan!");
-                                    if (chosenSpell->id == "DARK_ETERNAL_NIGHT_CURSE_3") { // Juga debuff stat lain
+                                    if (chosenSpell->id == "DARK_ETERNAL_NIGHT_CURSE_3") { 
                                         enemy.attackDebuffValue = max(enemy.attackDebuffValue, 10 + finalPlayerIntelligence/8);
                                         enemy.attackDebuffDuration = max(enemy.attackDebuffDuration, 4);
                                         battleLogMessages.push_back(L"  ☠️ Kekuatan dan kegesitannya juga menurun drastis!");
                                     }
                                 }
 
-                                // --- DOT ---
+                                
                                 if (chosenSpell->id == "FIRE_IGNITE_1" || chosenSpell->id == "THUNDER_STATIC_FIELD_1" || chosenSpell->id == "FIRE_ENGULFING_FLAMES_2" || chosenSpell->id == "FIRE_VOLCANIC_ERUPTION_3" || chosenSpell->id == "WIND_TORNADO_OF_DESTRUCTION_3") {                                 bool dotExists = false;
-                                int dotDmg = chosenSpell->basePower; // Ambil basePower sebagai dasar damage DoT
-                                int dotTurns = 3; // Durasi default
+                                int dotDmg = chosenSpell->basePower; 
+                                int dotTurns = 3; 
 
                                 if (chosenSpell->id == "FIRE_IGNITE_1") { dotDmg = 5 + finalPlayerIntelligence / 5; dotTurns = 3;}
                                 else if (chosenSpell->id == "THUNDER_STATIC_FIELD_1") { dotDmg = 6 + finalPlayerIntelligence / 5; dotTurns = 4;}
@@ -3594,9 +3593,9 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                                 else if (chosenSpell->id == "DARK_ETERNAL_NIGHT_CURSE_3") { dotDmg = 15 + finalPlayerIntelligence/4; dotTurns = 4; /* Efek lain sudah di atas */ }
 
                                 for (auto& dot : enemy.activeDoTs) {
-                                    if (dot.spellId == chosenSpell->id) { // Jika DoT sejenis sudah ada
-                                        dot.remainingTurns = max(dot.remainingTurns, dotTurns); // Ambil durasi terlama
-                                        dot.damagePerTurn = max(dot.damagePerTurn, dotDmg);     // Ambil damage terkuat
+                                    if (dot.spellId == chosenSpell->id) { 
+                                        dot.remainingTurns = max(dot.remainingTurns, dotTurns); 
+                                        dot.damagePerTurn = max(dot.damagePerTurn, dotDmg);     
                                         dotExists = true;
                                         battleLogMessages.push_back(L"  Efek " + utf8_to_wstring(chosenSpell->name) + L" pada " + utf8_to_wstring(enemy.name) + L" diperkuat/diperbarui!");
                                         break;
@@ -3607,14 +3606,14 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                                     battleLogMessages.push_back(L"  " + utf8_to_wstring(enemy.name) + L" mulai menerima damage berkelanjutan dari " + utf8_to_wstring(chosenSpell->name) + L"!");
                                 }
                             }
-                                // --- RUNE ---
-                                if (chosenSpell->id == "FIRE_EXPLOSIVE_RUNE_2") { int runeDamage = chosenSpell->basePower + finalPlayerIntelligence/2; // Scaling
-                                int runeTurns = 2 + rand()%2; // 2-3 giliran
+                                
+                                if (chosenSpell->id == "FIRE_EXPLOSIVE_RUNE_2") { int runeDamage = chosenSpell->basePower + finalPlayerIntelligence/2; 
+                                int runeTurns = 2 + rand()%2; 
                                 bool runeExists = false;
                                 for(auto& r : enemy.activeRunes) {
                                     if(r.spellId == chosenSpell->id) {
-                                        r.turnsUntilTrigger = runeTurns; // Refresh timer
-                                        r.damageOnTrigger = max(r.damageOnTrigger, runeDamage); // Ambil damage terkuat
+                                        r.turnsUntilTrigger = runeTurns; 
+                                        r.damageOnTrigger = max(r.damageOnTrigger, runeDamage); 
                                         runeExists=true;
                                         battleLogMessages.push_back(L"  ⏳ Rune " + utf8_to_wstring(chosenSpell->name) + L" pada " + utf8_to_wstring(enemy.name) + L" diperbarui!");
                                         break;
@@ -3625,17 +3624,17 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                                     battleLogMessages.push_back(L"  ⏳ Rune " + utf8_to_wstring(chosenSpell->name) + L" ditanam pada " + utf8_to_wstring(enemy.name) + L"!");
                                 }
                             }
-                                // --- LIFE LEECH & MP DRAIN (Spell) ---
+                                
                                 if (chosenSpell->id == "DARK_MINOR_DRAIN_1" || chosenSpell->id == "DARK_LIFE_TAP_2" || chosenSpell->id == "LIGHT_CONSECRATED_STRIKE_2") {
-                                int totalDamageDealt = magicDamage; // Jika bukan multihit, pakai magicDamage
+                                int totalDamageDealt = magicDamage; 
                                 if (chosenSpell->id == "THUNDER_STORM_CONDUIT_3" || chosenSpell->id == "WIND_ZEPHYRS_DANCE_3") {
                                 }
                                 int drainedHp = 0;
                                 if(chosenSpell->id == "DARK_MINOR_DRAIN_1") drainedHp = totalDamageDealt / 2;
-                                else if(chosenSpell->id == "DARK_LIFE_TAP_2") drainedHp = totalDamageDealt; // 100% leech
+                                else if(chosenSpell->id == "DARK_LIFE_TAP_2") drainedHp = totalDamageDealt; 
                                 else if(chosenSpell->id == "LIGHT_CONSECRATED_STRIKE_2") drainedHp = totalDamageDealt / 3;
 
-                                if (drainedHp > 0 && enemy.hp > 0) { // Hanya leech jika musuh masih hidup setelah damage
+                                if (drainedHp > 0 && enemy.hp > 0) { 
                                     player.hp = min(player.maxHp, player.hp + drainedHp);
                                     battleLogMessages.push_back(L"  Kamu menyerap " + to_wstring(drainedHp) + L" HP dari " + utf8_to_wstring(enemy.name) + L"!");
                                 }
@@ -3647,16 +3646,16 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                             }
                         }
                             }
-                        } else if (chosenSpell->targetType == "Self") { // Healing, Self Dispel
+                        } else if (chosenSpell->targetType == "Self") { 
                         if (chosenSpell->basePower > 0 && chosenSpell->id != "LIGHT_DIVINE_RENEWAL_3" && chosenSpell->id != "LIGHT_PURIFICATION_1") {
                             int healAmount = chosenSpell->basePower + finalPlayerIntelligence / 2;
                             player.hp = min(player.maxHp, player.hp + healAmount);
                             battleLogMessages.push_back(L"  Kamu memulihkan " + to_wstring(healAmount) + L" HP!");
                         }
                         if (chosenSpell->id == "LIGHT_PURIFICATION_1" || chosenSpell->id == "LIGHT_DIVINE_RENEWAL_3") {
-                            // player.activeDebuffs.clear(); // Jika ada sistem debuff pada player
+                            
                             battleLogMessages.push_back(L"  ✨ Semua efek negatif ringan telah dimurnikan darimu!");
-                            if (chosenSpell->id == "LIGHT_DIVINE_RENEWAL_3") { // Heal besar juga
+                            if (chosenSpell->id == "LIGHT_DIVINE_RENEWAL_3") { 
                                 int healAmount = chosenSpell->basePower + finalPlayerIntelligence;
                                 player.hp = min(player.maxHp, player.hp + healAmount);
                                 battleLogMessages.push_back(L"  Dan kamu memulihkan " + to_wstring(healAmount) + L" HP secara masif!");
@@ -3664,15 +3663,15 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                         }
                     }
                         }
-                    // Tambahkan delayPrint untuk efek terakhir yang signifikan jika perlu
+                    
                     if (!battleLogMessages.empty() && turnActionLog != battleLogMessages.back() && battleLogMessages.back().find(L"➤ Kamu menggunakan") == wstring::npos ) {
                          delayPrint(battleLogMessages.back(), 20);
                     }
 
-                } else if (chosenSpell) { // MP tidak cukup
+                } else if (chosenSpell) { 
                     battleLogMessages.push_back(L"MP tidak cukup untuk " + utf8_to_wstring(chosenSpell->name) + L"!");
                     continue;
-                } else { // chosenSpell adalah nullptr (seharusnya tidak terjadi jika validasi input benar)
+                } else { 
                      battleLogMessages.push_back(L"Pilihan magic tidak valid (internal error).");
                      continue;
                 }
@@ -3707,15 +3706,15 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
             }
 
 
-            case 4: { // Bertahan
+            case 4: { 
                 turnActionLog = L"➤ Kamu memilih untuk bertahan. Damage musuh berikutnya akan dikurangi!";
                 delayPrint(turnActionLog, 20); battleLogMessages.push_back(turnActionLog);
                 break;
             }
-            case 5: { // Kabur
+            case 5: { 
                 if (enemy.isBoss) {
                     turnActionLog = L"➤ Tidak bisa kabur dari Boss!";
-                } else if (rand() % 100 < (50 + finalPlayerAgility / 2) ) { // Gunakan finalPlayerAgility
+                } else if (rand() % 100 < (50 + finalPlayerAgility / 2) ) { 
                     turnActionLog = L"➤ Kamu berhasil kabur!";
                     delayPrint(turnActionLog, 20); battleLogMessages.push_back(turnActionLog);
                     processEndOfPlayerTurn(player, battleLogMessages);
@@ -3731,24 +3730,24 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
             default:
                 turnActionLog = L"Aksi tidak valid.";
                 delayPrint(turnActionLog, 20); battleLogMessages.push_back(turnActionLog);
-                continue; // Ulangi input pemain, tidak menghabiskan giliran
-        } // Akhir switch
+                continue; 
+        } 
 
         if (enemy.hp <= 0) { enemy.hp = 0; }
-        else { // Giliran Musuh
-            if (choice >=1 && choice <=5 && choice !=3) { // Hanya jika pemain melakukan aksi valid yang menghabiskan giliran
+        else { 
+            if (choice >=1 && choice <=5 && choice !=3) { 
                 if (enemy.isStunned && enemy.stunDuration > 0) {
                     battleLogMessages.push_back(L"➤ " + utf8_to_wstring(enemy.name) + L" masih STUN!");
                     enemy.stunDuration--;
                     if (enemy.stunDuration == 0) { enemy.isStunned = false; battleLogMessages.push_back(L"  " + utf8_to_wstring(enemy.name) + L" pulih dari STUN."); }
                 } else if (enemy.isFeared && enemy.fearDuration > 0) {
-                    if (rand() % 100 < 50) { // 50% chance musuh gagal aksi karena Fear
+                    if (rand() % 100 < 50) { 
                         battleLogMessages.push_back(L"➤ " + utf8_to_wstring(enemy.name) + L" terlalu takut untuk bergerak!");
-                    } else { // Musuh berhasil mengatasi Fear giliran ini
+                    } else { 
                         if (rand() % 100 < enemyHitChance) {
                             int actualDamageToPlayer = baseDamageToPlayer;
-                            if (choice == 4) { actualDamageToPlayer /= 2; } // Pemain bertahan
-                            // PENERAPAN SHIELD PEMAIN & RETALIATE
+                            if (choice == 4) { actualDamageToPlayer /= 2; } 
+                            
                             if (playerIsPhysicallyImmune) {
                                  battleLogMessages.push_back(L"  🛡️ Serangan fisik " + utf8_to_wstring(enemy.name) + L" tidak berpengaruh (Immune)!");
                                  actualDamageToPlayer = 0;
@@ -3763,7 +3762,7 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                             }
                             if (actualDamageToPlayer > 0) { player.hp -= actualDamageToPlayer; }
                             battleLogMessages.push_back(L"➤ " + utf8_to_wstring(enemy.name) + L" menyerangmu! Damage diterima: " + to_wstring(actualDamageToPlayer));
-                            if (playerRetaliateDamage > 0 && !playerIsPhysicallyImmune && baseDamageToPlayer > 0 ) { // Retaliate jika damage asli ada (sebelum shield)
+                            if (playerRetaliateDamage > 0 && !playerIsPhysicallyImmune && baseDamageToPlayer > 0 ) { 
                                 enemy.hp -= playerRetaliateDamage;
                                 battleLogMessages.push_back(L"  ⚔️ " + utf8_to_wstring(enemy.name) + L" terkena damage balasan " + to_wstring(playerRetaliateDamage) + L"!");
                                 if (enemy.hp <= 0) { enemy.hp = 0; }
@@ -3772,9 +3771,9 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                     }
                 } else if (enemy.isSilenced && enemy.silenceDuration > 0) {
                     battleLogMessages.push_back(L"➤ " + utf8_to_wstring(enemy.name) + L" terbungkam!");
-                    // Jika musuh punya AI untuk sihir, di sini dia akan gagal. Karena tidak, dia tetap serang fisik.
+                    
                     if (rand() % 100 < enemyHitChance) { /* ... serangan fisik musuh dengan shield check & retaliate ... */ } else { /* ... meleset ... */ }
-                } else { // Musuh menyerang normal
+                } else { 
                     if (rand() % 100 < enemyHitChance) {
                         int actualDamageToPlayer = baseDamageToPlayer;
                         if (choice == 4) { actualDamageToPlayer /= 2; }
@@ -3789,19 +3788,19 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
         }
         if (player.hp <= 0) { player.hp = 0; }
 
-        // --- PROSES AKHIR GILIRAN ---
+        
         if (player.hp > 0 && (choice >=1 && choice <=5 && choice !=3) ) {
-             processEndOfPlayerTurn(player, battleLogMessages); // Proses buff/HoT pemain
+             processEndOfPlayerTurn(player, battleLogMessages); 
         }
-        // Proses durasi debuff musuh
+        
         if (enemy.attackDebuffDuration > 0) { enemy.attackDebuffDuration--; if (enemy.attackDebuffDuration == 0) { enemy.attackDebuffValue = 0; battleLogMessages.push_back(utf8_to_wstring(enemy.name) + L" serangannya normal kembali."); }}
         if (enemy.accuracyDebuffDuration > 0) { enemy.accuracyDebuffDuration--; if (enemy.accuracyDebuffDuration == 0) { enemy.accuracyDebuffValue = 0; battleLogMessages.push_back(utf8_to_wstring(enemy.name) + L" pandangannya normal kembali."); }}
         if (enemy.physicalDefenseDebuffDuration > 0) { enemy.physicalDefenseDebuffDuration--; if (enemy.physicalDefenseDebuffDuration == 0) { enemy.physicalDefenseDebuffValue = 0; battleLogMessages.push_back(utf8_to_wstring(enemy.name) + L" pertahanan fisiknya normal kembali."); }}
         if (enemy.magicDefenseDebuffDuration > 0) { enemy.magicDefenseDebuffDuration--; if (enemy.magicDefenseDebuffDuration == 0) { enemy.magicDefenseDebuffValue = 0; battleLogMessages.push_back(utf8_to_wstring(enemy.name) + L" pertahanan sihirnya normal kembali."); }}
         if (enemy.fearDuration > 0) { enemy.fearDuration--; if (enemy.fearDuration == 0) { enemy.isFeared = false; battleLogMessages.push_back(utf8_to_wstring(enemy.name) + L" tidak lagi ketakutan."); }}
         if (enemy.silenceDuration > 0) { enemy.silenceDuration--; if (enemy.silenceDuration == 0) { enemy.isSilenced = false; battleLogMessages.push_back(utf8_to_wstring(enemy.name) + L" tidak lagi terbungkam."); }}
-        // Rune tidak berkurang durasinya di sini, tapi di awal giliran atau saat trigger lain.
-        // --- AKHIR PROSES AKHIR GILIRAN ---
+        
+        
 
         if (player.hp <= 0 || enemy.hp <= 0) { /* Loop akan berhenti */ }
         else {
@@ -3810,26 +3809,26 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
             cin.ignore();
             cin.get();
         }
-    } // Akhir battle loop
+    } 
 
-    // --- HASIL PERTARUNGAN ---
-    if (player.hp <= 0 && !playerRevivedThisBattle) { // Hanya proses revive jika belum revive di pertarungan ini
+    
+    if (player.hp <= 0 && !playerRevivedThisBattle) { 
         for (auto it = player.activeEnchantments.begin(); it != player.activeEnchantments.end(); ) {
             if (it->hasRevive) {
-                player.hp = player.maxHp / 2; // Revive dengan 50% HP
+                player.hp = player.maxHp / 2; 
                 battleLogMessages.push_back(L"✨ Dengan kekuatan " + utf8_to_wstring(it->spellName) + L", kamu bangkit kembali!");
-                playerRevivedThisBattle = true; // Tandai sudah revive
-                it = player.activeEnchantments.erase(it); // Hapus buff revive setelah digunakan
-                // Tidak perlu ++it karena erase mengembalikan iterator ke elemen berikutnya
-                // Jika ingin tetap di loop (meskipun ini di akhir battle): continue; atau break; dari loop ini
-                break; // Hanya satu efek revive yang aktif per kematian
+                playerRevivedThisBattle = true; 
+                it = player.activeEnchantments.erase(it); 
+                
+                
+                break; 
             } else {
                 ++it;
             }
         }
     }
 
-    drawBattleScreen(enemy, player, battleLogMessages); // Tampilkan kondisi final
+    drawBattleScreen(enemy, player, battleLogMessages); 
     if (player.hp <= 0) {
             system("cls");
             printLine(); 
@@ -3851,28 +3850,28 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
             handleExperienceAndLevelUp(player, enemy.expReward);
             ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
             ActiveDailyQuestNode* prevQuestNode = nullptr;
-            int expFromCompletedQuests = 0; // Akumulasi EXP dari quest yang selesai di battle ini
+            int expFromCompletedQuests = 0; 
 
             while (currentQuestNode != nullptr) {
-                DailyQuest& quest = currentQuestNode->data; // Referensi ke data quest
+                DailyQuest& quest = currentQuestNode->data; 
                 bool wasThisQuestCompleted = false;
 
                 if (!quest.completed && quest.taken && quest.type == "kill" && enemy.name == quest.target) {
-                    bool dungeonRequirementMet = true; // Asumsi terpenuhi jika quest tidak spesifik dungeon
+                    bool dungeonRequirementMet = true; 
 
-                    if (!quest.dungeonName.empty()) { // Jika quest kill ini spesifik untuk dungeon tertentu
+                    if (!quest.dungeonName.empty()) { 
                         if (quest.dungeonName != currentDungeonName) {
                             dungeonRequirementMet = false;
                         }
-                        // Jika Anda ingin quest kill juga spesifik lantai, tambahkan pengecekan di sini:
-                        // if (quest.dungeonFloor > 0 && quest.dungeonFloor != /* variabel_lantai_saat_ini_di_battle */ ) {
-                        //     dungeonRequirementMet = false;
-                        // }
-                        // Untuk saat ini, kita hanya cek nama dungeon.
+                        
+                        
+                        
+                        
+                        
                     }
 
                     if (dungeonRequirementMet) {
-                        quest.completed = true; // Tandai selesai pada data di node
+                        quest.completed = true; 
                         expFromCompletedQuests += quest.expReward;
                         player.gold += quest.goldReward;
                         delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
@@ -3884,18 +3883,18 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
                     ActiveDailyQuestNode* nodeToDelete = nullptr;
                     if (wasThisQuestCompleted) {
                         nodeToDelete = currentQuestNode;
-                        if (prevQuestNode == nullptr) { // Menghapus head
+                        if (prevQuestNode == nullptr) { 
                             activeDailyQuestsHead = currentQuestNode->next;
-                            currentQuestNode = activeDailyQuestsHead; // Lanjutkan dari head baru
-                            // prevQuestNode tetap nullptr
-                        } else { // Menghapus node di tengah atau akhir
+                            currentQuestNode = activeDailyQuestsHead; 
+                            
+                        } else { 
                             prevQuestNode->next = currentQuestNode->next;
-                            currentQuestNode = prevQuestNode->next; // Lanjutkan dari node setelah yang dihapus
-                            // prevQuestNode tetap
+                            currentQuestNode = prevQuestNode->next; 
+                            
                         }
-                        delete nodeToDelete; // Hapus node
+                        delete nodeToDelete; 
                     } else {
-                        // Hanya pindah jika tidak ada node yang dihapus di iterasi ini
+                        
                         prevQuestNode = currentQuestNode;
                         currentQuestNode = currentQuestNode->next;
                     }
@@ -3908,17 +3907,17 @@ bool startBattle(Enemy& baseEnemy, const string& currentDungeonName = "") {
         }
     }
     cin.clear();
-    // Membersihkan sisa buffer input dengan lebih aman
-    if (cin.rdbuf()->in_avail() > 0) { // Cek jika ada sisa di buffer
+    
+    if (cin.rdbuf()->in_avail() > 0) { 
          cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    } else if (cin.peek() == '\n' && cin.peek() != EOF) { // Jika hanya newline
+    } else if (cin.peek() == '\n' && cin.peek() != EOF) { 
          cin.ignore();
     }
     return (player.hp > 0);
 }
 
 
-// Diary System Functions
+
 void showInventoryCategory() {
     system("cls");
     printLine();
@@ -4014,7 +4013,7 @@ void showWeaponDetail(Weapon* weapon) {
 }
 
 void applySocialLinkBonus(const string& npcName) {
-    // implementasi logika di sini
+    
 }
 
 void showCompanionListScreen() {
@@ -4028,7 +4027,7 @@ void showCompanionListScreen() {
     } else {
         wcout << L"    Pilih rekanan untuk melihat detail:" << endl;
         for (size_t i = 0; i < companions.size(); ++i) {
-            const Companion& comp = companions[i]; // Gunakan const reference
+            const Companion& comp = companions[i]; 
             wcout << L"    ❖ " << (i + 1) << L". " << utf8_to_wstring(comp.name);
             if (comp.met) {
                 int currentSocialLevel = 0;
@@ -4050,9 +4049,9 @@ void showCompanionListScreen() {
 
 
 
-void showCompanionDetailScreen(const Companion& companion) { // Terima const reference
-    // bool inDetailView = true; // Tidak perlu loop jika hanya menampilkan info
-    // while (inDetailView) { // Loop dihilangkan
+void showCompanionDetailScreen(const Companion& companion) { 
+    
+    
         system("cls");
         printLine();
         centerText(L"✦✦✦ DETAIL REKANAN - " + utf8_to_wstring(companion.name) + L" ✦✦✦");
@@ -4060,15 +4059,15 @@ void showCompanionDetailScreen(const Companion& companion) { // Terima const ref
 
         if (companion.met) {
             int currentSocialLevel = 0;
-            bool isMaxLevel = false; // Tambahkan flag untuk level maksimal
+            bool isMaxLevel = false; 
 
             if (socialLinks.count(companion.name)) {
                 currentSocialLevel = socialLinks[companion.name].currentLevel;
-                if (socialLinks[companion.name].completed) { // Cek apakah sudah completed (level 10)
+                if (socialLinks[companion.name].completed) { 
                     isMaxLevel = true;
-                    // Jika sudah completed, currentLevel di struct SocialLink mungkin > 10
-                    // atau tetap 10 tergantung implementasi Anda setelah scene level 10.
-                    // Untuk tampilan, kita anggap level MAX adalah 10.
+                    
+                    
+                    
                     currentSocialLevel = 10;
                 }
             } else {
@@ -4078,7 +4077,7 @@ void showCompanionDetailScreen(const Companion& companion) { // Terima const ref
             wcout << L" Nama         : " << utf8_to_wstring(companion.name) << endl;
             wcout << L" Kepribadian  : " << utf8_to_wstring(companion.personality) << endl;
             wcout << L" Loyalitas    : " << companionRelations[companion.name] << L"/100" << endl;
-            wcout << L" Level Hub.   : " << currentSocialLevel << (isMaxLevel ? L" (MAX)" : L"") << endl; // Tampilkan (MAX) jika sudah
+            wcout << L" Level Hub.   : " << currentSocialLevel << (isMaxLevel ? L" (MAX)" : L"") << endl; 
             wcout << endl;
             wcout << L" Deskripsi Awal:" << endl;
             wcout << L"   " << utf8_to_wstring(companion.description) << endl;
@@ -4095,15 +4094,15 @@ void showCompanionDetailScreen(const Companion& companion) { // Terima const ref
             wcout << endl;
 
             wcout << L" Informasi & Sifat Terungkap (Seiring Hubungan):" << endl;
-            bool infoRevealedThisSession = false; // Ganti nama variabel agar lebih jelas
-            // Pastikan currentSocialLevel yang digunakan untuk loop adalah level yang valid untuk diakses di map
+            bool infoRevealedThisSession = false; 
+            
             int displayUpToLevel = currentSocialLevel;
-            if (isMaxLevel) { // Jika sudah max, tampilkan info sampai level 10
+            if (isMaxLevel) { 
                 displayUpToLevel = 10;
             }
 
 
-            for (int i = 1; i <= displayUpToLevel; ++i) { // Iterasi hingga level sosial saat ini (atau 10 jika MAX)
+            for (int i = 1; i <= displayUpToLevel; ++i) { 
                 bool levelInfoDisplayed = false;
                 wstring tempLevelInfo = L"";
 
@@ -4113,7 +4112,7 @@ void showCompanionDetailScreen(const Companion& companion) { // Terima const ref
                     infoRevealedThisSession = true;
                 }
                 if (companion.traitsRevealedPerLevel.count(i)) {
-                    if (!levelInfoDisplayed) { // Jika info detail belum ada, tambahkan header level
+                    if (!levelInfoDisplayed) { 
                         tempLevelInfo += L"\n   ✧ Level " + to_wstring(i) + L":";
                         levelInfoDisplayed = true;
                     }
@@ -4127,43 +4126,43 @@ void showCompanionDetailScreen(const Companion& companion) { // Terima const ref
                 }
             }
 
-            if (!infoRevealedThisSession && currentSocialLevel > 0) { // Jika ada level sosial tapi tidak ada info spesifik
+            if (!infoRevealedThisSession && currentSocialLevel > 0) { 
                  wcout << L"   Belum ada informasi detail tambahan yang terungkap pada level hubungan ini." << endl;
-            } else if (currentSocialLevel == 0 && companion.met) { // Sudah bertemu tapi belum ada progres sosial link
+            } else if (currentSocialLevel == 0 && companion.met) { 
                  wcout << L"   Mulailah berinteraksi untuk mengenal mereka lebih dalam!" << endl;
             } else if (!infoRevealedThisSession && currentSocialLevel == 0 && !companion.met) {
-                 // Ini seharusnya tidak terjadi jika companion.met = false, karena akan masuk ke blok else di bawah
+                 
             }
 
 
             printLine(70, L'─');
-            // Opsi interaktif dihilangkan
-            // wcout << L"    ❖ 1. Beri Hadiah (Belum Implementasi)" << endl;
-            // wcout << L"    ❖ 2. Ajak Bicara (Lihat Lokasi NPC untuk memulai/lanjutkan Social Link)" << endl;
-            wcout << L"    Tekan Enter untuk kembali ke Daftar Rekanan." << endl; // Hanya opsi kembali
+            
+            
+            
+            wcout << L"    Tekan Enter untuk kembali ke Daftar Rekanan." << endl; 
         } else {
             wcout << L" Nama         : ???" << endl;
             wcout << L" Status       : Belum Dikenal" << endl;
             wcout << L" Informasi    : Anda belum bertemu dengan individu ini." << endl;
             printLine(70, L'─');
-            wcout << L"    Tekan Enter untuk kembali ke Daftar Rekanan." << endl; // Hanya opsi kembali
+            wcout << L"    Tekan Enter untuk kembali ke Daftar Rekanan." << endl; 
         }
         printLine(70, L'─');
-        // wcout << L"Pilihan Aksi ✦: "; // Input pilihan dihilangkan
+        
 
-        // Langsung menunggu Enter untuk kembali
-        cin.clear(); // Bersihkan flag error jika ada
-        // Membersihkan buffer input dengan lebih aman
-        if (cin.rdbuf()->in_avail() > 0) { // Cek jika ada sisa di buffer
+        
+        cin.clear(); 
+        
+        if (cin.rdbuf()->in_avail() > 0) { 
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
-        } else if (cin.peek() == '\n' && cin.peek() != EOF) { // Jika hanya newline
-            cin.ignore(); // Ambil newline tunggal
+        } else if (cin.peek() == '\n' && cin.peek() != EOF) { 
+            cin.ignore(); 
         }
-        // Jika tidak ada apa-apa di buffer, cin.get() berikutnya akan menunggu input baru
-        cin.get(); // Menunggu Enter
+        
+        cin.get(); 
 
-        // inDetailView = false; // Tidak perlu lagi karena loop dihilangkan
-    // } // Akhir dari loop while yang dihilangkan
+        
+    
 }
 
 void enterDungeon(string dungeonName) {
@@ -4178,12 +4177,12 @@ void enterDungeon(string dungeonName) {
         cin >> startChoice;
 
         if (startChoice == 2) {
-            dungeon.currentFloor = dungeon.visitedCampAreas.back();  // Lanjut dari camp
+            dungeon.currentFloor = dungeon.visitedCampAreas.back();  
         } else {
-            dungeon.currentFloor = 1;  // ⬅️ Mulai dari lantai 1
+            dungeon.currentFloor = 1;  
         }
     } else {
-        dungeon.currentFloor = 1; // Pertama kali masuk, otomatis lantai 1
+        dungeon.currentFloor = 1; 
     }
 
 
@@ -4200,7 +4199,7 @@ void enterDungeon(string dungeonName) {
         }
         printLine();
 
-        // Story lock check
+        
         if (find(dungeon.storyLockedFloors.begin(), dungeon.storyLockedFloors.end(), dungeon.currentFloor) != dungeon.storyLockedFloors.end()) {
             centerText(L"❌ Ada tembok tinggi yang menghalangi jalan selanjutnya ");
             centerText(L"        Mungkin progress cerita akan membukanya!         ");
@@ -4209,7 +4208,7 @@ void enterDungeon(string dungeonName) {
             return;
         }
 
-        // Cek Camp Area
+        
         if (dungeon.campAreas.count(dungeon.currentFloor)) {
             CampArea& camp = dungeon.campAreas[dungeon.currentFloor];
             camp.visited = true;
@@ -4251,7 +4250,7 @@ void enterDungeon(string dungeonName) {
                         bool wasThisQuestCompleted = false;
 
                         if (quest.type == "travel" && quest.taken && !quest.completed &&
-                            !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && // dungeon.name adalah Dungeon& yang di-pass
+                            !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && 
                             quest.dungeonFloor > 0 && quest.dungeonFloor == dungeon.currentFloor) {
                             
                             quest.completed = true;
@@ -4280,11 +4279,11 @@ void enterDungeon(string dungeonName) {
                     }
 
                     if (expFromCompletedQuests > 0) {
-                        // Kita mungkin ingin memanggil handleExperienceAndLevelUp di sini,
-                        // atau menundanya sampai keluar dungeon/camp area untuk akumulasi.
-                        // Untuk saat ini, kita langsung panggil.
+                        
+                        
+                        
                         handleExperienceAndLevelUp(player, expFromCompletedQuests);
-                        // waitForEnter(); // Mungkin perlu jika ada pesan level up.
+                        
                     }
                     break; }
                 case 3: {
@@ -4298,7 +4297,7 @@ void enterDungeon(string dungeonName) {
                         bool wasThisQuestCompleted = false;
 
                         if (quest.type == "travel" && quest.taken && !quest.completed &&
-                            !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && // dungeon.name adalah Dungeon& yang di-pass
+                            !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && 
                             quest.dungeonFloor > 0 && quest.dungeonFloor == dungeon.currentFloor) {
                             
                             quest.completed = true;
@@ -4518,7 +4517,7 @@ void showDiaryMenu() {
         
         switch(choice) {
             case 1: {
-                // Status Karakter
+                
                 system("cls");
                 printLine();
                 centerText(L"✦✦✦ STATUS KARAKTER ✦✦✦");
@@ -4539,14 +4538,14 @@ void showDiaryMenu() {
                 break;
             }
             case 2: {
-                // Inventory System
+                
                 int invChoice;
                 do {
                     showInventoryCategory();
                     cin >> invChoice;
                     
                     if(invChoice == 1) {
-                        // Item List
+                        
                         int itemChoice;
                         do {
                             showItemList();
@@ -4561,14 +4560,14 @@ void showDiaryMenu() {
                                     
                                     if (detailChoice == 1 && selectedItem->type == "consumable") {
                                     applyItemEffect(selectedItem->name);
-                                    detailChoice = 2; // kembali ke daftar item
-                                    itemChoice = 0;   // refresh ulang
+                                    detailChoice = 2; 
+                                    itemChoice = 0;   
                                 }
                                 } while(detailChoice != 2);
                             }
                         } while(itemChoice != 0);
                     } else if(invChoice == 2) {
-                        // Weapon List
+                        
                         int weaponChoice;
                         do {
                             showWeaponList();
@@ -4583,10 +4582,10 @@ void showDiaryMenu() {
                                     
                                     if(detailChoice == 1) {
                                         if(!selectedWeapon->equipped) {
-                                            // Check requirements
+                                            
                                             if(player.strength >= selectedWeapon->strengthRequired && 
                                                player.intelligence >= selectedWeapon->intelligenceRequired) {
-                                                // Unequip current weapon if any
+                                                
                                                 if(player.equippedWeapon) {
                                                     player.equippedWeapon->equipped = false;
                                                 }
@@ -4621,27 +4620,27 @@ void showDiaryMenu() {
             case 5: {
                 int compChoice;
                 do {
-                    showCompanionListScreen(); // Menggunakan nama fungsi yang sudah kita update
+                    showCompanionListScreen(); 
                     cin >> compChoice;
 
-                    // Membersihkan buffer dan validasi input
+                    
                     if (cin.fail()) {
                         cin.clear();
                         cin.ignore(numeric_limits<streamsize>::max(), '\n');
                         delayPrint(L"Pilihan tidak valid. Coba lagi.", 20);
-                        system("pause"); // Beri waktu pemain untuk membaca pesan
-                        compChoice = -1; // Set agar loop berlanjut
+                        system("pause"); 
+                        compChoice = -1; 
                         continue;
                     }
-                    // Membersihkan sisa newline jika input valid
+                    
                     cin.ignore(numeric_limits<streamsize>::max(), '\n');
 
 
                     if (compChoice > 0 && compChoice <= static_cast<int>(companions.size())) {
-                        // Tidak perlu loop 'do-while' untuk detailChoice lagi
-                        // karena showCompanionDetailScreen sekarang kembali setelah Enter.
+                        
+                        
                         showCompanionDetailScreen(companions[compChoice - 1]);
-                        // system("pause"); // Mungkin tidak perlu pause di sini, karena showCompanionDetailScreen sudah menunggu Enter
+                        
                     } else if (compChoice != 0) {
                         delayPrint(L"Nomor pilihan tidak ada dalam daftar.", 20);
                         system("pause");
@@ -4650,7 +4649,7 @@ void showDiaryMenu() {
                 break;
             }
             case 6: {
-                // Calendar
+                
                 int calChoice;
                 do {
                     showCalendar();
@@ -4911,7 +4910,7 @@ void sceneRuigerdLevel10() {
     delayPrint(L"Ruigerd: \"Suatu kehormatan terbesar bagi saya, Tuan Muda. Suatu kehormatan terbesar.\"", 30);
     delayPrint(L"Di tengah aroma masakan yang memikat dan kehangatan persahabatan yang tulus, kamu merasa ikatanmu dengan Ruigerd telah mencapai puncaknya. Sebuah hubungan yang ditempa oleh waktu, rasa hormat, dan kasih sayang yang tulus, layaknya hidangan terbaik yang membutuhkan kesabaran dan cinta untuk tercipta.", 30);
 
-    // applySocialLinkBonus("Ruigerd"); // Misal: "Ruigerd's Culinary Legacy" (Passive buff: Significant boost to HP/Max HP, or ability to cook special restorative items once per day, or unlock a secret powerful recipe item).
+    
 
     printLine();
     waitForEnter();
@@ -5156,7 +5155,7 @@ void sceneIreneLevel10() {
     delayPrint(L"Irene: \"Selalu, Tuan Muda Weiss. Selalu.\"", 30);
     delayPrint(L"Di bawah langit taman yang menjadi saksi bisu perjalanan persahabatan mereka, sebuah ikatan yang tak terukur nilainya, lebih berharga dari semua harta dunia, telah terjalin abadi. Jam saku itu bukan sekadar penunjuk waktu, melainkan simbol harapan, perubahan, kesetiaan, dan cinta persaudaraan yang akan selalu mereka kenang dan pegang teguh.", 30);
 
-    // applySocialLinkBonus("Irene"); // Misal: "Irene's Everlasting Loyalty" (Passive buff: Significant boost to all stats, or a unique accessory "Lili's Timeless Grace" that grants a powerful once-per-battle protective ability or a significant heal)
+    
 
     printLine();
     waitForEnter();
@@ -5405,7 +5404,7 @@ void sceneEllaLevel10() {
     delayPrint(L"Ella: \"Dengan senang hati, partner.\" (Mengedipkan sebelah mata)", 30);
     delayPrint(L"Di ruangan pribadi itu, sebuah aliansi yang kuat dan tulus telah termeterai. Bukan lagi antara Tuan Muda Astra dan Guild Master, tapi antara Weiss dan Ella, dua individu yang berbagi visi dan siap berjuang bersama untuk masa depan Arcadia yang lebih baik.", 30);
 
-    // applySocialLinkBonus("Ella"); // Misal: "Ella's Guild Pact" (Passive buff: Discounts for guild services, access to higher-ranked quests earlier, or a unique guild-issued gear/item, or ability to call for guild support in certain situations).
+    
 
     printLine();
     waitForEnter();
@@ -5678,7 +5677,7 @@ void sceneCharlotteLevel10() {
     delayPrint(L"Weiss: (Tersenyum lebar) \"Saya tidak akan menolak tawaran itu, Charlotte! Ayo!\"", 30);
     delayPrint(L"Di tengah keriuhan kota yang merayakan terungkapnya skandal besar, Weiss dan Charlotte berjalan berdampingan, bukan lagi hanya sebagai bangsawan dan wartawan, tapi sebagai dua sahabat, dua sekutu, yang telah membuktikan bahwa bersama, mereka bisa membawa perubahan. Pena dan pengaruh, ketika digabungkan dengan niat baik, memang bisa menjadi kekuatan yang luar biasa.", 30);
 
-    // applySocialLinkBonus("Charlotte"); // Misal: "Charlotte's Press Pass" (Passive: Easier to get information from NPCs, certain dialogue options open up, access to exclusive news that might become quests, or a special "expose" ability in certain social/political conflicts).
+    
 
     printLine();
     waitForEnter();
@@ -5939,7 +5938,7 @@ void sceneMarsLevel10() {
     delayPrint(L"Mars: \"Ayo! Tapi setelah kita menikmati secangkir kopi panas dan sarapan sederhana di pos. Perut juga butuh dijaga, bukan?\"", 30);
     delayPrint(L"Di puncak bukit itu, dengan Hutan Merah terbentang di bawah mereka sebagai saksi, sebuah persahabatan yang kokoh dan penuh makna telah mencapai puncaknya. Weiss dan Mars, dua jiwa dari dunia yang berbeda, kini bersatu dalam semangat dan dedikasi untuk menjaga alam dan memperjuangkan kebaikan.", 30);
 
-    // applySocialLinkBonus("Mars"); // Misal: "Mars's Forest Warden Pact" (Passive: Easier travel/less encounters in Hutan Merah, ability to gather rare herbs/materials, unlock special survival skills, or a powerful nature-themed accessory/weapon).
+    
 
     printLine();
     waitForEnter();
@@ -6212,7 +6211,7 @@ void sceneKinichLevel10() {
     delayPrint(L"Weiss: (Tersenyum, memandang sekeliling dengan takjub) \"Kau benar, Kinich. Sangat benar.\"", 30);
     delayPrint(L"Di tengah keindahan magis 'Jantung Goa', sebuah ikatan persaudaraan yang ditempa oleh bahaya, kepercayaan, dan rasa hormat timbal balik telah mencapai puncaknya. Weiss dan Kinich, dua pria dari dunia yang sangat berbeda, kini bersatu sebagai penjaga dan sahabat Goa Avernix, siap menghadapi masa depan bersama.", 30);
 
-    // applySocialLinkBonus("Kinich"); // Misal: "Kinich's Miner's Pact" (Passive: Increased chance to find rare ores/gems in Goa Avernix, better prices for selling minerals, access to Kinich's network for certain underground info, or a unique mining tool/charm that provides protection or luck in caves).
+    
 
     printLine();
     waitForEnter();
@@ -6472,7 +6471,7 @@ void sceneMashaLevel10() {
     delayPrint(L"Weiss: (Menjabat tangan Masha dengan erat) \"Bersama.\"", 30);
     delayPrint(L"Di tengah kemeriahan festival, di antara keindahan bunga-bunga yang mekar, sebuah persahabatan yang unik dan kuat telah mencapai puncaknya. Weiss dan Masha, dua jiwa bangsawan yang menemukan koneksi tak terduga, kini siap melangkah maju, saling mendukung, dan mungkin, bersama-sama membawa perubahan positif bagi dunia mereka.", 30);
 
-    // applySocialLinkBonus("Masha"); // Misal: "Masha's Aurora Pact" (Passive: Increased influence/reputation among other noble families, access to rare botanical ingredients for crafting, a special Aurora family heirloom/accessory that grants a unique buff, or ability to get Masha's insight on political matters).
+    
 
     printLine();
     waitForEnter();
@@ -6502,14 +6501,14 @@ void interactWithNPC(const string& npcName) {
     SocialLink& link = socialLinks[npcName];
     int level = link.currentLevel;
 
-    // Periksa apakah level ini terkunci
+    
     const auto& lockedLevels = socialLinkStories[npcName].lockedLevels;
     if (lockedLevels.count(level) > 0) {
         wcout << L"Level ini terkunci. Selesaikan event tertentu untuk membukanya.\n";
         return;
     }
 
-    // Jalankan scene per NPC dan level
+    
     if (npcName == "Ruigerd") {
         if (level == 1) sceneRuigerdLevel1();
         else if (level == 2) sceneRuigerdLevel2();
@@ -6592,12 +6591,12 @@ void interactWithNPC(const string& npcName) {
         return;
     }
 
-    // Naikkan level jika belum maksimal
+    
     if (link.currentLevel < 10) {
         link.currentLevel++;
     }
 
-    // Bonus saat level 10
+    
     if (link.currentLevel == 10 && !link.completed) {
         applySocialLinkBonus(npcName);
         link.completed = true;
@@ -6606,7 +6605,7 @@ void interactWithNPC(const string& npcName) {
 
 
 
-// Main Game Loop
+
 void showGameMenu() {
     int choice;
     do {
@@ -6626,7 +6625,7 @@ void showGameMenu() {
         wcout << L"Pilih aksi ✦: ";
         
         cin >> choice;
-        cin.ignore(); // Penting untuk menghindari masalah newline saat pakai cin.get()
+        cin.ignore(); 
 
         if (choice > 0 && choice <= actions.size()) {
             string action = actions[choice - 1];
@@ -6689,17 +6688,17 @@ void exploreArea() {
     wcout << L"Kamu melihat-lihat sekitar " << currentSubArea.c_str() << L" di " << currentWorld.c_str() << L"..." << endl;
 
     
-    // Random encounter atau item discovery
+    
     int randomEvent = rand() % 3;
     
     switch(randomEvent) {
         case 0:
             wcout << L"Kamu menemukan sebuah item tersembunyi!" << endl;
             if(rand() % 2 == 0) {
-                player.inventory.push_back(&allItems[0]); // Health Potion
+                player.inventory.push_back(&allItems[0]); 
                 wcout << L"Health Potion ditambahkan ke inventory!" << endl;
             } else {
-                player.inventory.push_back(&allItems[1]); // Mana Potion
+                player.inventory.push_back(&allItems[1]); 
                 wcout << L"Mana Potion ditambahkan ke inventory!" << endl;
             }
             break;
@@ -6801,7 +6800,7 @@ if (expFromCompletedQuests > 0) {
     handleExperienceAndLevelUp(player, expFromCompletedQuests);
 }
     } else if (choice == backOption) {
-        return; // kembali ke showLocationMenu
+        return; 
     } else {
         wcout << L"Pilihan tidak valid." << endl;
         waitForEnter();
@@ -6900,9 +6899,9 @@ if (expFromCompletedQuests > 0) {
         }
         waitForEnter();
     } else if (choice == worldMapOption) {
-        showWorldMapLocationMenu(); // ke menu world map
+        showWorldMapLocationMenu(); 
     } else if (choice == backOption) {
-        return; // kembali ke showGameMenu atau menu sebelumnya
+        return; 
     } else {
         wcout << L"Pilihan tidak valid." << endl;
         waitForEnter();
