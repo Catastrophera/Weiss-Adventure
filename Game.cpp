@@ -395,6 +395,11 @@ void initializeAllQuests();
 void generateDailyQuests();
 void loadEnemyASCIIFromFile(const string& filename);
 void applySocialLinkBonus(const string& npcName);
+void advanceToNextDay();
+void checkStoryTriggers();
+void temporarilyGrantAllMagicToPlayer(Character& playerChar, bool grant);
+void setupBuffedAllainForDuel(Enemy& allainDuelTarget);
+
 
 wstring utf8_to_wstring(const string& str_utf8) {
     
@@ -438,10 +443,10 @@ const MagicSpell* getSpellDetails(const string& spellId) {
 
 
 string getQuestRankLetter() {
-    if (storyFlags["true_ending_unlocked"] > 0) return "SS";
-    if (storyFlags["final_duel"] > 0) return "S";
-    if (storyFlags["met_protagonist"] > 0) return "A";
-    if (storyFlags["plot_derailed"] > 0) return "B";
+    if (storyFlags["pedang_pahlawan"] > 0) return "SS";
+    if (storyFlags["invasi_arcadia"] > 0) return "S";
+    if (storyFlags["invasi_mansion"] > 0) return "A";
+    if (storyFlags["duel_persahabatan"] > 0) return "B";
     return "C";
 }
 
@@ -469,11 +474,15 @@ void centerText(const wstring& text, int width) {
     wcout << text << endl;
 }
 
-void waitForEnter() {
-    wcout << L"Tekan Enter untuk melanjutkan...";
+void waitForEnter(const wstring& message = L"Tekan Enter untuk melanjutkan...") {
+    wcout << message << flush; 
+
+    if (cin.fail()) {
+        cin.clear();
+    }
     cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    cin.get();
 }
+
 
 
 wstring padRight(const wstring& text, int width) {
@@ -501,6 +510,25 @@ wstring formatDungeonFloor(const Dungeon& dungeon, int floor) {
         return to_wstring(floor);
     }
 }
+
+int getValidatedChoice(int minOption, int maxOption) {
+    int choice;
+    while (true) {
+        if (cin >> choice) {
+            if (choice >= minOption && choice <= maxOption) {
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                return choice;
+            } else {
+                wcout << L"❌ Pilihan harus antara " << minOption << L" dan " << maxOption << L".\n";
+            }
+        } else {
+            wcout << L"❌ Input tidak valid. Harap masukkan angka.\n";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+    }
+}
+
 
 void dfsTravel(string current, string target, unordered_set<string>& visited, vector<string>& path) {
     visited.insert(current);
@@ -614,7 +642,8 @@ void chooseInitialMagicElements(Character& character) {
     bool validChoice = false;
     while(!validChoice) {
         wcout << L"Pilihanmu (1-" << availableElementsDisplay.size() << L") ✦: ";
-        cin >> choice;
+        choice = getValidatedChoice(1, 6); 
+
         if (cin.fail() || choice < 1 || choice > availableElementsDisplay.size()) {
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
@@ -633,7 +662,6 @@ void chooseInitialMagicElements(Character& character) {
     wcout << endl;
 
     printLine();
-    cin.ignore();
 }
 
 
@@ -692,14 +720,40 @@ void showTutorial() {
     wcout << endl;
     
     printLine();
-    wcout << L"Siap memulai petualangan? Tekan Enter...";
-    cin.get();
+    waitForEnter(L"Siap memulai petualangan? Tekan Enter...");
 }
 
 
 long long calculateExpToNextLevel(int currentLevel) {
     if (currentLevel <= 0) return static_cast<long long>(BASE_XP); 
     return static_cast<long long>(floor(BASE_XP * pow(static_cast<double>(currentLevel), XP_EXPONENT)));
+}
+
+void advanceToNextDay() {
+    currentDay++;
+    currentActionsRemaining = maxActionsPerDay; 
+    talkedToday.clear(); 
+
+    ActiveDailyQuestNode* currentListNode = activeDailyQuestsHead;
+    while (currentListNode != nullptr) {
+        ActiveDailyQuestNode* nextNode = currentListNode->next;
+        delete currentListNode;
+        currentListNode = nextNode;
+    }
+    activeDailyQuestsHead = nullptr;
+
+    generateDailyQuests(); 
+
+    system("cls"); 
+    printLine();
+    centerText(L"🌅 HARI BARU TELAH TIBA 🌅");
+    printLine();
+    delayPrint(L"Matahari pagi menyinari Arcadia, memulai lembaran baru petualanganmu.", 30);
+    centerText(L"✦ Sekarang Hari ke-" + to_wstring(currentDay) + L" ✦");
+    printLine();
+
+    checkStoryTriggers(); 
+    waitForEnter(L"Tekan Enter untuk memulai hari...");
 }
 
 void checkEndOfDay() {
@@ -1208,7 +1262,15 @@ void initializeGame() {
         {"Stormbringer Replica", 75, 30, 10, "Pedang legendaris yang konon bisa memanggil petir.", false, 18000, "blacksmith_tier3_unlocked", 1},
 
         
-        {"Lumanaire MoonSword", 99, 70, 50, "Pedang sihir kuat, tidak umum dijual.", false, 20000, "specific_quest_completed", 1}
+        {"Lumanaire MoonSword", 99, 70, 50, "Pedang sihir kuat, hanya sang pahlawan yang bisa mendapatkannya.", false, 20000, "specific_quest_completed", 1},
+        {"Aurora's Thorned Blossom", 75, 15, 45, "Rapier elegan, bilahnya dingin menyimpan kehangatan tak terduga. Diberikan dengan tatapan yang jarang terlihat di Puncak Arcadia.", false, 0, "MASHA_LV10_COMPLETE", 1},
+        {"Heartstone Pickaxe", 88, 60, 5, "Beliung penambang kokoh, ditempa dari inti bijih Avernix. Sebuah simbol ketahanan dari penjaga goa yang tak banyak bicara.", false, 0, "KINICH_LV10_COMPLETE", 1},
+        {"Gardener's Gentle Thorn", 68, 10, 30, "Belati berukir lili, selembut tangan perawat taman namun setajam duri tersembunyi. Hadiah dari hati yang tulus di Mansion Astra.", false, 0, "IRENE_LV10_COMPLETE", 1},
+        {"Chef's Honor Cleaver", 92, 65, 10, "Golok dapur raksasa yang seimbang sempurna, warisan dari seorang master chef yang telah melihat generasi Astra tumbuh.", false, 0, "RUIGERD_LV10_COMPLETE", 1},
+        {"Guildmaster's Ledger Blade", 80, 40, 25, "Pedang panjang berhias lencana Cross Guild, tajam dan adil layaknya kontrak yang mengikat. Tanda kemitraan dari pemimpinnya.", false, 0, "ELLA_LV10_COMPLETE", 1},
+        {"Truthseeker's Quillpoint", 72, 12, 35, "Rapier ramping setajam ujung pena seorang jurnalis pemberani, dirancang untuk mengungkap kelemahan dan memperjuangkan kebenaran.", false, 0, "CHARLOTTE_LV10_COMPLETE", 1},
+        {"Warden's Silent Fang (Knife)", 85, 25, 10, "Pisau berburu senyap dari kayu Hutan Merah terliat, berukir jejak serigala. Tanda persaudaraan dari penjaga hutan yang setia.", false, 0, "MARS_LV10_COMPLETE", 1}
+        
     };
     
     
@@ -1231,228 +1293,228 @@ void initializeGame() {
     }
 
 
-Companion masha;
-masha.name = "Masha";
-masha.initialLoyalty = 10;
-masha.personality = "Putri Bangsawan Dingin";
-masha.description = "Seorang putri dari keluarga bangsawan Aurora yang dikenal sangat menjaga sikap dan perkataannya. Sering terlihat di Taman Norelia, Puncak Arcadia.";
-masha.coreAbilitiesOrTraits = {"Observatif Tajam", "Pemikir Kritis", "Pengetahuan Filsafat"};
-masha.met = false;
+    Companion masha;
+    masha.name = "Masha";
+    masha.initialLoyalty = 10;
+    masha.personality = "Putri Bangsawan Dingin";
+    masha.description = "Seorang putri dari keluarga bangsawan Aurora yang dikenal sangat menjaga sikap dan perkataannya. Sering terlihat di Taman Norelia, Puncak Arcadia.";
+    masha.coreAbilitiesOrTraits = {"Observatif Tajam", "Pemikir Kritis", "Pengetahuan Filsafat"};
+    masha.met = false;
 
-masha.detailedInfoPerLevel[1] = L"Pertemuan pertama terasa sangat formal dan dingin. Dia tampak tidak tertarik berbasa-basi dan lebih suka menyendiri.";
-masha.traitsRevealedPerLevel[1] = {L"Menjaga Jarak", L"Formal"};
-masha.detailedInfoPerLevel[2] = L"Meskipun masih dingin, dia menunjukkan sedikit ketertarikan pada topik intelektual (filsafat Xantus). Mungkin ada sisi lain di balik sikapnya.";
-masha.traitsRevealedPerLevel[2] = {L"Tertarik Filsafat (Tersembunyi)"};
-masha.detailedInfoPerLevel[3] = L"Mulai mau terlibat dalam diskusi filosofis yang lebih dalam. Mengungkapkan bahwa ia menghargai pemikiran yang mendalam ketimbang gosip bangsawan.";
-masha.traitsRevealedPerLevel[3] = {L"Intelektual", L"Menghargai Diskusi Serius"};
-masha.detailedInfoPerLevel[4] = L"Terungkap memiliki minat dan pengetahuan tersembunyi dalam herbologi, terutama pada tanaman langka seperti Edelweiss. Tampak sedikit defensif saat hobinya diketahui.";
-masha.traitsRevealedPerLevel[4] = {L"Ahli Herbologi (Amatir)", L"Menyukai Tanaman Langka"};
-masha.detailedInfoPerLevel[5] = L"Menunjukkan sisi rapuhnya terkait tekanan perjodohan dari keluarganya. Mulai sedikit terbuka tentang perasaannya sebagai 'aset' keluarga.";
-masha.traitsRevealedPerLevel[5] = {L"Merasa Tertekan Ekspektasi", L"Menentang Perjodohan (Dalam Hati)"};
-masha.detailedInfoPerLevel[6] = L"Terlihat antusias membahas proyek Anggrek Bulan Salju dengan pelayannya, menunjukkan gairah tersembunyi. Kembali dingin saat Weiss muncul, namun sisi lainnya telah terlihat.";
-masha.traitsRevealedPerLevel[6] = {L"Ambisius (Proyek Botani)", L"Bersemangat (Tersembunyi)"};
-masha.detailedInfoPerLevel[7] = L"Terlibat dalam perdebatan filosofis yang lebih mendalam, menunjukkan kecerdasan dan kemampuannya berargumen. Mulai menghargai Weiss sebagai lawan diskusi yang sepadan.";
-masha.traitsRevealedPerLevel[7] = {L"Debater Ulung", L"Rasional"};
-masha.detailedInfoPerLevel[8] = L"Secara terbuka mengungkapkan frustrasinya terhadap perjodohan yang dipercepat dan tekanan keluarga. Menerima tawaran dukungan Weiss dengan sedikit keraguan namun penuh arti.";
-masha.traitsRevealedPerLevel[8] = {L"Berani Mengungkapkan Perasaan (pada Weiss)", L"Mencari Solusi"};
-masha.detailedInfoPerLevel[9] = L"Bekerja sama dengan Weiss menyelamatkan mawar langka. Menunjukkan sisi peduli dan kelembutan yang tulus. Mengakui bantuan Weiss dan menawarkan teh herbal buatannya.";
-masha.traitsRevealedPerLevel[9] = {L"Peduli", L"Mulai Hangat", L"Berterima Kasih"};
-masha.detailedInfoPerLevel[10] = L"Berhasil menunda perjodohannya berkat proyek botani dan dukungan Weiss. Menganugerahkan bros Edelweiss sebagai simbol persahabatan. Menjadi sekutu setia Weiss.";
-masha.traitsRevealedPerLevel[10] = {L"Mandiri", L"Percaya Diri", L"Sahabat Setia"};
-companions.push_back(masha);
-
-
-Companion kinich;
-kinich.name = "Kinich";
-kinich.initialLoyalty = 15;
-kinich.personality = "Penjaga Tambang Keras dan Berpengalaman";
-kinich.description = "Seorang pria tangguh yang menjaga keamanan di sekitar Goa Avernix. Tidak banyak bicara dan sangat waspada terhadap orang asing, terutama bangsawan.";
-kinich.coreAbilitiesOrTraits = {"Pengetahuan Tambang Luas", "Insting Tajam", "Keahlian Bertahan Hidup"};
-kinich.met = false;
-
-kinich.detailedInfoPerLevel[1] = L"Sangat skeptis dan formal. Menganggap kunjungan bangsawan hanya sebagai 'tur wisata'. Menjelaskan bahaya goa dengan singkat.";
-kinich.traitsRevealedPerLevel[1] = {L"Waspada", L"Profesional Kaku"};
-kinich.detailedInfoPerLevel[2] = L"Sedikit terkejut saat Weiss menanyakan kesejahteraan penambang. Masih sinis terhadap janji bangsawan, tapi mulai melihat keseriusan Weiss.";
-kinich.traitsRevealedPerLevel[2] = {L"Peduli Nasib Penambang (Tersembunyi)", L"Sinis terhadap Otoritas"};
-kinich.detailedInfoPerLevel[3] = L"Mulai berbagi cerita tentang bahaya goa yang lebih mistis ('Guncangan Besar', 'Roh Penunggu Goa') dan tradisi penambang. Menunjukkan sisi spiritualnya.";
-kinich.traitsRevealedPerLevel[3] = {L"Percaya Takhayul Tambang", L"Menghormati Alam Goa"};
-kinich.detailedInfoPerLevel[4] = L"Mau berbagi pengetahuan spesifik tentang lokasi di goa ('Gua Kunang-Kunang') dan jenis kristal. Bahkan sedikit bercanda, menunjukkan sisi yang lebih hangat.";
-kinich.traitsRevealedPerLevel[4] = {L"Ahli Peta Goa", L"Memiliki Sisi Humoris (Langka)"};
-kinich.detailedInfoPerLevel[5] = L"Sangat terkesan dengan tindakan nyata Weiss yang membantu menyediakan makanan dan berjanji mengatasi masalah lampu karbit. Memberikan hadiah kecil sebagai tanda terima kasih.";
-kinich.traitsRevealedPerLevel[5] = {L"Menghargai Tindakan Nyata", L"Mulai Percaya pada Weiss"};
-kinich.detailedInfoPerLevel[6] = L"Berbagi cerita tentang persaudaraan penambang dan keyakinannya pada 'Roh Goa'. Mengungkapkan kekhawatiran jika goa tidak dijaga dengan benar.";
-kinich.traitsRevealedPerLevel[6] = {L"Menjunjung Persaudaraan", L"Spiritual (Goa)"};
-kinich.detailedInfoPerLevel[7] = L"Menunjukkan rasa terima kasih yang besar atas bantuan peralatan baru. Memanggil Weiss dengan nama tanpa gelar di depan umum sebagai tanda hormat.";
-kinich.traitsRevealedPerLevel[7] = {L"Sangat Menghargai Bantuan", L"Loyal pada Penambang"};
-kinich.detailedInfoPerLevel[8] = L"Membagikan kisah tragis tentang kehilangan sahabatnya, Kael, di tambang. Mengungkapkan sumpahnya untuk selalu melindungi anak buahnya.";
-kinich.traitsRevealedPerLevel[8] = {L"Penuh Dedikasi (Keselamatan)", L"Memiliki Luka Batin"};
-kinich.detailedInfoPerLevel[9] = L"Bekerja sama dengan Weiss dalam situasi krisis kebocoran gas, menunjukkan kepercayaan penuh dan mengakui Weiss sebagai pemimpin sejati.";
-kinich.traitsRevealedPerLevel[9] = {L"Tenang dalam Krisis", L"Mempercayai Weiss Sepenuhnya"};
-kinich.detailedInfoPerLevel[10] = L"Menunjukkan 'Jantung Goa' kepada Weiss dan memberikan 'Air Mata Avernix' sebagai simbol persahabatan abadi dan kesetiaan. Menganggap Weiss sebagai saudara.";
-kinich.traitsRevealedPerLevel[10] = {L"Sahabat Sejati", L"Penjaga Rahasia Goa", L"Sangat Loyal"};
-companions.push_back(kinich);
+    masha.detailedInfoPerLevel[1] = L"Pertemuan pertama terasa sangat formal dan dingin. Dia tampak tidak tertarik berbasa-basi dan lebih suka menyendiri.";
+    masha.traitsRevealedPerLevel[1] = {L"Menjaga Jarak", L"Formal"};
+    masha.detailedInfoPerLevel[2] = L"Meskipun masih dingin, dia menunjukkan sedikit ketertarikan pada topik intelektual (filsafat Xantus). Mungkin ada sisi lain di balik sikapnya.";
+    masha.traitsRevealedPerLevel[2] = {L"Tertarik Filsafat (Tersembunyi)"};
+    masha.detailedInfoPerLevel[3] = L"Mulai mau terlibat dalam diskusi filosofis yang lebih dalam. Mengungkapkan bahwa ia menghargai pemikiran yang mendalam ketimbang gosip bangsawan.";
+    masha.traitsRevealedPerLevel[3] = {L"Intelektual", L"Menghargai Diskusi Serius"};
+    masha.detailedInfoPerLevel[4] = L"Terungkap memiliki minat dan pengetahuan tersembunyi dalam herbologi, terutama pada tanaman langka seperti Edelweiss. Tampak sedikit defensif saat hobinya diketahui.";
+    masha.traitsRevealedPerLevel[4] = {L"Ahli Herbologi (Amatir)", L"Menyukai Tanaman Langka"};
+    masha.detailedInfoPerLevel[5] = L"Menunjukkan sisi rapuhnya terkait tekanan perjodohan dari keluarganya. Mulai sedikit terbuka tentang perasaannya sebagai 'aset' keluarga.";
+    masha.traitsRevealedPerLevel[5] = {L"Merasa Tertekan Ekspektasi", L"Menentang Perjodohan (Dalam Hati)"};
+    masha.detailedInfoPerLevel[6] = L"Terlihat antusias membahas proyek Anggrek Bulan Salju dengan pelayannya, menunjukkan gairah tersembunyi. Kembali dingin saat Weiss muncul, namun sisi lainnya telah terlihat.";
+    masha.traitsRevealedPerLevel[6] = {L"Ambisius (Proyek Botani)", L"Bersemangat (Tersembunyi)"};
+    masha.detailedInfoPerLevel[7] = L"Terlibat dalam perdebatan filosofis yang lebih mendalam, menunjukkan kecerdasan dan kemampuannya berargumen. Mulai menghargai Weiss sebagai lawan diskusi yang sepadan.";
+    masha.traitsRevealedPerLevel[7] = {L"Debater Ulung", L"Rasional"};
+    masha.detailedInfoPerLevel[8] = L"Secara terbuka mengungkapkan frustrasinya terhadap perjodohan. Saat kau menawarkan dukungan tulus, ada kehangatan yang langka dalam tatapannya, seolah menemukan seseorang yang akhirnya mengerti bebannya.";
+    masha.traitsRevealedPerLevel[8] = {L"Berani Mengungkapkan Keresahan", L"Menghargai Dukungan Weiss", L"Mulai Membuka Hati"};
+    masha.detailedInfoPerLevel[9] = L"Saat kalian berdua menyelamatkan mawar 'Aurora Dawn' kesayangannya, ia menunjukkan sisi yang sangat berbeda: peduli, lembut, dan bahkan sedikit ceria. Tawaran teh herbal buatannya terasa lebih dari sekadar ucapan terima kasih; ada harapan dan kelembutan dalam caranya memandangmu yang membuat hatimu sedikit berdebar.";
+    masha.traitsRevealedPerLevel[9] = {L"Sangat Peduli (pada hal berharga)", L"Menunjukkan Kehangatan Sejati", L"Gestur Penuh Perhatian (pada Weiss)", L"Tatapan Berbeda"};
+    masha.detailedInfoPerLevel[10] = L"Keberhasilannya menunda perjodohan adalah kemenangan besar, dan ia mengakuinya sebagai buah dari keberanian yang kau inspirasikan. Saat memberikan bros Edelweiss, ada rona merah di pipinya dan getaran dalam suaranya yang menyiratkan perasaan lebih dalam dari sekadar persahabatan. Aliansi keluarga Aurora kini terasa seperti ikatan personal antara kau dan dia, seorang 'Putri Es' yang hatinya mungkin telah mencair untukmu.";
+    masha.traitsRevealedPerLevel[10] = {L"Mandiri & Percaya Diri", L"Sahabat yang Sangat Setia", L"Menyimpan Perasaan Khusus (pada Weiss)", L"Berani Berharap"};
+    companions.push_back(masha);
 
 
-Companion irene;
-irene.name = "Irene";
-irene.initialLoyalty = 25;
-irene.personality = "Maid Setia dan Lembut";
-irene.description = "Pelayan baru di Mansion Astra yang rajin dan perhatian. Awalnya pemalu dan gugup, namun memiliki hati yang baik.";
-irene.coreAbilitiesOrTraits = {"Merawat Taman dengan Baik", "Perhatian pada Detail"};
-irene.met = true; 
+    Companion kinich;
+    kinich.name = "Kinich";
+    kinich.initialLoyalty = 15;
+    kinich.personality = "Penjaga Tambang Keras dan Berpengalaman";
+    kinich.description = "Seorang pria tangguh yang menjaga keamanan di sekitar Goa Avernix. Tidak banyak bicara dan sangat waspada terhadap orang asing, terutama bangsawan.";
+    kinich.coreAbilitiesOrTraits = {"Pengetahuan Tambang Luas", "Insting Tajam", "Keahlian Bertahan Hidup"};
+    kinich.met = false;
 
-irene.detailedInfoPerLevel[1] = L"Sangat gugup dan canggung saat pertama kali diajak bicara. Menunjukkan kesukaannya pada taman sebagai tempat yang menenangkan.";
-irene.traitsRevealedPerLevel[1] = {L"Pemalu", L"Menyukai Ketenangan Taman"};
-irene.detailedInfoPerLevel[2] = L"Sedikit lebih santai. Mengungkapkan rasa syukurnya bisa bekerja di mansion dan dibimbing oleh senior.";
-irene.traitsRevealedPerLevel[2] = {L"Bersyukur", L"Rajin Belajar"};
-irene.detailedInfoPerLevel[3] = L"Mulai terbuka tentang hobinya membaca buku fantasi dan sedikit menyulam. Antusias saat Weiss menawarkan bertukar rekomendasi buku.";
-irene.traitsRevealedPerLevel[3] = {L"Suka Membaca Fantasi", L"Bisa Menyulam (Dasar)"};
-irene.detailedInfoPerLevel[4] = L"Berbagi momen ringan mengamati kupu-kupu langka bersama Weiss. Tidak lagi kaku dan bisa tertawa lepas.";
-irene.traitsRevealedPerLevel[4] = {L"Menghargai Keindahan Alam", L"Mulai Akrab"};
-irene.detailedInfoPerLevel[5] = L"Menunjukkan perhatian tulus saat melihat Weiss pucat. Berinisiatif menawarkan teh herbal buatannya.";
-irene.traitsRevealedPerLevel[5] = {L"Sangat Perhatian", L"Berinisiatif Membantu"};
-irene.detailedInfoPerLevel[6] = L"Berbagi perasaannya tentang rindu kampung halaman, namun juga menganggap Mansion Astra sebagai rumah kedua.";
-irene.traitsRevealedPerLevel[6] = {L"Penyayang Keluarga", L"Mulai Merasa Betah"};
-irene.detailedInfoPerLevel[7] = L"Sangat antusias berdiskusi tentang buku yang direkomendasikan Weiss, menunjukkan kesamaan selera dan kenyamanan dalam berpendapat.";
-irene.traitsRevealedPerLevel[7] = {L"Kritis terhadap Cerita", L"Teman Diskusi yang Baik"};
-irene.detailedInfoPerLevel[8] = L"Dengan tulus mengungkapkan rasa syukurnya atas perubahan positif dalam diri Weiss dan bagaimana itu dirasakan oleh semua staf.";
-irene.traitsRevealedPerLevel[8] = {L"Jujur", L"Mengapresiasi Kebaikan"};
-irene.detailedInfoPerLevel[9] = L"Menawarkan dukungan emosional saat Weiss merasa terbebani. Menegaskan kesetiaannya sebagai teman.";
-irene.traitsRevealedPerLevel[9] = {L"Pendengar yang Baik", L"Sangat Setia"};
-irene.detailedInfoPerLevel[10] = L"Memberikan jam saku pusaka keluarganya sebagai simbol persahabatan dan kesetiaan abadi. Menganggap Weiss sebagai keluarga.";
-irene.traitsRevealedPerLevel[10] = {L"Sangat Loyal dan Berbakti", L"Menganggap Weiss Keluarga"};
-companions.push_back(irene);
-
-
-Companion ruigerd;
-ruigerd.name = "Ruigerd";
-ruigerd.initialLoyalty = 30;
-ruigerd.personality = "Chef Bijaksana Keluarga Astra";
-ruigerd.description = "Kepala Koki Mansion Astra yang telah lama mengabdi. Dikenal karena keahlian memasaknya yang luar biasa dan kearifannya.";
-ruigerd.coreAbilitiesOrTraits = {"Ahli Memasak Hidangan Kerajaan", "Pengetahuan Bahan Makanan Luas"};
-ruigerd.met = true;
-
-ruigerd.detailedInfoPerLevel[1] = L"Profesional dan sedikit terkejut dengan kunjungan Weiss ke dapur. Menjelaskan menu makan malam dengan formal.";
-ruigerd.traitsRevealedPerLevel[1] = {L"Profesional", L"Menjaga Standar Tinggi"};
-ruigerd.detailedInfoPerLevel[2] = L"Mulai terbuka menjelaskan teknik memasak (penggunaan kayu bakar). Menunjukkan kesabaran sebagai kunci memasak.";
-ruigerd.traitsRevealedPerLevel[2] = {L"Detail dalam Memasak", L"Sabar"};
-ruigerd.detailedInfoPerLevel[3] = L"Bangga saat masakannya (sup jamur Morel) dipuji. Menjelaskan pentingnya bahan musiman.";
-ruigerd.traitsRevealedPerLevel[3] = {L"Mencintai Bahan Musiman", L"Antusias pada Keahliannya"};
-ruigerd.detailedInfoPerLevel[4] = L"Menunjukkan sisi mentor saat mengajari juru masak muda. Berbagi filosofi tentang kesabaran dalam belajar dan memasak (saus hollandaise).";
-ruigerd.traitsRevealedPerLevel[4] = {L"Bijaksana", L"Mentor yang Baik"};
-ruigerd.detailedInfoPerLevel[5] = L"Senang atas apresiasi Weiss terhadap pesta teh. Menawarkan kue cokelat spesial buatannya, menunjukkan kebanggaan seorang seniman kuliner.";
-ruigerd.traitsRevealedPerLevel[5] = {L"Kreatif dalam Resep", L"Bangga akan Karyanya"};
-ruigerd.detailedInfoPerLevel[6] = L"Berbagi kenangan sentimental tentang kakek dan ayah Weiss, serta hidangan favorit mereka. Menunjukkan kesetiaan lamanya pada keluarga Astra.";
-ruigerd.traitsRevealedPerLevel[6] = {L"Sangat Loyal pada Keluarga Astra", L"Penjaga Kenangan"};
-ruigerd.detailedInfoPerLevel[7] = L"Memberikan nasihat bijak tentang tanggung jawab dan menghadapi tekanan, menggunakan analogi dari dunia dapur. Menawarkan dukungan moral.";
-ruigerd.traitsRevealedPerLevel[7] = {L"Pemberi Nasihat Ulung", L"Berpengalaman Luas"};
-ruigerd.detailedInfoPerLevel[8] = L"Mengakui dan memuji perubahan positif serta kedewasaan Weiss. Menyatakan dukungannya dan melihat potensi besar dalam diri Weiss.";
-ruigerd.traitsRevealedPerLevel[8] = {L"Observatif terhadap Perubahan", L"Mendukung Penuh Weiss"};
-ruigerd.detailedInfoPerLevel[9] = L"Menunjukkan perhatian kebapakan saat Weiss merasa terbebani. Menawarkan cokelat hangat dan dukungan emosional yang mendalam.";
-ruigerd.traitsRevealedPerLevel[9] = {L"Perhatian seperti Ayah", L"Pendengar yang Empatik"};
-ruigerd.detailedInfoPerLevel[10] = L"Menciptakan hidangan 'Simfoni Astra' dan mewariskan buku resep pribadinya sebagai simbol kepercayaan tertinggi dan kesetiaan abadi.";
-ruigerd.traitsRevealedPerLevel[10] = {L"Sangat Setia dan Berdedikasi", L"Menganggap Weiss Keluarga"};
-companions.push_back(ruigerd);
+    kinich.detailedInfoPerLevel[1] = L"Sangat skeptis dan formal. Menganggap kunjungan bangsawan hanya sebagai 'tur wisata'. Menjelaskan bahaya goa dengan singkat.";
+    kinich.traitsRevealedPerLevel[1] = {L"Waspada", L"Profesional Kaku"};
+    kinich.detailedInfoPerLevel[2] = L"Sedikit terkejut saat Weiss menanyakan kesejahteraan penambang. Masih sinis terhadap janji bangsawan, tapi mulai melihat keseriusan Weiss.";
+    kinich.traitsRevealedPerLevel[2] = {L"Peduli Nasib Penambang (Tersembunyi)", L"Sinis terhadap Otoritas"};
+    kinich.detailedInfoPerLevel[3] = L"Mulai berbagi cerita tentang bahaya goa yang lebih mistis ('Guncangan Besar', 'Roh Penunggu Goa') dan tradisi penambang. Menunjukkan sisi spiritualnya.";
+    kinich.traitsRevealedPerLevel[3] = {L"Percaya Takhayul Tambang", L"Menghormati Alam Goa"};
+    kinich.detailedInfoPerLevel[4] = L"Mau berbagi pengetahuan spesifik tentang lokasi di goa ('Gua Kunang-Kunang') dan jenis kristal. Bahkan sedikit bercanda, menunjukkan sisi yang lebih hangat.";
+    kinich.traitsRevealedPerLevel[4] = {L"Ahli Peta Goa", L"Memiliki Sisi Humoris (Langka)"};
+    kinich.detailedInfoPerLevel[5] = L"Sangat terkesan dengan tindakan nyata Weiss yang membantu menyediakan makanan dan berjanji mengatasi masalah lampu karbit. Memberikan hadiah kecil sebagai tanda terima kasih.";
+    kinich.traitsRevealedPerLevel[5] = {L"Menghargai Tindakan Nyata", L"Mulai Percaya pada Weiss"};
+    kinich.detailedInfoPerLevel[6] = L"Berbagi cerita tentang persaudaraan penambang dan keyakinannya pada 'Roh Goa'. Mengungkapkan kekhawatiran jika goa tidak dijaga dengan benar.";
+    kinich.traitsRevealedPerLevel[6] = {L"Menjunjung Persaudaraan", L"Spiritual (Goa)"};
+    kinich.detailedInfoPerLevel[7] = L"Menunjukkan rasa terima kasih yang besar atas bantuan peralatan baru. Memanggil Weiss dengan nama tanpa gelar di depan umum sebagai tanda hormat.";
+    kinich.traitsRevealedPerLevel[7] = {L"Sangat Menghargai Bantuan", L"Loyal pada Penambang"};
+    kinich.detailedInfoPerLevel[8] = L"Membagikan kisah tragis tentang kehilangan sahabatnya, Kael, di tambang. Mengungkapkan sumpahnya untuk selalu melindungi anak buahnya.";
+    kinich.traitsRevealedPerLevel[8] = {L"Penuh Dedikasi (Keselamatan)", L"Memiliki Luka Batin"};
+    kinich.detailedInfoPerLevel[9] = L"Bekerja sama dengan Weiss dalam situasi krisis kebocoran gas, menunjukkan kepercayaan penuh dan mengakui Weiss sebagai pemimpin sejati.";
+    kinich.traitsRevealedPerLevel[9] = {L"Tenang dalam Krisis", L"Mempercayai Weiss Sepenuhnya"};
+    kinich.detailedInfoPerLevel[10] = L"Menunjukkan 'Jantung Goa' kepada Weiss dan memberikan 'Air Mata Avernix' sebagai simbol persahabatan abadi dan kesetiaan. Menganggap Weiss sebagai saudara.";
+    kinich.traitsRevealedPerLevel[10] = {L"Sahabat Sejati", L"Penjaga Rahasia Goa", L"Sangat Loyal"};
+    companions.push_back(kinich);
 
 
-Companion ella;
-ella.name = "Ella";
-ella.initialLoyalty = 5;
-ella.personality = "Pemilik Cross Guild yang Tegas dan Pragmatis";
-ella.description = "Wanita tangguh yang mengelola Cross Guild di Kota Arcadia dengan tangan besi. Tidak suka basa-basi dan sangat berorientasi pada hasil.";
-ella.coreAbilitiesOrTraits = {"Manajemen Guild yang Efisien", "Jaringan Informasi Luas di Dunia Bawah"};
-ella.met = false;
+    Companion irene;
+    irene.name = "Irene";
+    irene.initialLoyalty = 25;
+    irene.personality = "Maid Setia dan Lembut";
+    irene.description = "Pelayan baru di Mansion Astra yang rajin dan perhatian. Awalnya pemalu dan gugup, namun memiliki hati yang baik.";
+    irene.coreAbilitiesOrTraits = {"Merawat Taman dengan Baik", "Perhatian pada Detail"};
+    irene.met = true; 
 
-ella.detailedInfoPerLevel[1] = L"Sangat profesional dan sedikit sinis terhadap kunjungan bangsawan. Menjelaskan fungsi guild secara to-the-point.";
-ella.traitsRevealedPerLevel[1] = {L"Tegas", L"Praktis", L"Skeptis terhadap Bangsawan"};
-ella.detailedInfoPerLevel[2] = L"Menjelaskan cara kerja guild dalam menangani kasus 'kecil' yang tidak terjangkau aparat. Menunjukkan pemahamannya tentang 'aturan main' di dunia bawah.";
-ella.traitsRevealedPerLevel[2] = {L"Memahami Realitas Lapangan", L"Transparan (dengan caranya)"};
-ella.detailedInfoPerLevel[3] = L"Mengungkapkan bahwa guild adalah 'keluarga besar yang kacau balau' baginya, menunjukkan sisi sentimentil di balik sikap kerasnya.";
-ella.traitsRevealedPerLevel[3] = {L"Dedikasi pada Guild", L"Melindungi Anggotanya"};
-ella.detailedInfoPerLevel[4] = L"Menyelesaikan sengketa antar petualang dengan cepat dan tegas. Menunjukkan sisi humor sarkastisnya saat berbincang dengan Weiss.";
-ella.traitsRevealedPerLevel[4] = {L"Pemimpin yang Tegas", L"Humoris (Sarkastis)"};
-ella.detailedInfoPerLevel[5] = L"Terkesan dengan masukan praktis Weiss tentang formulir quest. Mulai melihat Weiss sebagai individu yang cerdas, bukan hanya bangsawan.";
-ella.traitsRevealedPerLevel[5] = {L"Menghargai Ide Bagus", L"Mulai Terbuka"};
-ella.detailedInfoPerLevel[6] = L"Berbagi kisah tentang quest sulit di masa lalu (wabah di Pegunungan Naga Merah), menunjukkan esensi guild yang sebenarnya: membantu orang.";
-ella.traitsRevealedPerLevel[6] = {L"Menjunjung Tinggi Misi Guild", L"Berpengalaman dalam Krisis"};
-ella.detailedInfoPerLevel[7] = L"Memberikan nasihat praktis dan informasi sensitif tentang penyelundupan di dermaga, menunjukkan kepercayaannya pada Weiss.";
-ella.traitsRevealedPerLevel[7] = {L"Memiliki Jaringan Intelijen", L"Berani Mengambil Risiko (Terukur)"};
-ella.detailedInfoPerLevel[8] = L"Mengakui bahwa Weiss berbeda dari bangsawan kebanyakan karena kepedulian dan tindakannya. Menunjukkan rasa hormat yang tulus.";
-ella.traitsRevealedPerLevel[8] = {L"Menilai Orang dari Tindakan", L"Mulai Menghormati Weiss"};
-ella.detailedInfoPerLevel[9] = L"Menyatakan kesamaan tujuan dengan Weiss dalam memberantas premanisme di pasar malam. Menawarkan kerjasama dan menunjukkan sisi protektifnya.";
-ella.traitsRevealedPerLevel[9] = {L"Berjiwa Keadilan", L"Siap Bekerja Sama"};
-ella.detailedInfoPerLevel[10] = L"Menganugerahkan Lencana Kehormatan Guild Tertinggi kepada Weiss sebagai simbol kepercayaan penuh dan aliansi. Mengungkap motivasi pribadinya menjalankan guild.";
-ella.traitsRevealedPerLevel[10] = {L"Sangat Mempercayai Weiss", L"Visioner", L"Mitra Setia"};
-companions.push_back(ella);
-
-
-Companion charlotte;
-charlotte.name = "Charlotte";
-charlotte.initialLoyalty = 5;
-charlotte.personality = "Wartawan Gigih Arcadia Chronicle";
-charlotte.description = "Jurnalis muda yang idealis dan bersemangat dari Harian Arcadia Chronicle. Selalu mencari kebenaran dan tidak mudah menyerah.";
-charlotte.coreAbilitiesOrTraits = {"Keahlian Investigasi Mendalam", "Menulis Artikel yang Tajam"};
-charlotte.met = false;
-
-charlotte.detailedInfoPerLevel[1] = L"Energik dan langsung ke pokok permasalahan. Mengajukan pertanyaan tajam tentang motivasi Weiss terlibat dalam urusan kota.";
-charlotte.traitsRevealedPerLevel[1] = {L"Gigih", L"Profesional", L"Analitis"};
-charlotte.detailedInfoPerLevel[2] = L"Mengungkapkan tantangan pekerjaannya dalam memilah fakta dari desas-desus (kasus dermaga). Menunjukkan idealismenya tentang hak publik untuk tahu.";
-charlotte.traitsRevealedPerLevel[2] = {L"Idealis", L"Memiliki Jaringan Luas (Potensial)"};
-charlotte.detailedInfoPerLevel[3] = L"Sedang menginvestigasi keluhan pedagang pasar. Terkejut namun menghargai 'tip' dari Weiss, mulai melihat potensi kerjasama.";
-charlotte.traitsRevealedPerLevel[3] = {L"Peduli pada Rakyat Kecil", L"Mulai Percaya (Sedikit)"};
-charlotte.detailedInfoPerLevel[4] = L"Terlihat frustrasi menghadapi jalan buntu dalam investigasinya. Menunjukkan semangat juangnya yang tak mau menyerah demi kebenaran.";
-charlotte.traitsRevealedPerLevel[4] = {L"Pantang Menyerah", L"Berdedikasi Tinggi"};
-charlotte.detailedInfoPerLevel[5] = L"Mulai bertukar informasi secara lebih terbuka dengan Weiss terkait penyelidikan di dermaga dan catatan properti lama. Kemitraan mulai terbentuk.";
-charlotte.traitsRevealedPerLevel[5] = {L"Kolaboratif", L"Menghargai Informasi Akurat"};
-charlotte.detailedInfoPerLevel[6] = L"Bekerja hingga larut malam menyusun artikel investigasi. Berbagi kekhawatiran tentang risiko dan serangan balik dari pihak yang merugi.";
-charlotte.traitsRevealedPerLevel[6] = {L"Berani Mengambil Risiko (Jurnalistik)", L"Teliti"};
-charlotte.detailedInfoPerLevel[7] = L"Menghadapi dilema etis terkait penggunaan bukti sensitif dan keselamatan sumber. Memutuskan untuk mengambil risiko bersama Weiss.";
-charlotte.traitsRevealedPerLevel[7] = {L"Memegang Teguh Etika", L"Berani Bertindak"};
-charlotte.detailedInfoPerLevel[8] = L"Mengakui bahwa Weiss telah mengubah pandangannya tentang bangsawan. Menunjukkan rasa terima kasih atas dukungan dan keberanian Weiss.";
-charlotte.traitsRevealedPerLevel[8] = {L"Menghargai Integritas Weiss", L"Rekan yang Solid"};
-charlotte.detailedInfoPerLevel[9] = L"Melakukan pengintaian berbahaya bersama Weiss untuk mendapatkan bukti final. Menunjukkan keberanian fisik dan ikatan kuat sebagai tim.";
-charlotte.traitsRevealedPerLevel[9] = {L"Sangat Berani", L"Rekan Seperjuangan"};
-charlotte.detailedInfoPerLevel[10] = L"Berhasil menerbitkan berita skandal besar. Mengungkap motivasi pribadinya melanjutkan perjuangan ayahnya. Memberikan 'Pena Saksi Kebenaran' sebagai simbol persahabatan abadi.";
-charlotte.traitsRevealedPerLevel[10] = {L"Pembawa Perubahan", L"Sahabat Setia", L"Sangat Idealistis"};
-companions.push_back(charlotte);
+    irene.detailedInfoPerLevel[1] = L"Sangat gugup dan canggung saat pertama kali diajak bicara. Menunjukkan kesukaannya pada taman sebagai tempat yang menenangkan.";
+    irene.traitsRevealedPerLevel[1] = {L"Pemalu", L"Menyukai Ketenangan Taman"};
+    irene.detailedInfoPerLevel[2] = L"Sedikit lebih santai. Mengungkapkan rasa syukurnya bisa bekerja di mansion dan dibimbing oleh senior.";
+    irene.traitsRevealedPerLevel[2] = {L"Bersyukur", L"Rajin Belajar"};
+    irene.detailedInfoPerLevel[3] = L"Mulai terbuka tentang hobinya membaca buku fantasi dan sedikit menyulam. Antusias saat Weiss menawarkan bertukar rekomendasi buku.";
+    irene.traitsRevealedPerLevel[3] = {L"Suka Membaca Fantasi", L"Bisa Menyulam (Dasar)"};
+    irene.detailedInfoPerLevel[4] = L"Berbagi momen ringan mengamati kupu-kupu langka bersama Weiss. Tidak lagi kaku dan bisa tertawa lepas.";
+    irene.traitsRevealedPerLevel[4] = {L"Menghargai Keindahan Alam", L"Mulai Akrab"};
+    irene.detailedInfoPerLevel[5] = L"Menunjukkan perhatian tulus saat melihat Weiss pucat. Berinisiatif menawarkan teh herbal buatannya.";
+    irene.traitsRevealedPerLevel[5] = {L"Sangat Perhatian", L"Berinisiatif Membantu"};
+    irene.detailedInfoPerLevel[6] = L"Berbagi perasaannya tentang rindu kampung halaman, namun juga menganggap Mansion Astra sebagai rumah kedua.";
+    irene.traitsRevealedPerLevel[6] = {L"Penyayang Keluarga", L"Mulai Merasa Betah"};
+    irene.detailedInfoPerLevel[7] = L"Sangat antusias berdiskusi tentang buku yang direkomendasikan Weiss, menunjukkan kesamaan selera dan kenyamanan dalam berpendapat.";
+    irene.traitsRevealedPerLevel[7] = {L"Kritis terhadap Cerita", L"Teman Diskusi yang Baik"};
+    irene.detailedInfoPerLevel[8] = L"Dengan tulus mengungkapkan rasa syukurnya atas perubahan positif dalam diri Weiss dan bagaimana itu dirasakan oleh semua staf.";
+    irene.traitsRevealedPerLevel[8] = {L"Jujur", L"Mengapresiasi Kebaikan"};
+    irene.detailedInfoPerLevel[9] = L"Menawarkan dukungan emosional saat Weiss merasa terbebani. Menegaskan kesetiaannya sebagai teman.";
+    irene.traitsRevealedPerLevel[9] = {L"Pendengar yang Baik", L"Sangat Setia"};
+    irene.detailedInfoPerLevel[10] = L"Memberikan jam saku pusaka keluarganya sebagai simbol persahabatan dan kesetiaan abadi. Menganggap Weiss sebagai keluarga.";
+    irene.traitsRevealedPerLevel[10] = {L"Sangat Loyal dan Berbakti", L"Menganggap Weiss Keluarga"};
+    companions.push_back(irene);
 
 
-Companion mars;
-mars.name = "Mars";
-mars.initialLoyalty = 10;
-mars.personality = "Penjaga Pos Hutan yang Tangguh dan Bijaksana";
-mars.description = "Seorang pria bertubuh tegap yang menjaga Hutan Merah dengan penuh dedikasi. Awalnya pendiam dan waspada, namun memiliki kearifan alam.";
-mars.coreAbilitiesOrTraits = {"Pengetahuan Hutan Mendalam", "Keahlian Bertahan Hidup Unggul", "Insting Alam Tajam"};
-mars.met = false;
+    Companion ruigerd;
+    ruigerd.name = "Ruigerd";
+    ruigerd.initialLoyalty = 30;
+    ruigerd.personality = "Chef Bijaksana Keluarga Astra";
+    ruigerd.description = "Kepala Koki Mansion Astra yang telah lama mengabdi. Dikenal karena keahlian memasaknya yang luar biasa dan kearifannya.";
+    ruigerd.coreAbilitiesOrTraits = {"Ahli Memasak Hidangan Kerajaan", "Pengetahuan Bahan Makanan Luas"};
+    ruigerd.met = true;
 
-mars.detailedInfoPerLevel[1] = L"Sangat formal dan waspada terhadap bangsawan. Menjelaskan tugasnya dengan singkat dan mengingatkan bahaya hutan.";
-mars.traitsRevealedPerLevel[1] = {L"Tegas", L"Profesional", L"Menghormati Hutan"};
-mars.detailedInfoPerLevel[2] = L"Sedikit melunak saat Weiss menunjukkan ketertarikan pada masalah perburuan liar. Mulai berbagi informasi tentang tantangan pekerjaannya.";
-mars.traitsRevealedPerLevel[2] = {L"Peduli Ekosistem", L"Praktis"};
-mars.detailedInfoPerLevel[3] = L"Mulai berbagi anekdot tentang hutan (babi hutan besar, pencari jamur tersesat). Menunjukkan sisi humor langka dan pengetahuannya tentang tanda-tanda alam.";
-mars.traitsRevealedPerLevel[3] = {L"Berpengalaman Luas (Hutan)", L"Observatif"};
-mars.detailedInfoPerLevel[4] = L"Menghargai hadiah apel dari Weiss. Berbagi pengetahuan tentang tanaman obat (Daun Jantung Ungu) dan legenda Bunga Bulan Perak.";
-mars.traitsRevealedPerLevel[4] = {L"Ahli Tanaman Obat (Dasar)", L"Menyimpan Cerita Hutan"};
-mars.detailedInfoPerLevel[5] = L"Terkesan dengan kesediaan Weiss membantu memperbaiki pagar. Mulai melihat Weiss berbeda dari rumor dan bangsawan lain. Memberikan air mata air hutan.";
-mars.traitsRevealedPerLevel[5] = {L"Menilai dari Tindakan", L"Mulai Terbuka"};
-mars.detailedInfoPerLevel[6] = L"Berbagi kekhawatiran tentang bencana alam di sekitar hutan saat terjebak hujan bersama Weiss. Menunjukkan harapan saat Weiss menawarkan bantuan.";
-mars.traitsRevealedPerLevel[6] = {L"Peduli Masyarakat Sekitar Hutan", L"Bertanggung Jawab"};
-mars.detailedInfoPerLevel[7] = L"Sangat berterima kasih atas bantuan Weiss dalam meloloskan proposal peralatan baru. Mengakui Weiss sebagai sahabat sejati hutan.";
-mars.traitsRevealedPerLevel[7] = {L"Sangat Menghargai Bantuan Nyata", L"Pemimpin yang Dihormati Penjaga Lain"};
-mars.detailedInfoPerLevel[8] = L"Berbagi kisah pribadi yang mendalam tentang pengalamannya berhadapan dengan Beruang Cakar Besi dan filosofinya tentang menghormati alam.";
-mars.traitsRevealedPerLevel[8] = {L"Memiliki Ikatan Spiritual dengan Alam", L"Pemberani (dengan Kearifan)"};
-mars.detailedInfoPerLevel[9] = L"Bekerja sama dengan Weiss dalam operasi penyelamatan tim patroli yang hilang. Mengakui bakat kepemimpinan dan ketenangan Weiss dalam krisis.";
-mars.traitsRevealedPerLevel[9] = {L"Rekan yang Andal dalam Krisis", L"Mempercayai Weiss"};
-mars.detailedInfoPerLevel[10] = L"Menunjukkan tempat favoritnya di Hutan Merah dan memberikan 'Taring Serigala Penjaga' sebagai simbol persahabatan abadi dan pengakuan Weiss sebagai 'Penjaga Hutan dalam hati'.";
-mars.traitsRevealedPerLevel[10] = {L"Sahabat dan Saudara Setia", L"Pelindung Warisan Alam"};
-companions.push_back(mars);
+    ruigerd.detailedInfoPerLevel[1] = L"Profesional dan sedikit terkejut dengan kunjungan Weiss ke dapur. Menjelaskan menu makan malam dengan formal.";
+    ruigerd.traitsRevealedPerLevel[1] = {L"Profesional", L"Menjaga Standar Tinggi"};
+    ruigerd.detailedInfoPerLevel[2] = L"Mulai terbuka menjelaskan teknik memasak (penggunaan kayu bakar). Menunjukkan kesabaran sebagai kunci memasak.";
+    ruigerd.traitsRevealedPerLevel[2] = {L"Detail dalam Memasak", L"Sabar"};
+    ruigerd.detailedInfoPerLevel[3] = L"Bangga saat masakannya (sup jamur Morel) dipuji. Menjelaskan pentingnya bahan musiman.";
+    ruigerd.traitsRevealedPerLevel[3] = {L"Mencintai Bahan Musiman", L"Antusias pada Keahliannya"};
+    ruigerd.detailedInfoPerLevel[4] = L"Menunjukkan sisi mentor saat mengajari juru masak muda. Berbagi filosofi tentang kesabaran dalam belajar dan memasak (saus hollandaise).";
+    ruigerd.traitsRevealedPerLevel[4] = {L"Bijaksana", L"Mentor yang Baik"};
+    ruigerd.detailedInfoPerLevel[5] = L"Senang atas apresiasi Weiss terhadap pesta teh. Menawarkan kue cokelat spesial buatannya, menunjukkan kebanggaan seorang seniman kuliner.";
+    ruigerd.traitsRevealedPerLevel[5] = {L"Kreatif dalam Resep", L"Bangga akan Karyanya"};
+    ruigerd.detailedInfoPerLevel[6] = L"Berbagi kenangan sentimental tentang kakek dan ayah Weiss, serta hidangan favorit mereka. Menunjukkan kesetiaan lamanya pada keluarga Astra.";
+    ruigerd.traitsRevealedPerLevel[6] = {L"Sangat Loyal pada Keluarga Astra", L"Penjaga Kenangan"};
+    ruigerd.detailedInfoPerLevel[7] = L"Memberikan nasihat bijak tentang tanggung jawab dan menghadapi tekanan, menggunakan analogi dari dunia dapur. Menawarkan dukungan moral.";
+    ruigerd.traitsRevealedPerLevel[7] = {L"Pemberi Nasihat Ulung", L"Berpengalaman Luas"};
+    ruigerd.detailedInfoPerLevel[8] = L"Mengakui dan memuji perubahan positif serta kedewasaan Weiss. Menyatakan dukungannya dan melihat potensi besar dalam diri Weiss.";
+    ruigerd.traitsRevealedPerLevel[8] = {L"Observatif terhadap Perubahan", L"Mendukung Penuh Weiss"};
+    ruigerd.detailedInfoPerLevel[9] = L"Menunjukkan perhatian kebapakan saat Weiss merasa terbebani. Menawarkan cokelat hangat dan dukungan emosional yang mendalam.";
+    ruigerd.traitsRevealedPerLevel[9] = {L"Perhatian seperti Ayah", L"Pendengar yang Empatik"};
+    ruigerd.detailedInfoPerLevel[10] = L"Menciptakan hidangan 'Simfoni Astra' dan mewariskan buku resep pribadinya sebagai simbol kepercayaan tertinggi dan kesetiaan abadi.";
+    ruigerd.traitsRevealedPerLevel[10] = {L"Sangat Setia dan Berdedikasi", L"Menganggap Weiss Keluarga"};
+    companions.push_back(ruigerd);
+
+
+    Companion ella;
+    ella.name = "Ella";
+    ella.initialLoyalty = 5;
+    ella.personality = "Pemilik Cross Guild yang Tegas dan Pragmatis";
+    ella.description = "Wanita tangguh yang mengelola Cross Guild di Kota Arcadia dengan tangan besi. Tidak suka basa-basi dan sangat berorientasi pada hasil.";
+    ella.coreAbilitiesOrTraits = {"Manajemen Guild yang Efisien", "Jaringan Informasi Luas di Dunia Bawah"};
+    ella.met = false;
+
+    ella.detailedInfoPerLevel[1] = L"Sangat profesional dan sedikit sinis terhadap kunjungan bangsawan. Menjelaskan fungsi guild secara to-the-point.";
+    ella.traitsRevealedPerLevel[1] = {L"Tegas", L"Praktis", L"Skeptis terhadap Bangsawan"};
+    ella.detailedInfoPerLevel[2] = L"Menjelaskan cara kerja guild dalam menangani kasus 'kecil' yang tidak terjangkau aparat. Menunjukkan pemahamannya tentang 'aturan main' di dunia bawah.";
+    ella.traitsRevealedPerLevel[2] = {L"Memahami Realitas Lapangan", L"Transparan (dengan caranya)"};
+    ella.detailedInfoPerLevel[3] = L"Mengungkapkan bahwa guild adalah 'keluarga besar yang kacau balau' baginya, menunjukkan sisi sentimentil di balik sikap kerasnya.";
+    ella.traitsRevealedPerLevel[3] = {L"Dedikasi pada Guild", L"Melindungi Anggotanya"};
+    ella.detailedInfoPerLevel[4] = L"Menyelesaikan sengketa antar petualang dengan cepat dan tegas. Menunjukkan sisi humor sarkastisnya saat berbincang dengan Weiss.";
+    ella.traitsRevealedPerLevel[4] = {L"Pemimpin yang Tegas", L"Humoris (Sarkastis)"};
+    ella.detailedInfoPerLevel[5] = L"Terkesan dengan masukan praktis Weiss tentang formulir quest. Mulai melihat Weiss sebagai individu yang cerdas, bukan hanya bangsawan.";
+    ella.traitsRevealedPerLevel[5] = {L"Menghargai Ide Bagus", L"Mulai Terbuka"};
+    ella.detailedInfoPerLevel[6] = L"Berbagi kisah tentang quest sulit di masa lalu (wabah di Pegunungan Naga Merah), menunjukkan esensi guild yang sebenarnya: membantu orang.";
+    ella.traitsRevealedPerLevel[6] = {L"Menjunjung Tinggi Misi Guild", L"Berpengalaman dalam Krisis"};
+    ella.detailedInfoPerLevel[7] = L"Memberikan nasihat praktis dan informasi sensitif tentang penyelundupan di dermaga, menunjukkan kepercayaannya pada Weiss.";
+    ella.traitsRevealedPerLevel[7] = {L"Memiliki Jaringan Intelijen", L"Berani Mengambil Risiko (Terukur)"};
+    ella.detailedInfoPerLevel[8] = L"Mengakui bahwa Weiss berbeda dari bangsawan kebanyakan karena kepedulian dan tindakannya. Menunjukkan rasa hormat yang tulus.";
+    ella.traitsRevealedPerLevel[8] = {L"Menilai Orang dari Tindakan", L"Mulai Menghormati Weiss"};
+    ella.detailedInfoPerLevel[9] = L"Menyatakan kesamaan tujuan dengan Weiss dalam memberantas premanisme di pasar malam. Menawarkan kerjasama dan menunjukkan sisi protektifnya.";
+    ella.traitsRevealedPerLevel[9] = {L"Berjiwa Keadilan", L"Siap Bekerja Sama"};
+    ella.detailedInfoPerLevel[10] = L"Menganugerahkan Lencana Kehormatan Guild Tertinggi kepada Weiss sebagai simbol kepercayaan penuh dan aliansi. Mengungkap motivasi pribadinya menjalankan guild.";
+    ella.traitsRevealedPerLevel[10] = {L"Sangat Mempercayai Weiss", L"Visioner", L"Mitra Setia"};
+    companions.push_back(ella);
+
+
+    Companion charlotte;
+    charlotte.name = "Charlotte";
+    charlotte.initialLoyalty = 5;
+    charlotte.personality = "Wartawan Gigih Arcadia Chronicle";
+    charlotte.description = "Jurnalis muda yang idealis dan bersemangat dari Harian Arcadia Chronicle. Selalu mencari kebenaran dan tidak mudah menyerah.";
+    charlotte.coreAbilitiesOrTraits = {"Keahlian Investigasi Mendalam", "Menulis Artikel yang Tajam"};
+    charlotte.met = false;
+
+    charlotte.detailedInfoPerLevel[1] = L"Energik dan langsung ke pokok permasalahan. Mengajukan pertanyaan tajam tentang motivasi Weiss terlibat dalam urusan kota.";
+    charlotte.traitsRevealedPerLevel[1] = {L"Gigih", L"Profesional", L"Analitis"};
+    charlotte.detailedInfoPerLevel[2] = L"Mengungkapkan tantangan pekerjaannya dalam memilah fakta dari desas-desus (kasus dermaga). Menunjukkan idealismenya tentang hak publik untuk tahu.";
+    charlotte.traitsRevealedPerLevel[2] = {L"Idealis", L"Memiliki Jaringan Luas (Potensial)"};
+    charlotte.detailedInfoPerLevel[3] = L"Sedang menginvestigasi keluhan pedagang pasar. Terkejut namun menghargai 'tip' dari Weiss, mulai melihat potensi kerjasama.";
+    charlotte.traitsRevealedPerLevel[3] = {L"Peduli pada Rakyat Kecil", L"Mulai Percaya (Sedikit)"};
+    charlotte.detailedInfoPerLevel[4] = L"Terlihat frustrasi menghadapi jalan buntu dalam investigasinya. Menunjukkan semangat juangnya yang tak mau menyerah demi kebenaran.";
+    charlotte.traitsRevealedPerLevel[4] = {L"Pantang Menyerah", L"Berdedikasi Tinggi"};
+    charlotte.detailedInfoPerLevel[5] = L"Mulai bertukar informasi secara lebih terbuka dengan Weiss terkait penyelidikan di dermaga dan catatan properti lama. Kemitraan mulai terbentuk.";
+    charlotte.traitsRevealedPerLevel[5] = {L"Kolaboratif", L"Menghargai Informasi Akurat"};
+    charlotte.detailedInfoPerLevel[6] = L"Bekerja hingga larut malam menyusun artikel investigasi. Berbagi kekhawatiran tentang risiko dan serangan balik dari pihak yang merugi.";
+    charlotte.traitsRevealedPerLevel[6] = {L"Berani Mengambil Risiko (Jurnalistik)", L"Teliti"};
+    charlotte.detailedInfoPerLevel[7] = L"Menghadapi dilema etis terkait penggunaan bukti sensitif dan keselamatan sumber. Memutuskan untuk mengambil risiko bersama Weiss.";
+    charlotte.traitsRevealedPerLevel[7] = {L"Memegang Teguh Etika", L"Berani Bertindak"};
+    charlotte.detailedInfoPerLevel[8] = L"Mengakui bahwa Weiss telah mengubah pandangannya tentang bangsawan. Menunjukkan rasa terima kasih atas dukungan dan keberanian Weiss.";
+    charlotte.traitsRevealedPerLevel[8] = {L"Menghargai Integritas Weiss", L"Rekan yang Solid"};
+    charlotte.detailedInfoPerLevel[9] = L"Melakukan pengintaian berbahaya bersama Weiss untuk mendapatkan bukti final. Menunjukkan keberanian fisik dan ikatan kuat sebagai tim.";
+    charlotte.traitsRevealedPerLevel[9] = {L"Sangat Berani", L"Rekan Seperjuangan"};
+    charlotte.detailedInfoPerLevel[10] = L"Berhasil menerbitkan berita skandal besar. Mengungkap motivasi pribadinya melanjutkan perjuangan ayahnya. Memberikan 'Pena Saksi Kebenaran' sebagai simbol persahabatan abadi.";
+    charlotte.traitsRevealedPerLevel[10] = {L"Pembawa Perubahan", L"Sahabat Setia", L"Sangat Idealistis"};
+    companions.push_back(charlotte);
+
+
+    Companion mars;
+    mars.name = "Mars";
+    mars.initialLoyalty = 10;
+    mars.personality = "Penjaga Pos Hutan yang Tangguh dan Bijaksana";
+    mars.description = "Seorang pria bertubuh tegap yang menjaga Hutan Merah dengan penuh dedikasi. Awalnya pendiam dan waspada, namun memiliki kearifan alam.";
+    mars.coreAbilitiesOrTraits = {"Pengetahuan Hutan Mendalam", "Keahlian Bertahan Hidup Unggul", "Insting Alam Tajam"};
+    mars.met = false;
+
+    mars.detailedInfoPerLevel[1] = L"Sangat formal dan waspada terhadap bangsawan. Menjelaskan tugasnya dengan singkat dan mengingatkan bahaya hutan.";
+    mars.traitsRevealedPerLevel[1] = {L"Tegas", L"Profesional", L"Menghormati Hutan"};
+    mars.detailedInfoPerLevel[2] = L"Sedikit melunak saat Weiss menunjukkan ketertarikan pada masalah perburuan liar. Mulai berbagi informasi tentang tantangan pekerjaannya.";
+    mars.traitsRevealedPerLevel[2] = {L"Peduli Ekosistem", L"Praktis"};
+    mars.detailedInfoPerLevel[3] = L"Mulai berbagi anekdot tentang hutan (babi hutan besar, pencari jamur tersesat). Menunjukkan sisi humor langka dan pengetahuannya tentang tanda-tanda alam.";
+    mars.traitsRevealedPerLevel[3] = {L"Berpengalaman Luas (Hutan)", L"Observatif"};
+    mars.detailedInfoPerLevel[4] = L"Menghargai hadiah apel dari Weiss. Berbagi pengetahuan tentang tanaman obat (Daun Jantung Ungu) dan legenda Bunga Bulan Perak.";
+    mars.traitsRevealedPerLevel[4] = {L"Ahli Tanaman Obat (Dasar)", L"Menyimpan Cerita Hutan"};
+    mars.detailedInfoPerLevel[5] = L"Terkesan dengan kesediaan Weiss membantu memperbaiki pagar. Mulai melihat Weiss berbeda dari rumor dan bangsawan lain. Memberikan air mata air hutan.";
+    mars.traitsRevealedPerLevel[5] = {L"Menilai dari Tindakan", L"Mulai Terbuka"};
+    mars.detailedInfoPerLevel[6] = L"Berbagi kekhawatiran tentang bencana alam di sekitar hutan saat terjebak hujan bersama Weiss. Menunjukkan harapan saat Weiss menawarkan bantuan.";
+    mars.traitsRevealedPerLevel[6] = {L"Peduli Masyarakat Sekitar Hutan", L"Bertanggung Jawab"};
+    mars.detailedInfoPerLevel[7] = L"Sangat berterima kasih atas bantuan Weiss dalam meloloskan proposal peralatan baru. Mengakui Weiss sebagai sahabat sejati hutan.";
+    mars.traitsRevealedPerLevel[7] = {L"Sangat Menghargai Bantuan Nyata", L"Pemimpin yang Dihormati Penjaga Lain"};
+    mars.detailedInfoPerLevel[8] = L"Berbagi kisah pribadi yang mendalam tentang pengalamannya berhadapan dengan Beruang Cakar Besi dan filosofinya tentang menghormati alam.";
+    mars.traitsRevealedPerLevel[8] = {L"Memiliki Ikatan Spiritual dengan Alam", L"Pemberani (dengan Kearifan)"};
+    mars.detailedInfoPerLevel[9] = L"Bekerja sama dengan Weiss dalam operasi penyelamatan tim patroli yang hilang. Mengakui bakat kepemimpinan dan ketenangan Weiss dalam krisis.";
+    mars.traitsRevealedPerLevel[9] = {L"Rekan yang Andal dalam Krisis", L"Mempercayai Weiss"};
+    mars.detailedInfoPerLevel[10] = L"Menunjukkan tempat favoritnya di Hutan Merah dan memberikan 'Taring Serigala Penjaga' sebagai simbol persahabatan abadi dan pengakuan Weiss sebagai 'Penjaga Hutan dalam hati'.";
+    mars.traitsRevealedPerLevel[10] = {L"Sahabat dan Saudara Setia", L"Pelindung Warisan Alam"};
+    companions.push_back(mars);
 
 
 
-companionRelations.clear(); 
-for(const auto& comp : companions) {
-    companionRelations[comp.name] = comp.initialLoyalty;
-}
+    companionRelations.clear(); 
+    for(const auto& comp : companions) {
+        companionRelations[comp.name] = comp.initialLoyalty;
+    }
     
     
     Quest* quest1 = new Quest{"Avoid Death Flags", "Don't die like a typical villain", false, 100, nullptr};
@@ -1469,10 +1531,11 @@ for(const auto& comp : companions) {
     scheduledEvents.push({"Royal Ball", "Social event with plot significance", 90, false});
     
     
-    storyFlags["met_protagonist"] = 0;
-    storyFlags["discovered_tea"] = 0;
-    storyFlags["plot_derailed"] = 0;
-    storyFlags["learned_forbidden_magic"] = 0;
+    storyFlags["duel_persahabatan"] = 0;
+    storyFlags["invasi_mansion"] = 0;
+    storyFlags["invasi_arcadia"] = 0;
+    storyFlags["pedang_pahlawan"] = 0;
+    storyFlags["raja_iblis_final"] = 0;
 
     
     storyFlags["blacksmith_tier1_unlocked"] = 0;
@@ -1580,6 +1643,14 @@ for(const auto& comp : companions) {
     
     enemyDatabase["AvatarOfTheForgottenDeity"] = {"Avatar of the Forgotten Deity", 60, 5000, 5000, 200, 80, 10000, 5000, 80, true, false, 0, 0, 0, 0, 0, "Divine", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
     enemyDatabase["AvernusCoreGuardian"] =      {"Avernus Core Guardian", 60, 4800, 4800, 210, 75, 9800, 4800, 80, true, false, 0, 0, 0, 0, 0, "Construct", {}, 0, 0, 0, 0, false, 0, false, 0, {}};
+
+
+    enemyDatabase["Allain Ragna"] = Enemy("Allain Ragna", 1, 100, 100, 20, 10, 0, 0, 5, true, false, 0, 0, 0, 0, 0, "Humanoid");
+    enemyDatabase["Azazel the Fallen Wing"] = Enemy("Azazel the Fallen Wing", 1, 200, 200, 30, 15, 0, 0, 10, true, false, 0, 0, 0, 0, 0, "Demon");
+    enemyDatabase["Bael the Iron Fist"] = Enemy("Bael the Iron Fist", 1, 300, 300, 40, 20, 0, 0, 10, true, false, 0, 0, 0, 0, 0, "Demon");
+    enemyDatabase["Vorlag, Wujud Awal Bencana"] = Enemy("Vorlag, Wujud Awal Bencana", 1, 500, 500, 50, 25, 0, 0, 15, true, false, 0, 0, 0, 0, 0, "Demon Lord (Form 1)");
+    enemyDatabase["Vorlag, Wujud Sempurna Bencana"] = Enemy("Vorlag, Wujud Sempurna Bencana", 1, 700, 700, 60, 30, 0, 0, 20, true, false, 0, 0, 0, 0, 0, "True Demon Sovereign");
+    enemyDatabase["Allain Ragna, Cahaya Pengharapan Terakhir"] = Enemy("Allain Ragna, Cahaya Pengharapan Terakhir", 1, 400, 400, 45, 25, 0, 0, 20, true, false, 0, 0, 0, 0, 0, "Heroic Spirit");
 
     
     Dungeon ancientTemple;
@@ -1798,7 +1869,8 @@ void showItemShop() {
         printLine(60, L'─');
         wcout << L"Pilih item untuk dibeli ✦: ";
 
-        cin >> choice;
+        choice = getValidatedChoice(1, 10); 
+
         if (cin.fail() || choice < 0 || choice > static_cast<int>(shopStock.size())) { 
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), L'\n');
@@ -1831,14 +1903,11 @@ void showItemShop() {
             } else {
                 delayPrint(L"❌ Emas Anda tidak cukup.", 20);
             }
-            wcout << L"Tekan Enter untuk kembali ke toko...";
-            if(cin.peek() == '\n') cin.ignore(); 
-            cin.ignore(numeric_limits<streamsize>::max(), L'\n');
+            waitForEnter(L"Tekan Enter untuk kembali ke toko...");
             
         } else if (choice != 0) {
             delayPrint(L"Pilihan tidak valid.", 20);
-            wcout << L"Tekan Enter untuk melanjutkan...";
-            cin.ignore(numeric_limits<streamsize>::max(), L'\n');
+            waitForEnter(L"Tekan Enter untuk melanjutkan...");
             
         }
          
@@ -1853,8 +1922,7 @@ void showItemShop() {
 
     } while (choice != 0);
     delayPrint(L"Terima kasih sudah berkunjung!", 20);
-    wcout << L"Tekan Enter untuk melanjutkan...";
-    if(cin.peek() == '\n') cin.ignore();
+    waitForEnter();
     
 }
 
@@ -1907,7 +1975,8 @@ void showBlacksmith() {
         printLine(80, L'─');
         wcout << L"Pilih senjata untuk dibeli ✦: ";
 
-        cin >> choice;
+        choice = getValidatedChoice(1, 10); 
+
          if (cin.fail() || choice < 0 || choice > static_cast<int>(availableWeapons.size())) { 
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), L'\n');
@@ -1952,20 +2021,17 @@ void showBlacksmith() {
             } else {
                 delayPrint(L"❌ Emas Anda tidak cukup untuk membeli senjata ini.", 20);
             }
-            wcout << L"Tekan Enter untuk kembali ke penempa...";
-            if(cin.peek() == '\n') cin.ignore(); 
-            cin.ignore(numeric_limits<streamsize>::max(), L'\n');
+            waitForEnter(L"Tekan Enter untuk kembali ke penempa...");
             
         } else if (choice != 0) {
             delayPrint(L"Pilihan tidak valid.", 20);
-            wcout << L"Tekan Enter untuk melanjutkan...";
-            cin.ignore(numeric_limits<streamsize>::max(), L'\n');
+            waitForEnter();
             
         }
         
         if (choice != 0) {
              if(cin.peek() != '\n') {
-                 cin.ignore(numeric_limits<streamsize>::max(), L'\n');
+                 waitForEnter();
             } else {
                  cin.ignore();
             }
@@ -1973,8 +2039,7 @@ void showBlacksmith() {
 
     } while (choice != 0);
     delayPrint(L"Hati-hati di jalan, Tuan Muda!", 20);
-    wcout << L"Tekan Enter untuk melanjutkan...";
-    if(cin.peek() == '\n') cin.ignore();
+    waitForEnter();
     
 }
 
@@ -2300,7 +2365,8 @@ void displayElementSkillTree(Character& character, const string& elementName) {
         printLine(60, L'-');
         wcout << L"Pilih spell untuk dipelajari (nomor) atau 0 untuk kembali: ";
         int choice;
-        cin >> choice;
+        choice = getValidatedChoice(1, 20 ); 
+
 
         if (cin.fail()) {
             cin.clear();
@@ -2312,13 +2378,9 @@ void displayElementSkillTree(Character& character, const string& elementName) {
             canGoBack = true;
         } else if (choice > 0 && choice <= learnableSpellsList.size()) {
             learnSpell(character, learnableSpellsList[choice-1]->id);
-            wcout << L"Tekan Enter untuk lanjut...";
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cin.get(); 
+            waitForEnter(L" Tekan enter untuk lanjut" ); 
         } else {
-            wcout << L"Pilihan tidak valid. Tekan Enter...";
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cin.get();
+            waitForEnter(L"Pilihan tidak valid. Tekan Enter...");
         }
     }
 }
@@ -2967,7 +3029,7 @@ void showActiveQuestsInDiary() {
             if (cin.peek() == '\n') {
                 cin.ignore();
             }
-            cin.get();
+            waitForEnter();
             stayInQuestView = false; 
             break; 
         }
@@ -3030,14 +3092,7 @@ void showActiveQuestsInDiary() {
             wcout << L"✦ Hadiah    : " << selectedNode->data.expReward << L" EXP, " << selectedNode->data.goldReward << L" Gold" << endl;
             wcout << L"Status      : " << (selectedNode->data.completed ? L"✅ Selesai" : (selectedNode->data.taken ? L"⏳ Berlangsung" : L"Belum Diambil")) << endl;
             printLine();
-            wcout << L"Tekan Enter untuk kembali ke daftar quest aktif...";
-            
-            
-            
-            if (cin.peek() == '\n') {
-                 cin.ignore();
-            }
-            cin.get(); 
+            waitForEnter(L"Tekan Enter untuk kembali ke daftar quest aktif..."); 
             
         } else {
             delayPrint(L"Pilihan quest tidak valid.", 20);
@@ -3286,7 +3341,8 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
 
         int choice;
         wcout << L"Aksi ✦: ";
-        cin >> choice;
+        choice = getValidatedChoice(1, 5); 
+
         if (cin.fail()) { cin.clear(); cin.ignore(numeric_limits<streamsize>::max(), '\n'); choice = 99; }
 
         
@@ -3635,6 +3691,23 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
                             player.hp = min(player.maxHp, player.hp + healAmount);
                             battleLogMessages.push_back(L"  Kamu memulihkan " + to_wstring(healAmount) + L" HP!");
                         }
+                        if (chosenSpell->id == "DARK_SHADOW_WALK_2"){
+                                bool shadowWalkActive = false;
+                                int bonusDmgAmount = 30 + finalPlayerIntelligence/2; 
+                                for(auto& ench : player.activeEnchantments){
+                                    if(ench.spellId == "SHADOW_WALK_BONUS"){ 
+                                        ench.remainingTurns = 1;
+                                        ench.attackBonus = max(ench.attackBonus, bonusDmgAmount); 
+                                        shadowWalkActive = true;
+                                        battleLogMessages.push_back(L"  Efek Shadow Walk diperbarui!");
+                                        break;
+                                    }
+                                }
+                                if(!shadowWalkActive) {
+                                    player.activeEnchantments.push_back({"SHADOW_WALK_BONUS", "Shadow Walk Attack", 1, bonusDmgAmount});
+                                }
+                                battleLogMessages.push_back(L"  Kamu menghilang ke bayangan, serangan fisik berikutnya akan lebih kuat!");
+                            }
                         if (chosenSpell->id == "LIGHT_PURIFICATION_1" || chosenSpell->id == "LIGHT_DIVINE_RENEWAL_3") {
                             
                             battleLogMessages.push_back(L"  ✨ Semua efek negatif ringan telah dimurnikan darimu!");
@@ -3702,7 +3775,7 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
                     delayPrint(turnActionLog, 20); battleLogMessages.push_back(turnActionLog);
                     processEndOfPlayerTurn(player, battleLogMessages);
                     drawBattleScreen(enemy, player, battleLogMessages);
-                    wcout << L"\nTekan Enter untuk lanjut..."; cin.ignore(numeric_limits<streamsize>::max(), '\n'); if(cin.peek()=='\n') cin.ignore(); cin.get();
+                    waitForEnter(L"Tekan enter untuk lanjut.....");
                     return PLAYER_ESCAPED;
                 } else {
                     turnActionLog = L"➤ Gagal kabur!";
@@ -3753,18 +3826,23 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
                         } else { battleLogMessages.push_back(L"➤ Serangan " + utf8_to_wstring(enemy.name) + L" meleset!"); }
                     }
                 } else if (enemy.isSilenced && enemy.silenceDuration > 0) {
-                    battleLogMessages.push_back(L"➤ " + utf8_to_wstring(enemy.name) + L" terbungkam!");
-                    
-                    if (rand() % 100 < enemyHitChance) { /* ... serangan fisik musuh dengan shield check & retaliate ... */ } else { /* ... meleset ... */ }
+                    battleLogMessages.push_back(L"➤ " + utf8_to_wstring(enemy.name) + L" terbungkam dan tidak bisa menggunakan sihir!");
+                    if (rand() % 100 < enemyHitChance) {
+                        int actualDamageToPlayer = baseDamageToPlayer;
+                        if (playerIsPhysicallyImmune) { battleLogMessages.push_back(L"  🛡️ Serangan fisik " + utf8_to_wstring(enemy.name) + L" tidak berpengaruh (Immune)!"); actualDamageToPlayer = 0; }
+                        else { for(auto& ench : player.activeEnchantments) { if (ench.shieldHp > 0) { if (ench.shieldHp >= actualDamageToPlayer) { ench.shieldHp -= actualDamageToPlayer; battleLogMessages.push_back(L"  🛡️ Perisaimu menyerap " + to_wstring(actualDamageToPlayer) + L" damage! Sisa: " + to_wstring(ench.shieldHp)); actualDamageToPlayer = 0;} else { actualDamageToPlayer -= ench.shieldHp; battleLogMessages.push_back(L"  🛡️ Perisaimu hancur menyerap " + to_wstring(ench.shieldHp) + L" damage!"); ench.shieldHp = 0;} break;}}}
+                        if (actualDamageToPlayer > 0) { player.hp -= actualDamageToPlayer; }
+                        battleLogMessages.push_back(L"➤ " + utf8_to_wstring(enemy.name) + L" menyerangmu (fisik)! Damage diterima: " + to_wstring(actualDamageToPlayer));
+                        if (playerRetaliateDamage > 0 && !playerIsPhysicallyImmune && baseDamageToPlayer > 0 && enemy.hp > 0) { enemy.hp -= playerRetaliateDamage; battleLogMessages.push_back(L"  ⚔️ " + utf8_to_wstring(enemy.name) + L" terkena damage balasan " + to_wstring(playerRetaliateDamage) + L"!"); if (enemy.hp <= 0) { enemy.hp = 0;}}
+                    } else { battleLogMessages.push_back(L"➤ Serangan " + utf8_to_wstring(enemy.name) + L" meleset!"); }
                 } else { 
                     if (rand() % 100 < enemyHitChance) {
                         int actualDamageToPlayer = baseDamageToPlayer;
-                        if (choice == 4) { actualDamageToPlayer /= 2; }
-                        if (playerIsPhysicallyImmune) { /* ... Immune ... */ actualDamageToPlayer = 0;}
-                        else { for(auto& ench : player.activeEnchantments) { if (ench.shieldHp > 0) { /* ... Shield logic ... */ break;}}}
+                        if (playerIsPhysicallyImmune) { actualDamageToPlayer = 0; battleLogMessages.push_back(L"  🛡️ Serangan fisik " + utf8_to_wstring(enemy.name) + L" tidak berpengaruh (Immune)!");}
+                        else { for(auto& ench : player.activeEnchantments) { if (ench.shieldHp > 0) { if (ench.shieldHp >= actualDamageToPlayer) { ench.shieldHp -= actualDamageToPlayer; actualDamageToPlayer = 0; battleLogMessages.push_back(L"  🛡️ Perisaimu menyerap semua damage! Sisa: " + to_wstring(ench.shieldHp));} else { actualDamageToPlayer -= ench.shieldHp; ench.shieldHp = 0; battleLogMessages.push_back(L"  🛡️ Perisaimu hancur! Sisa damage: " + to_wstring(actualDamageToPlayer));} break;}}}
                         if (actualDamageToPlayer > 0) { player.hp -= actualDamageToPlayer; }
                         battleLogMessages.push_back(L"➤ " + utf8_to_wstring(enemy.name) + L" menyerangmu! Damage diterima: " + to_wstring(actualDamageToPlayer));
-                        if (playerRetaliateDamage > 0 && !playerIsPhysicallyImmune && baseDamageToPlayer > 0) { /* ... Retaliate ... */ }
+                        if (playerRetaliateDamage > 0 && !playerIsPhysicallyImmune && baseDamageToPlayer > 0 && enemy.hp > 0) { enemy.hp -= playerRetaliateDamage; battleLogMessages.push_back(L"  ⚔️ " + utf8_to_wstring(enemy.name) + L" terkena damage balasan " + to_wstring(playerRetaliateDamage) + L"!"); if (enemy.hp <= 0) { enemy.hp = 0;}}
                     } else { battleLogMessages.push_back(L"➤ Serangan " + utf8_to_wstring(enemy.name) + L" meleset!"); }
                 }
             }
@@ -3788,9 +3866,7 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
         if (player.hp <= 0 || enemy.hp <= 0) { /* Loop akan berhenti */ }
         else {
             drawBattleScreen(enemy, player, battleLogMessages);
-            wcout << L" << Tekan Enter Untuk Melanjutkan Ke Turn Selanjutnya <<";
-            cin.ignore();
-            cin.get();
+            waitForEnter(L"<<<< Tekan Enter Untuk Melanjutkan Ke Turn Selanjutnya >>>> ");
         }
     } 
 
@@ -3819,7 +3895,7 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
             printLine();
             delayPrint(L"",10); delayPrint(L"❌ Kamu telah mati dan gagal mengubah segalanya...", 50);
             printLine();
-            waitForEnter();
+            waitForEnter(L" Tekan enter untuk keluar");
             gameRunning = false; 
             return PLAYER_DEAD;   
     } else {
@@ -3831,9 +3907,9 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
             wcout << L"🎉 Kamu mendapatkan: " << to_wstring(enemy.goldDrop) << L" Gold 💰 dan " << to_wstring(enemy.expReward) << L" EXP 📚.\n";
             printLine();
             player.gold += enemy.goldDrop;
-            wcout << "<< Tekan Enter Untuk Berpindah Ke Selanjutnya";
-            cin.get();
+            waitForEnter();
             handleExperienceAndLevelUp(player, enemy.expReward);
+            waitForEnter();
             ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
             ActiveDailyQuestNode* prevQuestNode = nullptr;
             int expFromCompletedQuests = 0; 
@@ -3849,11 +3925,6 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
                         if (quest.dungeonName != currentDungeonName) {
                             dungeonRequirementMet = false;
                         }
-                        
-                        
-                        
-                        
-                        
                     }
 
                     if (dungeonRequirementMet) {
@@ -3884,20 +3955,13 @@ BattleResult startBattle(Enemy& baseEnemy, const string& currentDungeonName = ""
                         prevQuestNode = currentQuestNode;
                         currentQuestNode = currentQuestNode->next;
                     }
-                    handleExperienceAndLevelUp(player, enemy.expReward + expFromCompletedQuests);
+                    handleExperienceAndLevelUp(player, expFromCompletedQuests);
                 }
 
             printLine();
         } else if (playerRevivedThisBattle && enemy.hp > 0) {
             delayPrint(L" Kamu bangkit, namun musuh masih berdiri. Pertarungan berakhir untuk saat ini.", 40);
         }
-    }
-    cin.clear();
-    
-    if (cin.rdbuf()->in_avail() > 0) { 
-         cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    } else if (cin.peek() == '\n' && cin.peek() != EOF) { 
-         cin.ignore();
     }
     if (player.hp <= 0) {
     return PLAYER_DEAD;
@@ -4000,10 +4064,6 @@ void showWeaponDetail(Weapon* weapon) {
     wcout << L"    ❖ 2. Kembali" << endl;
     printLine(50, L'─');
     wcout << L"Pilih aksi ✦: ";
-}
-
-void applySocialLinkBonus(const string& npcName) {
-    
 }
 
 void showCompanionListScreen() {
@@ -4129,13 +4189,13 @@ void showCompanionDetailScreen(const Companion& companion) {
             
             
             
-            wcout << L"    Tekan Enter untuk kembali ke Daftar Rekanan." << endl; 
+            waitForEnter(L"Tekan Enter untuk kembali ke Daftar Rekanan.");
         } else {
             wcout << L" Nama         : ???" << endl;
             wcout << L" Status       : Belum Dikenal" << endl;
             wcout << L" Informasi    : Anda belum bertemu dengan individu ini." << endl;
             printLine(70, L'─');
-            wcout << L"    Tekan Enter untuk kembali ke Daftar Rekanan." << endl; 
+            waitForEnter(L"Tekan Enter untuk kembali ke Daftar Rekanan."); 
         }
         printLine(70, L'─');
         
@@ -4149,7 +4209,7 @@ void showCompanionDetailScreen(const Companion& companion) {
             cin.ignore(); 
         }
         
-        cin.get(); 
+        waitForEnter(); 
 
         
     
@@ -4158,7 +4218,7 @@ void showCompanionDetailScreen(const Companion& companion) {
 void enterDungeon(string dungeonName) {
     if (allDungeons.count("Goa Avernix")) {
     Dungeon& dungeon = allDungeons["Goa Avernix"];
-    int currentFloor = dungeon.currentFloor; // biasanya 1 saat masuk
+    int currentFloor = dungeon.currentFloor; 
 
     ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
     ActiveDailyQuestNode* prevQuestNode = nullptr;
@@ -4204,7 +4264,7 @@ void enterDungeon(string dungeonName) {
 }
     if (allDungeons.count("Ancient Temple")) {
     Dungeon& dungeon = allDungeons["Ancient Temple"];
-    int currentFloor = dungeon.currentFloor; // biasanya 1 saat masuk
+    int currentFloor = dungeon.currentFloor; 
 
     ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
     ActiveDailyQuestNode* prevQuestNode = nullptr;
@@ -4287,7 +4347,7 @@ void enterDungeon(string dungeonName) {
             centerText(L"❌ Ada tembok tinggi yang menghalangi jalan selanjutnya ");
             centerText(L"        Mungkin progress cerita akan membukanya!         ");
             printLine();
-            wcout << L"Tekan Enter untuk keluar dari dungeon..."; cin.ignore(); cin.get();
+            waitForEnter(L"Tekan Enter untuk keluar dari dungeon...");
             return;
         }
 
@@ -4433,7 +4493,8 @@ void enterDungeon(string dungeonName) {
             wcout << L"Pilih aksi ✦: ";
 
             int choice;
-            cin >> choice;
+            choice = getValidatedChoice(1, 4); 
+
 
             switch (choice) {
                 case 1:
@@ -4554,8 +4615,6 @@ void enterDungeon(string dungeonName) {
                     break;
             }   
 }
-
-        wcout << L"\nTekan Enter untuk lanjut..."; cin.ignore(); cin.get();
     }
 }
 
@@ -4610,7 +4669,8 @@ void showDiaryMenu() {
         printLine(50, L'─');
         wcout << L"Pilih menu ✦: ";
         
-        cin >> choice;
+        choice = getValidatedChoice(1, 9); 
+
         
         switch(choice) {
             case 1: {
@@ -4629,9 +4689,7 @@ void showDiaryMenu() {
                 wcout << L"Experience: " << player.exp << endl;
                 wcout << L"Gold: " << player.gold << endl;
                 printLine();
-                wcout << L"Tekan Enter untuk kembali...";
-                cin.ignore();
-                cin.get();
+                waitForEnter();
                 break;
             }
             case 2: {
@@ -4699,9 +4757,7 @@ void showDiaryMenu() {
                                             player.equippedWeapon = nullptr;
                                             wcout << L"Senjata " << selectedWeapon->name.c_str() << L" dilepas!" << endl;
                                         }
-                                        wcout << L"Tekan Enter untuk melanjutkan...";
-                                        cin.ignore();
-                                        cin.get();
+                                        waitForEnter();
                                     }
                                 } while(detailChoice != 2);
                             }
@@ -4759,9 +4815,7 @@ void showDiaryMenu() {
                 break;
             case 7:
             case 8:
-                wcout << L"Fitur belum diimplementasikan. Tekan Enter...";
-                cin.ignore();
-                cin.get();
+                waitForEnter();
                 break;
         }
     } while(choice != 9 && choice != 0);
@@ -4769,6 +4823,99 @@ void showDiaryMenu() {
     if(choice == 0) {
         gameRunning = false;
     }
+}
+
+void applySocialLinkBonus(const string& npcName) {
+    system("cls"); 
+    printLine();
+    centerText(L"✦✦✦ IKATAN TELAH MENCAPAI PUNCAK ✦✦✦");
+    printLine();
+    delayPrint(L"Hubunganmu dengan " + utf8_to_wstring(npcName) + L" telah mencapai level tertinggi!", 30);
+    delayPrint(L"Ikatan yang kuat ini memberimu kekuatan baru dan sebuah kenang-kenangan berharga.", 20);
+    wcout << endl;
+
+    string weaponNameToAdd = "";
+    string uppercaseNpcName = npcName;
+    transform(uppercaseNpcName.begin(), uppercaseNpcName.end(), uppercaseNpcName.begin(), ::toupper);
+    string flagToSet = uppercaseNpcName + "_LV10_COMPLETE";
+
+    if (npcName == "Masha") {
+        weaponNameToAdd = "Aurora's Thorned Blossom";
+        delayPrint(L"Kepercayaan dan pemahaman mendalam dengan Putri Masha telah membuka jalan baru bagimu.", 20);
+    } else if (npcName == "Kinich") {
+        weaponNameToAdd = "Heartstone Pickaxe";
+        delayPrint(L"Para penambang Avernix kini menghormatimu setinggi Kinich menghargai batu permata.", 20);
+    } else if (npcName == "Irene") {
+        weaponNameToAdd = "Gardener's Gentle Thorn";
+        delayPrint(L"Kehangatan dan kesetiaan tulus Irene memberimu semangat dan harapan baru.", 20);
+    } else if (npcName == "Ruigerd") {
+        weaponNameToAdd = "Chef's Honor Cleaver";
+        delayPrint(L"Resep kehidupan dan kearifan Ruigerd kini terukir dalam jiwamu, setajam bilah kehormatannya.", 20);
+    } else if (npcName == "Ella") {
+        weaponNameToAdd = "Guildmaster's Ledger Blade";
+        delayPrint(L"Cross Guild, di bawah kepemimpinan Ella, kini menjadi sekutu kuat yang tak tergoyahkan.", 20);
+    } else if (npcName == "Charlotte") {
+        weaponNameToAdd = "Truthseeker's Quillpoint";
+        delayPrint(L"Pena kebenaran Charlotte yang tajam kini juga menjadi bagian dari persenjataanmu melawan ketidakadilan.", 20);
+    } else if (npcName == "Mars") {
+        weaponNameToAdd = "Warden's Silent Fang (Knife)"; 
+        delayPrint(L"Roh Hutan Merah kini mengalir dalam dirimu, melindungimu melalui ikatan sucimu dengan Mars.", 20);
+    }
+
+  
+    if (!flagToSet.empty()) {
+        storyFlags[flagToSet] = 1; 
+    }
+
+    if (!weaponNameToAdd.empty() && weaponDatabase.count(weaponNameToAdd)) {
+        Weapon* specialWeapon = weaponDatabase[weaponNameToAdd];
+
+  
+        bool alreadyOwned = false;
+        for (const auto* pWeapon : player.weapons) {
+            if (pWeapon && pWeapon->name == weaponNameToAdd) {
+                alreadyOwned = true;
+                break;
+            }
+        }
+
+        if (!alreadyOwned && specialWeapon) { 
+            player.weapons.push_back(specialWeapon);
+            wcout << endl;
+            delayPrint(L"✨ Kamu menerima sebuah senjata istimewa sebagai tanda ikatanmu: ✨", 30);
+            printLine(40, L'-');
+            centerText(L"📜 " + utf8_to_wstring(specialWeapon->name) + L" 📜", 40);
+            printLine(40, L'-');
+            delayPrint(L"   " + utf8_to_wstring(specialWeapon->description), 20);
+            wcout << endl;
+        } else if (alreadyOwned && specialWeapon) {
+            delayPrint(L"Kamu sudah memiliki " + utf8_to_wstring(specialWeapon->name) + L", namun ikatanmu tetap menjadi yang terkuat.", 20);
+        } else if (!weaponNameToAdd.empty() && !specialWeapon) {
+             delayPrint(L"[ERROR INTERNAL] Senjata spesial '" + utf8_to_wstring(weaponNameToAdd) + L"' tidak ditemukan datanya di database!", 20);
+        }
+    } else if (!weaponNameToAdd.empty()) {
+        delayPrint(L"[ERROR] Definisi senjata spesial '" + utf8_to_wstring(weaponNameToAdd) + L"' tidak ditemukan di database!", 20);
+    }
+
+    int bonusHp = 15 + rand() % 11; 
+    int bonusMana = 10 + rand() % 6; 
+    player.maxHp += bonusHp;
+    player.hp += bonusHp; 
+    player.maxMana += bonusMana;
+    player.mana += bonusMana;
+
+    wcout << endl;
+    delayPrint(L"Ikatanmu yang tak terpatahkan memberimu kekuatan baru:", 20);
+    delayPrint(L"   💖 Max HP +" + to_wstring(bonusHp), 20);
+    delayPrint(L"   💠 Max Mana +" + to_wstring(bonusMana), 20);
+    if (npcName == "Masha" || npcName == "Charlotte") player.intelligence +=1; 
+    if (npcName == "Kinich" || npcName == "Mars") player.strength +=1;
+    if (npcName == "Ruigerd" || npcName == "Ella") player.defense +=1;
+    if (npcName == "Irene") player.agility +=1;
+
+
+    printLine();
+
 }
 
 void sceneRuigerdLevel1() {
@@ -5007,7 +5154,13 @@ void sceneRuigerdLevel10() {
     delayPrint(L"Ruigerd: \"Suatu kehormatan terbesar bagi saya, Tuan Muda. Suatu kehormatan terbesar.\"", 30);
     delayPrint(L"Di tengah aroma masakan yang memikat dan kehangatan persahabatan yang tulus, kamu merasa ikatanmu dengan Ruigerd telah mencapai puncaknya. Sebuah hubungan yang ditempa oleh waktu, rasa hormat, dan kasih sayang yang tulus, layaknya hidangan terbaik yang membutuhkan kesabaran dan cinta untuk tercipta.", 30);
 
-    
+    waitForEnter(L" Kamu telah membentuk ikatan terkuat...... Tekan Enter untuk melihat detailnya");
+
+    if (!socialLinks["Ruigerd"].completed) { 
+        applySocialLinkBonus("Ruigerd"); 
+        socialLinks["Ruigerd"].completed = true; 
+    }
+
 
     printLine();
     waitForEnter();
@@ -5252,7 +5405,12 @@ void sceneIreneLevel10() {
     delayPrint(L"Irene: \"Selalu, Tuan Muda Weiss. Selalu.\"", 30);
     delayPrint(L"Di bawah langit taman yang menjadi saksi bisu perjalanan persahabatan mereka, sebuah ikatan yang tak terukur nilainya, lebih berharga dari semua harta dunia, telah terjalin abadi. Jam saku itu bukan sekadar penunjuk waktu, melainkan simbol harapan, perubahan, kesetiaan, dan cinta persaudaraan yang akan selalu mereka kenang dan pegang teguh.", 30);
 
-    
+    waitForEnter(L" Kamu telah membentuk ikatan terkuat...... Tekan Enter untuk melihat detailnya");
+
+    if (!socialLinks["Irene"].completed) { 
+        applySocialLinkBonus("Irene"); 
+        socialLinks["Irene"].completed = true; 
+    }    
 
     printLine();
     waitForEnter();
@@ -5501,7 +5659,12 @@ void sceneEllaLevel10() {
     delayPrint(L"Ella: \"Dengan senang hati, partner.\" (Mengedipkan sebelah mata)", 30);
     delayPrint(L"Di ruangan pribadi itu, sebuah aliansi yang kuat dan tulus telah termeterai. Bukan lagi antara Tuan Muda Astra dan Guild Master, tapi antara Weiss dan Ella, dua individu yang berbagi visi dan siap berjuang bersama untuk masa depan Arcadia yang lebih baik.", 30);
 
-    
+    waitForEnter(L" Kamu telah membentuk ikatan terkuat...... Tekan Enter untuk melihat detailnya");
+
+    if (!socialLinks["Ella"].completed) { 
+        applySocialLinkBonus("Ella"); 
+        socialLinks["Ella"].completed = true; 
+    }
 
     printLine();
     waitForEnter();
@@ -5774,7 +5937,12 @@ void sceneCharlotteLevel10() {
     delayPrint(L"Weiss: (Tersenyum lebar) \"Saya tidak akan menolak tawaran itu, Charlotte! Ayo!\"", 30);
     delayPrint(L"Di tengah keriuhan kota yang merayakan terungkapnya skandal besar, Weiss dan Charlotte berjalan berdampingan, bukan lagi hanya sebagai bangsawan dan wartawan, tapi sebagai dua sahabat, dua sekutu, yang telah membuktikan bahwa bersama, mereka bisa membawa perubahan. Pena dan pengaruh, ketika digabungkan dengan niat baik, memang bisa menjadi kekuatan yang luar biasa.", 30);
 
-    
+    waitForEnter(L" Kamu telah membentuk ikatan terkuat...... Tekan Enter untuk melihat detailnya");
+
+    if (!socialLinks["Charlotte"].completed) { 
+        applySocialLinkBonus("Charlotte"); 
+        socialLinks["Charlotte"].completed = true; 
+    }    
 
     printLine();
     waitForEnter();
@@ -6035,7 +6203,12 @@ void sceneMarsLevel10() {
     delayPrint(L"Mars: \"Ayo! Tapi setelah kita menikmati secangkir kopi panas dan sarapan sederhana di pos. Perut juga butuh dijaga, bukan?\"", 30);
     delayPrint(L"Di puncak bukit itu, dengan Hutan Merah terbentang di bawah mereka sebagai saksi, sebuah persahabatan yang kokoh dan penuh makna telah mencapai puncaknya. Weiss dan Mars, dua jiwa dari dunia yang berbeda, kini bersatu dalam semangat dan dedikasi untuk menjaga alam dan memperjuangkan kebaikan.", 30);
 
-    
+    waitForEnter(L" Kamu telah membentuk ikatan terkuat...... Tekan Enter untuk melihat detailnya");
+
+    if (!socialLinks["Mars"].completed) { 
+        applySocialLinkBonus("Mars"); 
+        socialLinks["Mars"].completed = true; 
+    }
 
     printLine();
     waitForEnter();
@@ -6308,7 +6481,12 @@ void sceneKinichLevel10() {
     delayPrint(L"Weiss: (Tersenyum, memandang sekeliling dengan takjub) \"Kau benar, Kinich. Sangat benar.\"", 30);
     delayPrint(L"Di tengah keindahan magis 'Jantung Goa', sebuah ikatan persaudaraan yang ditempa oleh bahaya, kepercayaan, dan rasa hormat timbal balik telah mencapai puncaknya. Weiss dan Kinich, dua pria dari dunia yang sangat berbeda, kini bersatu sebagai penjaga dan sahabat Goa Avernix, siap menghadapi masa depan bersama.", 30);
 
-    
+    waitForEnter(L" Kamu telah membentuk ikatan terkuat...... Tekan Enter untuk melihat detailnya");
+
+    if (!socialLinks["Kinich"].completed) { 
+        applySocialLinkBonus("Kinich"); 
+        socialLinks["Kinich"].completed = true; 
+    }
 
     printLine();
     waitForEnter();
@@ -6568,7 +6746,12 @@ void sceneMashaLevel10() {
     delayPrint(L"Weiss: (Menjabat tangan Masha dengan erat) \"Bersama.\"", 30);
     delayPrint(L"Di tengah kemeriahan festival, di antara keindahan bunga-bunga yang mekar, sebuah persahabatan yang unik dan kuat telah mencapai puncaknya. Weiss dan Masha, dua jiwa bangsawan yang menemukan koneksi tak terduga, kini siap melangkah maju, saling mendukung, dan mungkin, bersama-sama membawa perubahan positif bagi dunia mereka.", 30);
 
-    
+    waitForEnter(L" Kamu telah membentuk ikatan terkuat...... Tekan Enter untuk melihat detailnya");
+
+    if (!socialLinks["Masha"].completed) { 
+        applySocialLinkBonus("Masha"); 
+        socialLinks["Masha"].completed = true; 
+    }    
 
     printLine();
     waitForEnter();
@@ -6585,6 +6768,7 @@ void interactWithNPC(const string& npcName) {
     wcout << L"Apakah kamu yakin ingin berbicara dengan " << utf8_to_wstring(npcName) << L"? (y/n): ";
     char choice;
     cin >> choice;
+
     if (choice != 'y' && choice != 'Y') return;
 
     if (currentActionsRemaining <= 0) {
@@ -6700,6 +6884,944 @@ void interactWithNPC(const string& npcName) {
     }
 }
 
+void temporarilyGrantAllMagicToPlayer(Character& playerChar, bool grant) {
+    static vector<string> originalKnownSpells_backup; // Ganti nama variabel agar tidak konflik
+    static vector<string> originalUnlockedElements_backup;
+    static int originalIntBuff_backup = 0; 
+    static int originalMagicAttackBuff_backup = 0;
+    static int originalMaxMana_backup = 0;
+    static int originalMaxHp_backup = 0;
+
+
+    if (grant) {
+        originalKnownSpells_backup = playerChar.knownSpells;
+        originalUnlockedElements_backup = playerChar.unlockedMagicElements;
+        originalIntBuff_backup = 25; 
+        originalMagicAttackBuff_backup = 30;
+        originalMaxMana_backup = playerChar.maxMana; // Simpan maxMana asli
+        originalMaxHp_backup = playerChar.maxHp;   // Simpan maxHp asli
+
+
+        playerChar.knownSpells.clear();
+        playerChar.unlockedMagicElements.clear();
+        
+        delayPrint(L"Kau merasakan gelombang energi sihir liar dan tak terbatas melonjak dalam dirimu!", 30);
+        delayPrint(L"Semua pengetahuan sihir dari setiap elemen kini terbuka paksa untukmu!", 40);
+
+        for (const auto& pair : allMagicElements) {
+            playerChar.unlockedMagicElements.push_back(pair.first);
+            for (const auto& spellPair : pair.second.spells) {
+                if (spellPair.second.tier <= 2) { 
+                    bool alreadyHas = false;
+                    for(const string& id : playerChar.knownSpells) if(id == spellPair.first) alreadyHas = true;
+                    if(!alreadyHas) playerChar.knownSpells.push_back(spellPair.first);
+                }
+            }
+        }
+        playerChar.intelligence += originalIntBuff_backup; 
+        playerChar.magicAttack += originalMagicAttackBuff_backup;
+        playerChar.maxMana = static_cast<int>(originalMaxMana_backup * 1.8); // Buff Max Mana lebih besar
+         if(playerChar.maxMana < 300) playerChar.maxMana = 300; // Minimal Max Mana saat buff
+        playerChar.mana = playerChar.maxMana; 
+        playerChar.maxHp = static_cast<int>(originalMaxHp_backup * 1.5); // Buff Max HP juga
+        playerChar.hp = playerChar.maxHp;
+
+        wcout << L"Kekuatanmu meluap! (Semua Elemen Terbuka, Statistik Ditingkatkan Sementara!)" << endl;
+
+    } else { 
+        playerChar.knownSpells = originalKnownSpells_backup;
+        playerChar.unlockedMagicElements = originalUnlockedElements_backup;
+        playerChar.intelligence -= originalIntBuff_backup; 
+        playerChar.magicAttack -= originalMagicAttackBuff_backup;
+        playerChar.maxMana = originalMaxMana_backup; // Kembalikan Max Mana
+        if(playerChar.mana > playerChar.maxMana) playerChar.mana = playerChar.maxMana;
+        playerChar.maxHp = originalMaxHp_backup; // Kembalikan Max HP
+        if(playerChar.hp > playerChar.maxHp) playerChar.hp = playerChar.maxHp;
+    }
+}
+
+void setupBuffedAllainForDuel(Enemy& allainDuelTarget) {
+    allainDuelTarget.name = "Allain Ragna, Sang Pahlawan Bersinar";
+    allainDuelTarget.level = player.level + 12; 
+    allainDuelTarget.maxHp = static_cast<int>(player.maxHp * 3.0 + 700); 
+    if (allainDuelTarget.maxHp < 2000) allainDuelTarget.maxHp = 2000;
+    allainDuelTarget.hp = allainDuelTarget.maxHp;
+    allainDuelTarget.attack = player.strength + 40; 
+    allainDuelTarget.defense = player.defense + 25;  
+    allainDuelTarget.magicDefense = player.intelligence + 15; 
+    allainDuelTarget.isBoss = true;
+    allainDuelTarget.enemyType = "Heroic Embodiment"; 
+
+    delayPrint(L"Allain Ragna memegang erat Lumanaire MoonSword. Pedang suci itu bersinar membutakan, memberinya kekuatan fisik yang tak terbayangkan!", 30);
+    delayPrint(L"Aura emas murni menyelimutinya. Dia siap menghadapi ancaman terbesar sekalipun!", 40);
+}
+
+void triggerDuelAllainRagna() {
+    if (storyFlags["duel_persahabatan"] == 0) {
+        system("cls");
+        printLine();
+        centerText(L"⚔ SEBUAH UNDANGAN KE ARENA ⚔");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Suatu pagi yang cerah di Mansion Astra, beberapa hari setelah penjelajahanmu yang semakin intensif,", 30);
+        delayPrint(L"seorang pelayan berliveri dari keluarga kerajaan datang membawakan sebuah gulungan perkamen tebal,", 30);
+        delayPrint(L"tersegel dengan lambang singa emas kebanggaan Kerajaan Arcadia.", 30);
+        wcout << endl;
+
+        delayPrint(L"Dengan sedikit rasa ingin tahu bercampur waspada, kau membuka segel itu. Isinya adalah sebuah undangan resmi:", 30);
+        printLine(70, L'-');
+        centerText(L"📜 UNDANGAN KEHORMATAN 📜", 70);
+        delayPrint(L"   Kepada Yang Terhormat,", 20);
+        delayPrint(L"   Tuan Muda Weiss von Astra,", 20);
+        delayPrint(L"   Dengan ini kami mengundang Anda untuk berpartisipasi dalam", 20);
+        delayPrint(L"   \"Turnamen Persahabatan Bangsawan Agung Arcadia\"", 20);
+        delayPrint(L"   yang akan diselenggarakan di Colosseum Imperial MALAM INI.", 20);
+        delayPrint(L"   Kehadiran dan partisipasi Anda akan menjadi kehormatan besar.", 20);
+        delayPrint(L"   Salah satu peserta kehormatan yang telah mengkonfirmasi kehadirannya", 20);
+        delayPrint(L"   adalah Tuan Muda Allain von Ragna, pahlawan muda kebanggaan kita.", 20);
+        delayPrint(L"   Tertanda,", 20);
+        delayPrint(L"   Panitia Kerajaan Turnamen Arcadia.", 20);
+        printLine(70, L'-');
+        wcout << endl;
+        waitForEnter(L"Tekan Enter untuk merenungkan undangan ini...");
+
+        system("cls");
+        printLine();
+        centerText(L"⚡️  PERGOLAKAN BATIN SANG ANTAGONIS ⚡️");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"\"Allain von Ragna...\" Nama itu bergema dalam benakmu. Sang protagonis dari novel yang menjebakmu dalam takdir ini.", 30);
+        delayPrint(L"Dalam alur cerita asli, Weiss yang sombong dan gegabah menerima undangan serupa, hanya untuk dipermalukan habis-habisan oleh Allain di hadapan para bangsawan.", 30);
+        delayPrint(L"Kekalahan itu menjadi salah satu paku pertama di peti mati reputasi dan nasib buruknya.", 30);
+        wcout << endl;
+
+        delayPrint(L"Tapi kau bukan lagi Weiss yang itu. Kau telah berlatih, mempelajari sihir, dan memperkuat dirimu.", 30);
+        delayPrint(L"Ini... ini adalah kesempatan emas. Panggung pertama untuk merobek halaman takdir yang telah dituliskan untukmu.", 30);
+        delayPrint(L"Mengalahkan Allain Ragna di sini, di duel persahabatan ini, akan menjadi pernyataan kuat.", 30);
+        delayPrint(L"Sebuah pernyataan bahwa kau tidak akan tunduk pada alur cerita sialan itu.", 30);
+        wcout << endl;
+
+        delayPrint(L"Jantungmu berdegup sedikit lebih kencang. Secercah kegugupan bercampur dengan api tekad yang membara.", 30);
+        delayPrint(L"\"Ini dia...\" bisikmu dalam hati. \"Saatnya mengubah segalanya.\"", 30);
+        waitForEnter(L"Tekan Enter untuk mempersiapkan diri menuju Colosseum malam ini...");
+
+        system("cls");
+        printLine();
+        centerText(L"🏛️  COLOSSEUM IMPERIAL ARCADIA - MALAM HARI 🏛️");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Malam harinya, kau tiba di Colosseum Imperial Arcadia yang bermandikan cahaya obor.", 30);
+        delayPrint(L"Bangunan megah itu menjulang tinggi, saksi bisu berbagai pertarungan legendaris dan perayaan akbar.", 30);
+        delayPrint(L"Sorak-sorai penonton sudah terdengar riuh dari dalam, bercampur dengan dentingan musik penyemangat.", 30);
+        delayPrint(L"Para bangsawan dari berbagai keluarga terkemuka telah mengambil tempat duduk mereka di tribun kehormatan,", 30);
+        delayPrint(L"berpakaian mewah dan berbisik penuh antisipasi di bawah temaram lampu.", 30);
+        wcout << endl;
+
+        delayPrint(L"Seorang herald mengumumkan namamu dengan suara lantang:", 30);
+        centerText(L"📢 \"Memasuki arena... Tuan Muda WEISS VON ASTRA!!!\" 📢", 70);
+        wcout << endl;
+
+        delayPrint(L"Kau melangkah ke tengah arena yang berpasir putih, diterangi oleh puluhan obor yang menyala terang.", 30);
+        delayPrint(L"Pandangan mata para penonton tertuju padamu, beberapa penasaran, beberapa meremehkan, mengingat reputasi lamamu.", 30);
+        delayPrint(L"Kau mengabaikan mereka. Fokusmu hanya satu.", 30);
+        wcout << endl;
+
+        delayPrint(L"Kemudian, sang herald kembali berseru dengan nada yang lebih bersemangat:", 30);
+        centerText(L"🌟 \"Dan lawannya... Pahlawan muda kebanggaan Arcadia... ALLAIN VON RAGNA!!!\" 🌟", 70);
+        wcout << endl;
+
+        delayPrint(L"Allain Ragna melangkah masuk dengan percaya diri. Rambut pirang keemasannya berkilau memantulkan cahaya obor,", 30);
+        delayPrint(L"senyum ramah namun penuh keyakinan terpasang di wajahnya yang tampan.", 30);
+        delayPrint(L"Dia adalah perwujudan sempurna sang pahlawan novel. Aura kebaikan dan kekuatan memancar darinya.", 30);
+        delayPrint(L"Sorak-sorai penonton semakin membahana menyambut kedatangannya.", 30);
+        wcout << endl;
+        
+        delayPrint(L"Kau merasakan aura yang berbeda dari Allain. Berbeda dari penyihir atau ksatria biasa.", 30);
+        delayPrint(L"Rumor mengatakan dia terlahir dengan 'Fisik Surgawi', memberkahinya dengan kekuatan, kecepatan, dan ketahanan fisik yang jauh melampaui manusia normal.", 30);
+        delayPrint(L"Karena anugerah ini, dia tidak memiliki bakat dalam sihir ataupun cadangan mana sedikitpun. Seluruh potensinya tercurah pada kesempurnaan ragawi.", 30);
+        delayPrint(L"Dia adalah perwujudan puncak dari kekuatan fisik murni.", 30);
+        wcout << endl;
+
+        delayPrint(L"Allain menghampirimu, mengulurkan tangan. \"Weiss. Sebuah kehormatan bisa berduel denganmu malam ini. Semoga ini menjadi pertarungan yang adil dan menghibur.\"", 30);
+        delayPrint(L"Kau menjabat tangannya. \"Kehormatan ada di pihakku, Allain. Mari kita berikan yang terbaik.\"", 30);
+        wcout << endl;
+
+        system("cls");
+        printLine();
+        centerText(L"⚔ DUEL PERSAHABATAN: WEISS vs ALLAIN RAGNA ⚔");
+        printLine();
+        delayPrint(L"Kau menatap Allain Ragna, sang pahlawan utama dalam kisah asli, kini berdiri di hadapanmu sebagai lawan.", 30);
+        delayPrint(L"Aura percaya dirinya begitu kuat, namun kau tidak gentar.", 30);
+        delayPrint(L"Inilah panggungmu. Inilah waktunya membuktikan bahwa kau bisa mengalahkan takdirmu.", 30);
+        delayPrint(L"Seluruh mata di Colosseum tertuju pada kalian berdua. Pertarungan akan segera dimulai.", 30);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter untuk memulai duel...");
+
+        Enemy allain;
+        if (enemyDatabase.count("Allain Ragna")) { 
+            allain = enemyDatabase["Allain Ragna"];
+        } else {
+            allain.name = "Allain Ragna"; 
+        }
+        
+        allain.level = player.level; 
+        allain.maxHp = player.maxHp + 50; 
+        allain.hp = allain.maxHp;
+        allain.attack = player.strength + 8;   
+        allain.defense = player.defense + 5; 
+        allain.magicDefense = player.intelligence / 2; 
+        allain.expReward = 300; 
+        allain.goldDrop = 600;
+        allain.isBoss = true;
+  
+        BattleResult result = startBattle(allain, ""); 
+
+        if (result == ENEMY_DEAD) {
+            system("cls");
+            printLine();
+            centerText(L"🏆 KEMENANGAN BERSEJARAH! 🏆");
+            printLine();
+            delayPrint(L"Dengan serangan terakhir yang telak, Allain Ragna, sang pemilik Fisik Surgawi, tersungkur!", 50);
+            delayPrint(L"Penonton terdiam sesaat, tak percaya, lalu gemuruh sorak-sorai membahana untukmu!", 50);
+            delayPrint(L"Kau berhasil! Kau mengalahkan sang protagonis asli dengan kekuatan fisik murninya!", 50);
+            delayPrint(L"Sebuah langkah besar telah kau ambil untuk mengubah alur takdirmu!", 50);
+            storyFlags["duel_persahabatan"] = 1; 
+            player.exp += 150; 
+            player.gold += 300; 
+            wcout << endl;
+            delayPrint(L"Hadiah Kemenangan: +150 EXP, +300 Gold!", 30);
+            delayPrint(L"Reputasimu di kalangan bangsawan mulai berubah...", 30);
+
+        } else if (result == PLAYER_DEAD) { 
+            system("cls");
+            printLine();
+            centerText(L"💔 KEKALAHAN YANG PAHIT 💔");
+            printLine();
+            delayPrint(L"Meskipun kau telah berjuang keras, kekuatan 'Fisik Surgawi' Allain Ragna masih terlalu dahsyat.", 50);
+            delayPrint(L"Kau terjatuh, dikalahkan di hadapan seluruh bangsawan Arcadia.", 50);
+            delayPrint(L"Bisik-bisik cemoohan dan tatapan kasihan terasa menusuk.", 50);
+            delayPrint(L"Sepertinya... takdir lamamu masih berusaha mencengkerammu dengan erat.", 50);
+            storyFlags["duel_persahabatan"] = 0; 
+        }
+        waitForEnter(L"Tekan Enter setelah pertarungan usai...");
+        
+        currentActionsRemaining = 0; 
+        advanceToNextDay(); 
+    }
+}
+
+
+void triggerInvasiMansion() {
+    if (storyFlags["invasi_mansion"] == 0) {
+        system("cls");
+        printLine();
+        centerText(L"💀 INVASI MENGEJUTKAN DI MANSION ASTRA 💀");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Keheningan dini hari di Mansion Astra terkoyak dengan brutal...", 40);
+        delayPrint(L"BLAARRR!!! Suara ledakan kaca yang memekakkan telinga, diikuti gemuruh benda jatuh, menggema dari lobi utama!", 50);
+        delayPrint(L"Kau tersentak dari lelapmu, naluri waspadamu menjerit. Tanpa ragu, kau melesat menuju sumber suara.", 40);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter untuk memeriksa kekacauan...");
+
+        system("cls");
+        printLine();
+        centerText(L"LOBI MANSION - KEHANCURAN DI BAWAH REMBULAN");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Pemandangan di lobi utama adalah mimpi buruk yang menjadi nyata.", 40);
+        delayPrint(L"Atap kaca patri yang megah telah runtuh, serpihannya menghujani lantai marmer yang dulu tak bernoda.", 40);
+        delayPrint(L"Debu dan kegelapan menari di bawah sinar bulan yang kini menerobos bebas.", 40);
+        delayPrint(L"Dan di episentrum kehancuran itu, berdiri sesosok entitas dari neraka terdalam.", 40);
+        wcout << endl;
+
+        delayPrint(L"Sayap kulit raksasa, sehitam jelaga dosa, mengepak perlahan, menebarkan aura dingin yang menusuk tulang.", 30);
+        delayPrint(L"Sosoknya jangkung dan ramping, terbalut armor obsidian yang meredam cahaya. Wajahnya bengis, dengan sepasang mata yang menyala merah membara, memancarkan kecerdasan licik dan kekejaman purba.", 30);
+        // displayEnemyASCII("AzazelFallenWing"); 
+
+        wcout << endl;
+
+        wstring demonName = L"Azazel, Sang Sayap Jatuh";
+        delayPrint(L"Makhluk itu menolehkan kepalanya perlahan ke arahmu, senyum tipis namun penuh arogansi terukir di bibirnya.", 40);
+        delayPrint(L"\"Hmm, jadi inikah Weiss von Astra yang berhasil menarik perhatian Tuanku? Penampilanmu tidak terlalu mengesankan, fana.\"", 40);
+        delayPrint(L"Suaranya elegan namun menusuk, bagai beludru yang menyembunyikan bilah es.", 30);
+        delayPrint(L"\"Aku adalah " + demonName + L", Utusan Khusus dari Sang Penguasa Kegelapan, Raja Iblis yang Agung!\"", 50);
+        wcout << endl;
+
+        delayPrint(L"Azazel melangkah anggun di antara puing-puing, \"Pertunjukan kecilmu di Colosseum itu, melawan 'pahlawan' mereka... cukup menggelitik.\"", 40);
+        delayPrint(L"\"Kau memiliki... percikan. Sebuah potensi yang menarik, jika saja tidak tersia-siakan di dunia yang fana dan penuh kepalsuan ini.\"", 40);
+        delayPrint(L"\"Tuanku, Raja Iblis, melihat benih itu dalam dirimu. Beliau berkenan memberimu kehormatan yang tak terhingga: sebuah tempat di antara para Elitnya.\"", 40);
+        delayPrint(L"\"Bayangkan, Weiss von Astra! Kekuatan sejati, keabadian, kesempatan untuk membentuk ulang dunia ini sesuai kehendak yang lebih agung! Tinggalkan cangkang moralitasmu yang rapuh!\"", 50);
+        delayPrint(L"\"Bergabunglah dengan kami! Bersujudlah pada Kegelapan, dan kau akan terlahir kembali!\"", 40);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter untuk menanggapi tawarannya...");
+
+        system("cls");
+        printLine();
+        centerText(L"PENOLAKAN YANG BERANI");
+        printLine();
+        wcout << endl;
+        delayPrint(L"Kau menatap Azazel dengan tatapan dingin dan tak gentar. Mansionmu telah dinodai, dan kini jiwamu ditawar.", 40);
+        delayPrint(L"Weiss: \"Sujud pada kegelapan? Menjadi pion Raja Iblis? Itu bukan kehormatan, itu adalah perbudakan!\"", 50);
+        delayPrint(L"Weiss: \"Tawaranmu menjijikkan. Pergilah dari rumahku, Azazel, sebelum aku yang mengusirmu dengan cara yang lebih menyakitkan!\"", 40);
+        wcout << endl;
+
+        delayPrint(L"Ekspresi Azazel mengeras, senyumnya lenyap digantikan tatapan dingin mematikan.", 40);
+        delayPrint(L"\"Sungguh pilihan yang... mengecewakan. Namun bisa ditebak dari makhluk serendah dirimu.\"", 50);
+        delayPrint(L"\"Jika kebijaksanaan tidak mampu menuntunmu, maka mungkin rasa sakit akan menjadi guru yang lebih baik!\"", 40);
+        delayPrint(L"\"Karena kau telah menolak kemurahan hati Tuanku, maka jiwamu akan menjadi persembahan!\"", 50);
+        delayPrint(L"Azazel merentangkan sayapnya sepenuhnya, aura kegelapan meledak darinya, memenuhi lobi dengan tekanan yang menyesakkan. Pertarungan untuk nyawamu dan mansionmu dimulai!", 40);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter untuk menghadapi Utusan Raja Iblis!");
+
+        Enemy azazel;
+        azazel.name = "Azazel the Fallen Wing";
+        azazel.level = player.level + 8; 
+        azazel.maxHp = static_cast<int>(player.maxHp * 2.8 + 250); 
+        if (azazel.maxHp < 600) azazel.maxHp = 600; 
+        azazel.hp = azazel.maxHp;
+        azazel.attack = player.strength + 25; 
+        azazel.defense = player.defense + 15;
+        azazel.magicDefense = player.intelligence + 10; 
+        azazel.expReward = 800;  
+        azazel.goldDrop = 2000; 
+        azazel.isBoss = true;
+        azazel.enemyType = "Demon";
+
+
+        BattleResult result = startBattle(azazel, "MansionLobbyInvaded");
+
+        if (result == ENEMY_DEAD) { 
+            system("cls");
+            printLine();
+            centerText(L"✨ KEMENANGAN ATAS UTUSAN KEGELAPAN ✨");
+            printLine();
+            delayPrint(L"Dengan perjuangan yang luar biasa dan mengerahkan seluruh kemampuanmu, kau berhasil mengalahkan " + demonName + L"!", 50);
+            delayPrint(L"Tubuh iblis itu menjerit kesakitan sebelum akhirnya hancur menjadi kepulan asap hitam dan menghilang, meninggalkan aroma belerang yang tajam.", 40);
+            delayPrint(L"Lobi mansionmu porak-poranda, namun kau berhasil memukul mundur tangan kiri Raja Iblis.", 40);
+            delayPrint(L"Ini adalah kemenangan besar, namun juga peringatan akan ancaman yang jauh lebih mengerikan.", 40);
+            storyFlags["invasi_mansion"] = 1; 
+            
+            int bonusExp = azazel.expReward;
+            int bonusGold = azazel.goldDrop;
+
+            player.exp += bonusExp; 
+            player.gold += bonusGold; 
+            wcout << endl;
+            delayPrint(L"Hadiah Kemenangan: +" + to_wstring(bonusExp) + L" EXP, +" + to_wstring(bonusGold) + L" Gold!", 30);
+            delayPrint(L"Reputasimu sebagai pelindung Mansion Astra mulai tersebar. Namun, kau tahu ini baru permulaan...", 30);
+
+        } else if (result == PLAYER_DEAD) { 
+            system("cls");
+            printLine();
+            centerText(L"⚔️ DI AMBANG KEKALAHAN... NAMUN HARAPAN MUNCUL! ⚔️");
+            printLine();
+            delayPrint(L"Kekuatan " + demonName + L" terlalu dahsyat. Pandanganmu mulai kabur, tubuhmu terasa remuk...", 50);
+            delayPrint(L"Azazel mendekat, siap memberikan serangan terakhir. \"Kasihan sekali, manusia kecil. Inilah akhir dari perlawananmu yang sia-sia!\"", 40);
+            wcout << endl;
+            delayPrint(L"Namun, tepat ketika harapan tampak sirna...", 40);
+            delayPrint(L"BRAKK! Pintu utama mansion didobrak!", 30);
+            delayPrint(L"Serangkaian teriakan perang dan denting senjata terdengar dari berbagai arah!", 40);
+            delayPrint(L"\"UNTUK RAJA DAN ARCADIA! SERANG IBLIS ITU!\"", 30);
+            wcout << endl;
+            delayPrint(L"Sekelompok Ksatria Kerajaan Elit, bersama beberapa Penyihir Perang bersenjatakan tongkat bercahaya, menyerbu lobi!", 50);
+            delayPrint(L"Azazel terkejut. \"Apa-apaan ini?! Beraninya kalian mengganggu perburuanku!\"", 40);
+            delayPrint(L"Pertarungan sengit pun terjadi. Para Ksatria mengepung Azazel, sementara para Penyihir melancarkan rentetan sihir pelindung dan serangan cahaya.", 50);
+            delayPrint(L"Azazel, meskipun kuat, tampak kewalahan menghadapi serangan terkoordinasi dari segala arah.", 40);
+            delayPrint(L"Dengan sebuah jeritan panjang yang membelah udara, tubuh " + demonName + L" akhirnya tertembus oleh tombak cahaya suci, lalu meledak menjadi debu kegelapan.", 60);
+            wcout << endl;
+            delayPrint(L"Salah satu Ksatria menghampirimu yang terkapar. \"Tuan Muda von Astra! Anda selamat! Kami datang secepat mungkin setelah laporan adanya aktivitas iblis di area ini.\"", 40);
+            delayPrint(L"Kau berhasil diselamatkan, namun mansionmu rusak parah, dan kemenangan ini bukan milikmu seorang.", 50);
+            delayPrint(L"Ancaman telah diatasi untuk sementara, tetapi kegagalanmu mengalahkan Azazel sendiri meninggalkan rasa pahit.", 40);
+            
+            storyFlags["invasi_mansion"] = 0; 
+            player.hp = 1; 
+        }
+        waitForEnter();
+    }
+}
+
+void triggerInvasiArcadia() {
+    if (storyFlags["invasi_arcadia"] == 0) {
+        system("cls");
+        printLine();
+        centerText(L"🔥 KOTA ARCADIA DALAM API! 🔥");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Hari itu berjalan seperti biasa, hingga pekikan panik dan suara genderang perang mulai terdengar dari arah Ibukota Arcadia.", 40);
+        delayPrint(L"Asap hitam tebal membumbung ke langit, membawa aroma kematian dan kehancuran.", 50);
+        delayPrint(L"Seorang pengungsi yang berlari terhuyung-huyung berteriak, \"Iblis! Iblis menyerang Arcadia! Balai Kota... Balai Kota dikepung!\"", 40);
+        delayPrint(L"Tidak ada waktu untuk ragu. Sebagai seorang bangsawan dan petarung, kau tahu tanggung jawabmu.", 30);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter untuk bergegas ke Balai Kota Arcadia...");
+
+        system("cls");
+        printLine();
+        centerText(L"BALAI KOTA ARCADIA - MEDAN PEMBANTAIAN");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Apa yang kau saksikan di depan Balai Kota Arcadia adalah pemandangan neraka di bumi.", 40);
+        delayPrint(L"Bangunan-bangunan di sekitar terbakar hebat, memuntahkan api dan asap yang menyesakkan.", 40);
+        delayPrint(L"Mayat para ksatria penjaga kota dan warga sipil yang malang bergelimpangan di mana-mana, bersimbah darah.", 40);
+        delayPrint(L"Teriakan kesakitan, raungan iblis, dan dentang senjata yang beradu menciptakan simfoni kematian yang mengerikan.", 30);
+        delayPrint(L"Di tengah alun-alun depan Balai Kota yang kini menjadi medan pembantaian, berdiri sesosok raksasa mengerikan.", 50);
+        wcout << endl;
+
+        delayPrint(L"Dia adalah perwujudan kekuatan brutal. Tubuhnya besar dan berotot kekar, terbungkus armor hitam pekat yang dihiasi paku-paku tajam.", 30);
+        delayPrint(L"Sebuah helm bertanduk menutupi sebagian wajahnya, namun sepasang mata merah menyala penuh amarah dan kehausan akan darah terlihat jelas.", 30);
+        delayPrint(L"Di tangannya tergenggam sebuah gada raksasa yang berlumuran darah segar. Setiap ayunannya tampak mampu meremukkan batu.", 30);
+        // displayEnemyASCII("BaelTheIronFist"); 
+
+        wcout << endl;
+        wstring demonCommanderName = L"Bael, Sang Tinju Besi";
+        delayPrint(L"Dia baru saja menghantam seorang kapten ksatria hingga terlempar jauh. Dia lalu menginjak panji Arcadia yang tergeletak di tanah dengan penuh penghinaan.", 40);
+        delayPrint(L"\"Manusia lemah! Perlawanan kalian sia-sia!\" Suaranya menggelegar, berat dan serak bagai longsoran batu.", 50);
+        delayPrint(L"\"Aku, " + demonCommanderName + L", Tangan Kanan dari Raja Iblis Agung, telah datang untuk mengklaim kota ini atas nama Tuanku!\"", 40);
+        delayPrint(L"\"Hari ini, Arcadia akan bertekuk lutut!\"", 30);
+        wcout << endl;
+
+        delayPrint(L"Bael melihatmu mendekat, tatapannya yang membara tertuju padamu. \"Oh? Ada lagi serangga kecil yang berani merayap ke hadapanku?\"", 40);
+        delayPrint(L"\"Kau punya nyali, aku akui. Tapi nyali saja tidak akan menyelamatkanmu dari kemurkaanku!\"", 30);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter untuk menantang Bael...");
+
+        system("cls");
+        printLine();
+        centerText(L"MELAWAN SANG TINJU BESI");
+        printLine();
+        wcout << endl;
+        delayPrint(L"Kau menghunus senjatamu, amarah dan tekad membara di dadamu. Kau tidak akan membiarkan kota ini jatuh tanpa perlawanan!", 40);
+        delayPrint(L"Weiss: \"" + demonCommanderName + L"! Selama aku masih berdiri, Arcadia tidak akan pernah menjadi milikmu atau rajamu!\"", 50);
+        delayPrint(L"Weiss: \"Bersiaplah menghadapi keadilan, Iblis!\"", 30);
+        wcout << endl;
+
+        delayPrint(L"Bael tertawa mengejek. \"Keadilan? Kata-kata kosong dari makhluk fana yang sekarat!\"", 40);
+        delayPrint(L"\"Akan kuhancurkan kau dan harapan kecilmu itu! Mari kita lihat seberapa kuat 'keadilanmu' bisa bertahan dari tinjuku!\"", 50);
+        delayPrint(L"Dia mengangkat gadanya, siap untuk menghancurkanmu. Pertarungan untuk nasib Arcadia dimulai!", 40);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter untuk memulai pertempuran sengit!");
+
+        Enemy bael;
+        bael.name = "Bael the Iron Fist";
+        bael.level = player.level + 10; 
+        bael.maxHp = static_cast<int>(player.maxHp * 3.5 + 400);
+        if (bael.maxHp < 800) bael.maxHp = 800;
+        bael.hp = bael.maxHp;
+        bael.attack = player.strength + 35; 
+        bael.defense = player.defense + 20; 
+        bael.magicDefense = player.intelligence + 5; 
+        bael.expReward = 1200;
+        bael.goldDrop = 3000;
+        bael.isBoss = true;
+        bael.enemyType = "Demon";
+
+
+        BattleResult result = startBattle(bael, "ArcadiaCityHallRuins");
+
+        if (result == ENEMY_DEAD) { 
+            system("cls");
+            printLine();
+            centerText(L"🛡️ ARCADIA BERTAHAN! 🛡️");
+            printLine();
+            delayPrint(L"Dengan pertarungan yang paling sengit dalam hidupmu, kau berhasil mengalahkan " + demonCommanderName + L"!", 50);
+            delayPrint(L"Tubuh raksasa iblis itu ambruk ke tanah dengan suara berdebam, armornya retak dan hancur.", 40);
+            wcout << endl;
+            delayPrint(L"Bael terbatuk, darah hitam mengalir dari bibirnya. Dia menatapmu dengan sisa-sisa kebencian.", 30);
+            delayPrint(L"Bael: \"Ka-kau... manusia sialan... mengira ini sudah berakhir?\" (tertawa serak)", 40);
+            delayPrint(L"Bael: \"Ini... baru permulaan! Tuanku... Raja Iblis... akan segera bangkit sepenuhnya!\"", 50);
+            delayPrint(L"Bael: \"Saat Dia tiba... seluruh negeri ini... Arcadia... akan menjadi lautan api dan keputusasaan! Kalian semua... akan binasa! Hahaha... ha...\"", 40);
+            delayPrint(L"Dengan kata-kata terakhir itu, cahaya di mata Bael meredup, dan tubuhnya hancur menjadi debu kegelapan.", 50);
+            wcout << endl;
+            delayPrint(L"Meskipun Balai Kota hancur lebur dan banyak korban berjatuhan, jatuhnya sang komandan iblis memberikan secercah harapan.", 40);
+            delayPrint(L"Para ksatria yang tersisa dan warga yang berani mulai bersorak. Kau telah memukul mundur invasi besar!", 50);
+            storyFlags["invasi_arcadia"] = 1; 
+            
+            int bonusExp = bael.expReward;
+            int bonusGold = bael.goldDrop;
+
+            player.exp += bonusExp;
+            player.gold += bonusGold;
+            wcout << endl;
+            delayPrint(L"Hadiah Kemenangan Epik: +" + to_wstring(bonusExp) + L" EXP, +" + to_wstring(bonusGold) + L" Gold!", 30);
+            delayPrint(L"Namamu kini dielu-elukan sebagai Pahlawan Arcadia! Namun, peringatan Bael tentang Raja Iblis terus terngiang...", 30);
+
+        } else if (result == PLAYER_DEAD) { 
+            system("cls");
+            printLine();
+            centerText(L"⚔️ DI AMBANG KEHANCURAN... SECERCAH CAHAYA DATANG TERLAMBAT! ⚔️");
+            printLine();
+            delayPrint(L"Kekuatan " + demonCommanderName + L" terlalu luar biasa. Setiap pukulannya terasa meremukkan tulang.", 50);
+            delayPrint(L"Kau terlempar dan jatuh dengan keras, pandanganmu kabur. Bael tertawa menggelegar, \"Sudah kubilang, perlawananmu sia-sia!\"", 40);
+            delayPrint(L"Dia mengangkat gadanya untuk serangan penghabisan...", 40);
+            wcout << endl;
+            delayPrint(L"Tiba-tiba, sebuah kilatan perak melesat dari kejauhan!", 50);
+            delayPrint(L"\"CUKUP SUDAH KEKACAUAN INI, BAEL!\" Suara Allain Ragna menggema, penuh amarah suci.", 40);
+            delayPrint(L"Allain, dengan Lumanaire MoonSword bersinar terang, tiba di medan pertempuran yang telah porak-poranda.", 50);
+            delayPrint(L"Bael: \"Pahlawan Kecil lainnya! Kau terlambat! Kota ini sudah jadi milikku!\"", 30);
+            delayPrint(L"Allain: \"Belum selama aku masih di sini!\"", 40);
+            wcout << endl;
+            delayPrint(L"Pertarungan sengit dan cepat terjadi antara Allain dan Bael. Lumanaire MoonSword menari di tangan Allain, membelah serangan brutal Bael.", 50);
+            delayPrint(L"Meskipun Bael sangat kuat, energi suci dari pedang legendaris itu terbukti menjadi tandingannya.", 40);
+            delayPrint(L"Dengan sebuah serangan akhir yang memancarkan cahaya membutakan, Allain berhasil mengalahkan Bael.", 60);
+            delayPrint(L"Sang Tinju Besi Raja Iblis akhirnya tumbang, namun Balai Kota Arcadia telah jatuh dan banyak nyawa melayang.", 50);
+            wcout << endl;
+            delayPrint(L"Allain menghampirimu yang terkapar. \"Weiss! Bertahanlah! Maaf aku terlambat...\"", 40);
+            delayPrint(L"Kau diselamatkan, namun kota ini telah terluka parah. Kemenangan ini sepenuhnya milik Allain.", 50);
+            
+            storyFlags["invasi_arcadia"] = 0; 
+            player.hp = max(1, player.maxHp / 10); 
+            wcout << endl;
+            delayPrint(L"Kau terpaksa mundur dan memulihkan diri, sementara Allain memimpin sisa pasukan untuk mengamankan kota...", 30);
+        }
+        waitForEnter();
+    }
+}
+
+void triggerPedangPahlawan() {
+    if (storyFlags["pedang_pahlawan"] == 0) { 
+        system("cls");
+        printLine();
+        centerText(L"🌟 CAHAYA HARAPAN DI TENGAH KOTA 🌟");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Sebuah fenomena tak terduga mengguncang seluruh Arcadia.", 40);
+        delayPrint(L"Tepat di tengah Alun-Alun Utama, tempat Patung Pahlawan berdiri, sebuah cahaya menyilaukan memancar dari tanah.", 50);
+        delayPrint(L"Ketika cahaya mereda, tertancaplah di sana sebilah pedang indah yang belum pernah dilihat siapa pun.", 40);
+        delayPrint(L"Bilahnya berkilauan dengan cahaya rembulan meskipun hari masih siang, gagangnya dihiasi permata safir yang memancarkan aura suci dan kuat.", 30);
+        delayPrint(L"Pedang itu seolah bernyanyi, melodi harapan yang samar namun nyata.", 40);
+        wcout << endl;
+
+        delayPrint(L"Kabar menyebar secepat kilat. Para tetua dan cendekiawan teringat akan sebuah ramalan kuno:", 40);
+        centerText(L"📜 \"Kala bayangan tergelap mulai menelan negeri, Sang Rembulan akan menurunkan bilahnya ke bumi.", 70);
+        centerText(L"   Hanya tangan sang pahlawan sejati, yang hatinya murni dan tekadnya membaja,", 70);
+        centerText(L"   yang sanggup mengangkatnya, membawa sinar harapan untuk mengusir kegelapan abadi.\" 📜", 70);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter saat para bangsawan dipanggil...");
+
+        system("cls");
+        printLine();
+        centerText(L"🏛️ PERKUMPULAN PARA BANGSAWAN DI ALUN-ALUN 🏛️");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Seluruh bangsawan penting dari Arcadia dan wilayah sekitarnya, termasuk dirimu, Weiss von Astra, dipanggil ke Alun-Alun Utama.", 40);
+        delayPrint(L"Raja, para penasihat, kesatria kehormatan, dan kepala keluarga bangsawan berkumpul dengan wajah tegang dan penuh harap.", 40);
+        delayPrint(L"Di tengah mereka, Lumanaire MoonSword berdiri megah, memancarkan cahaya lembut yang seolah menilai setiap jiwa yang hadir.", 50);
+        wcout << endl;
+
+        delayPrint(L"Seorang Penasihat Raja yang dituakan membuka suara,", 30);
+        delayPrint(L"Penasihat: \"Yang Mulia Raja, Tuan dan Nyonya Bangsawan sekalian. Kita semua telah menyaksikan keajaiban ini.\"", 40);
+        delayPrint(L"Penasihat: \"Ramalan telah tergenapi. Pedang Sang Rembulan telah turun. Kini, pertanyaannya adalah, siapa di antara kita yang ditakdirkan menjadi pahlawan?\"", 40);
+        wcout << endl;
+
+        delayPrint(L"Suasana menjadi riuh. Beberapa bangsawan muda yang ambisius mulai saling pandang, ada yang dengan percaya diri menunjuk dirinya sendiri.", 30);
+        delayPrint(L"Bangsawan Muda 1: \"Jelas ini adalah pertanda! Keluarga kami telah mengabdi pada kerajaan selama berabad-abad! Saya siap!\"", 30);
+        delayPrint(L"Bangsawan Tua Bijak: \"Ini bukan tentang garis keturunan semata, anak muda. Ramalan menyebut 'hati yang murni dan tekad membaja'.\"", 40);
+        wcout << endl;
+
+        delayPrint(L"Nama Allain Ragna pun disebut-sebut. Kemenangannya di Colosseum (jika dia menang melawan Weiss) dan reputasinya sebagai pahlawan muda membuatnya menjadi kandidat kuat di mata banyak orang.", 40);
+        if (storyFlags["duel_persahabatan"] == 0) { 
+            delayPrint(L"Seorang Jenderal: \"Tuan Muda Allain von Ragna! Dia telah menunjukkan keberanian dan keterampilannya! Dia pantas mencoba!\"", 30);
+        }
+        wcout << endl;
+
+        delayPrint(L"Di tengah perdebatan itu, kau, Weiss von Astra, juga menjadi subjek pembicaraan.", 30);
+        bool weissLayak = false;
+        if (storyFlags["duel_persahabatan"] == 1) {
+            delayPrint(L"Seorang Bangsawan Wanita: \"Jangan lupakan Tuan Muda Weiss von Astra! Kemenangannya di Colosseum menunjukkan perubahan besar dalam dirinya!\"", 40);
+            if (storyFlags["invasi_mansion"] == 1) {
+                delayPrint(L"Kepala Pengawal Mansion Astra: \"Dan dia seorang diri berhasil memukul mundur utusan Raja Iblis yang menyerang kediamannya! Itu keberanian luar biasa!\"", 40);
+                if (storyFlags["invasi_arcadia"] == 1) {
+                    delayPrint(L"Seorang Kapten Ksatria: \"Benar! Tuan Muda Weiss juga yang memimpin perlawanan dan mengalahkan Komandan Iblis Bael saat Arcadia diserang! Dia adalah pahlawan kota kami!\"", 40);
+                    weissLayak = true; 
+                } else {
+                    delayPrint(L"Namun, jatuhnya Balai Kota Arcadia meski Tuan Muda Weiss berjuang, masih menjadi bayang-bayang...", 30);
+                }
+            } else {
+                delayPrint(L"Namun, insiden penyerangan di Mansion Astra yang berhasil diatasi oleh pihak lain menjadi catatan...", 30);
+            }
+        } else {
+             delayPrint(L"Beberapa mengingat reputasi lamamu, namun ada juga yang mengakui usahamu yang baru-baru ini untuk berubah...", 30);
+        }
+        wcout << endl;
+        waitForEnter(L"Tekan Enter saat keputusan akan diambil...");
+
+        system("cls");
+        printLine();
+        centerText(L"⚔️ PEDANG MEMILIH TUANNYA ⚔️");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Setelah perdebatan panjang, Raja akhirnya angkat bicara dengan suara berwibawa,", 40);
+        delayPrint(L"Raja: \"Kita tidak bisa memutuskan takdir hanya dengan perdebatan. Biarkan Lumanaire MoonSword sendiri yang memilih!\"", 50);
+        delayPrint(L"Raja: \"Siapapun yang didekati atau diakui oleh pedang ini, dialah yang akan memimpin kita melawan Raja Iblis!\"", 40);
+        wcout << endl;
+
+        bool weissChosen = false;
+        bool allainChosen = false;
+
+        if (weissLayak) {
+            delayPrint(L"Semua mata tertuju padamu, Weiss von Astra. Dengan langkah mantap, kau mendekati pedang suci itu.", 40);
+            delayPrint(L"Saat kau semakin dekat, Lumanaire MoonSword bergetar hebat. Cahayanya semakin menyilaukan, seolah menyambut kedatanganmu.", 50);
+            delayPrint(L"Sebuah pancaran energi lembut namun kuat mengalir dari pedang ke arahmu, menyelimutimu dalam kehangatan.", 40);
+            delayPrint(L"Kau mengulurkan tanganmu... dan gagang pedang itu seolah pas dengan genggamanmu. Cahaya pedang memuncak, menerangi seluruh alun-alun!", 50);
+            wcout << endl;
+            centerText(L"✨ WEISS VON ASTRA TELAH DIPILIH OLEH LUMANAIRE MOONSWORD! ✨", 70);
+            wcout << endl;
+            delayPrint(L"Sorak-sorai membahana. Keraguan sirna, digantikan oleh decak kagum dan harapan baru.", 40);
+            delayPrint(L"Raja: \"Takdir telah berbicara! Weiss von Astra adalah Pahlawan yang diramalkan! Dia yang akan memimpin kita!\"", 50);
+            
+            storyFlags["pedang_pahlawan_weiss_chosen"] = 1;
+            storyFlags["pedang_pahlawan_allain_chosen"] = 0; // Pastikan hanya satu yang terpilih
+            weissChosen = true;
+
+            if (weaponDatabase.count("Lumanaire MoonSword")) {
+                Weapon* lumanaire = weaponDatabase["Lumanaire MoonSword"];
+                bool alreadyOwned = false;
+                for (const auto* pWeapon : player.weapons) {
+                    if (pWeapon && pWeapon->name == lumanaire->name) {
+                        alreadyOwned = true;
+                        break;
+                    }
+                }
+                if (!alreadyOwned) {
+                    player.weapons.push_back(lumanaire);
+                    delayPrint(L"Kau merasakan kekuatan dahsyat mengalir dari Lumanaire MoonSword. Pedang ini kini milikmu!", 30);
+                }
+            } else {
+                delayPrint(L"[ERROR DATA] Lumanaire MoonSword tidak ditemukan di database senjata.", 30);
+            }
+
+        } else {
+            delayPrint(L"Meskipun ada yang menyebut namamu, perhatian utama tertuju pada Allain Ragna, sang pahlawan muda.", 40);
+            delayPrint(L"Allain melangkah maju dengan rendah hati namun penuh keyakinan.", 30);
+            delayPrint(L"Saat Allain mendekat, Lumanaire MoonSword juga bergetar dan memancarkan cahaya yang lebih terang, mengarah padanya.", 50);
+            delayPrint(L"Allain menyentuh gagang pedang itu, dan cahaya keemasan menyelimutinya. Pedang itu telah memilihnya.", 40);
+            wcout << endl;
+            centerText(L"🌟 ALLAIN RAGNA TELAH DIPILIH OLEH LUMANAIRE MOONSWORD! 🌟", 70);
+            wcout << endl;
+            delayPrint(L"Sebagian besar bangsawan mengangguk setuju. Inilah yang mereka harapkan. Sang pahlawan telah mendapatkan senjatanya.", 40);
+            delayPrint(L"Raja: \"Ramalan terbukti! Allain Ragna adalah Pahlawan yang akan menyelamatkan negeri ini!\"", 50);
+            storyFlags["pedang_pahlawan_allain_chosen"] = 1;
+            storyFlags["pedang_pahlawan_weiss_chosen"] = 0; 
+            allainChosen = true;
+            wcout << endl;
+            delayPrint(L"Kau merasakan sedikit kekecewaan, namun juga kelegaan bahwa setidaknya harapan kini ada pada seseorang.", 30);
+            delayPrint(L"Mungkin peranmu dalam perang melawan Raja Iblis akan berbeda, namun kau tetap akan berjuang.", 40);
+        }
+
+        storyFlags["pedang_pahlawan"] = 1; 
+
+        wcout << endl;
+        if (weissChosen) {
+            delayPrint(L"Dengan Lumanaire MoonSword di tanganmu, tatapan seluruh negeri kini tertuju padamu. Beban sebagai pahlawan terasa nyata.", 50);
+        } else if (allainChosen) {
+            delayPrint(L"Allain Ragna kini memegang pedang takdir. Perhatian kini tertuju padanya, dan kau merenungkan peran apa yang akan kau mainkan.", 50);
+        }
+        delayPrint(L"Persiapan untuk perang melawan Raja Iblis akan segera dimulai...", 40);
+        waitForEnter();
+    }
+}
+
+void triggerFinalBossRajaIblis() {
+    if (storyFlags["raja_iblis_final"] == 0) {
+        system("cls");
+        printLine();
+        centerText(L"🌍 AKHIR DUNIA TELAH TIBA? 🌍");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Getaran dahsyat mengguncang seluruh penjuru negeri, seolah bumi sendiri menjerit ketakutan.", 40);
+        delayPrint(L"Langit yang tadinya biru kini tertutup awan hitam pekat dan berputar-putar, memuntahkan petir berwarna darah.", 50);
+        delayPrint(L"Di Ibukota Arcadia, sirene meraung tanpa henti. Warga sipil telah dievakuasi ke tempat-tempat perlindungan bawah tanah.", 40);
+        delayPrint(L"Semua ksatria, penyihir, petualang, dan siapapun yang bisa mengangkat senjata, kini berkumpul di benteng terakhir kota, termasuk Allain Ragna yang berdiri di barisan depan para pahlawan, bersiap menghadapi yang tak terhindarkan.", 30);
+        delayPrint(L"Udara terasa berat, dipenuhi dengan keputusasaan dan secercah keberanian terakhir.", 40);
+        wcout << endl;
+        waitForEnter(L"Tekan Enter saat gerbang kota tak mampu lagi bertahan...");
+
+        system("cls");
+        printLine();
+        centerText(L"GERBANG ARCADIA RUNTUH - SANG RAJA IBLIS TIBA!");
+        printLine();
+        wcout << endl;
+
+        delayPrint(L"Dengan suara ledakan yang membelah langit, Gerbang Utama Arcadia yang perkasa hancur berkeping-keping!", 50);
+        delayPrint(L"Gelombang energi gelap menyapu ke dalam kota, meruntuhkan bangunan dan menebarkan teror.", 40);
+        delayPrint(L"Dari balik debu dan kehancuran, sesosok makhluk melangkah masuk. Auranya begitu menindas hingga membuat lutut para prajurit gemetar.", 50);
+        delayPrint(L"Sosoknya raksasa, menjulang tinggi dengan armor kuno yang tampak menyerap cahaya. Ini adalah Vorlag dalam wujud awalnya yang mengintimidasi.", 30);
+        // displayEnemyASCII("VorlagGiantForm_P1"); 
+
+        wcout << endl;
+        wstring demonKingName = L"Vorlag, Sang Penguasa Bencana";
+        delayPrint(L"Dia mengangkat kepalanya, memandang rendah para pembela kota yang tersisa.", 40);
+        delayPrint(L"\"Manusia... Makhluk fana yang congkak.\" Suaranya bukan teriakan, melainkan gemuruh dalam yang meresonansi dengan kekuatan kosmik, tenang namun penuh dengan finalitas.", 50);
+        delayPrint(L"\"Perlawanan kalian adalah hiburan sesaat sebelum tirai kegelapan menutupi dunia kalian selamanya.\"", 40);
+        delayPrint(L"\"Aku adalah " + demonKingName + L". Aku adalah akhir dari segalanya! Dan kalian... hanyalah debu di bawah kakiku.\"", 50);
+        wcout << endl;
+
+        bool playerIsTheHero = (storyFlags["pedang_pahlawan_weiss_chosen"] == 1);
+        bool allainIsTheHero = (storyFlags["pedang_pahlawan_allain_chosen"] == 1);
+
+        if (playerIsTheHero) {
+            delayPrint(L"Kau, Weiss von Astra, pemegang Lumanaire MoonSword, melangkah maju dengan pedang terhunus, auranya bersinar menantang kegelapan.", 40);
+            delayPrint(L"Weiss: \"Vorlag! Selama masih ada kehidupan yang berharga di negeri ini, kami tidak akan pernah menyerah padamu! Cahaya akan selalu menemukan cara untuk mengusir kegelapan!\"", 50);
+        } else if (allainIsTheHero && player.hp > 0) { 
+            delayPrint(L"Allain Ragna, dengan Lumanaire MoonSword di tangannya, maju dengan tatapan membara, siap melindungi yang tersisa.", 40);
+            delayPrint(L"Allain: \"Raja Iblis Vorlag! Kezalimanmu akan berakhir hari ini! Atas nama seluruh kehidupan, aku akan menghentikanmu!\"", 50);
+            delayPrint(L"Kau berdiri di sisinya, siap membantu sang pahlawan terpilih.", 30);
+        } else { 
+            delayPrint(L"Meskipun tanpa pedang ramalan, kau dan para pejuang lainnya bersiap untuk pertempuran terakhir yang menentukan.", 40);
+            delayPrint(L"Weiss: \"Kami mungkin tidak punya senjata legendaris, tapi kami punya keberanian! Kami akan bertarung sampai titik darah penghabisan!\"", 50);
+        }
+        wcout << endl;
+
+        delayPrint(L"Vorlag tersenyum meremehkan. \"Keberanian? Itu hanya ilusi sebelum kematian. Mari kita mulai tarian kehancuran ini!\"", 50);
+        waitForEnter(L"Tekan Enter untuk memulai pertempuran terakhir melawan Raja Iblis!");
+
+        Enemy vorlag_p1;
+        vorlag_p1.name = "Vorlag, Wujud Awal Bencana";
+        vorlag_p1.level = player.level + 5; 
+        vorlag_p1.maxHp = static_cast<int>(player.maxHp * 2.0 + 300); 
+        if (vorlag_p1.maxHp < 1200) vorlag_p1.maxHp = 1200;
+        vorlag_p1.hp = vorlag_p1.maxHp;
+        vorlag_p1.attack = player.strength + 15; 
+        vorlag_p1.defense = player.defense + 10; 
+        vorlag_p1.magicDefense = player.intelligence + 5;
+        vorlag_p1.expReward = 1000; 
+        vorlag_p1.goldDrop = 2000; 
+        vorlag_p1.isBoss = true;
+        vorlag_p1.enemyType = "Demon Lord (Form 1)";
+        
+        BattleResult result_p1 = startBattle(vorlag_p1, "ArcadiaFinalBattleground_P1");
+
+        if (result_p1 == PLAYER_DEAD) { 
+            system("cls");
+            printLine();
+            centerText(L"☠️ KEHANCURAN TOTAL - HARAPAN PADAM ☠️");
+            printLine();
+            delayPrint(L"Bahkan wujud awal Vorlag terlalu perkasa untukmu. Perlawananmu hancur seketika.", 50);
+            delayPrint(L"Raja Iblis tertawa saat duniamu menjadi gelap. Arcadia jatuh, dan tidak ada yang bisa menghentikannya.", 60);
+            delayPrint(L"Takdirmu sebagai pecundang... akhirnya tergenapi.", 50);
+            storyFlags["raja_iblis_final"] = 3; 
+            gameRunning = false;
+
+        } else if (result_p1 == ENEMY_DEAD) { 
+            player.exp += vorlag_p1.expReward; 
+            player.gold += vorlag_p1.goldDrop;
+            delayPrint(L"Kau mendapatkan " + to_wstring(vorlag_p1.expReward) + L" EXP dan " + to_wstring(vorlag_p1.goldDrop) + L" Gold dari mengalahkan wujud awalnya!", 30);
+            waitForEnter();
+
+            system("cls");
+            printLine();
+            centerText(L"🌑 KEHENINGAN YANG MENGERIKAN... KEKUATAN SEJATI BANGKIT! 🌑");
+            printLine();
+            wcout << endl;
+            delayPrint(L"Tubuh raksasa Vorlag yang perkasa tersungkur, pedang besarnya menghantam tanah dengan dentuman keras.", 40);
+            delayPrint(L"Untuk sesaat, keheningan mencekam. Kau mencoba mengatur napas, mengira kemenangan sudah di tangan...", 40);
+            delayPrint(L"Namun, dari jasad Vorlag, aura kegelapan yang jauh lebih pekat dan dingin mulai memancar, menyerap semua cahaya di sekitarnya.", 50);
+            delayPrint(L"Asap hitam yang tadi menyelimutinya kini menyusut dengan cepat, memadat, membentuk sosok baru yang lebih ramping, lebih kecil, namun setiap garisnya memancarkan kekuatan murni yang absolut.", 50);
+            wcout << endl;
+            delayPrint(L"Vorlag kini berdiri dalam wujudnya yang sejati, 'perfect form'. Matanya terbuka, kini menjadi dua titik merah membara dalam kegelapan, tanpa emosi, hanya kehampaan dan kekuatan penghancur.", 40);
+            // displayEnemyASCII("VorlagPerfectForm_P2"); 
+            delayPrint(L"Vorlag: (Suaranya kini lebih dalam, tenang, namun sarat dengan ancaman absolut) \"Wujudku yang sesungguhnya... akhirnya terbebas.\"", 60);
+            delayPrint(L"Vorlag: \"Sekarang... saksikanlah keputusasaan yang sebenarnya.\"", 50);
+            wcout << endl;
+            
+            delayPrint(L"Sebelum kau sempat menarik napas, Vorlag menghilang dari pandanganmu!", 30);
+            delayPrint(L"Detik berikutnya, dia muncul TEPAT DI DEPANMU! Sebuah pukulan dahsyat menghantam dadamu dengan kekuatan tak terbendung!", 60);
+            delayPrint(L"BRAAAKKK!!! Tubuhmu terpental jauh ke belakang laksana meteor, menabrak sisa-sisa bangunan hingga hancur berkeping-keping!", 50);
+            delayPrint(L"Rasa sakit luar biasa merobek kesadaranmu, pandanganmu menggelap...", 40);
+            player.hp = max(1, player.hp / 10); 
+            wcout << endl;
+            waitForEnter(L"Tekan Enter saat kau hampir kehilangan kesadaran...");
+
+            delayPrint(L"\"WEISS!/BERTAHANLAH!\" Sebuah suara familiar berteriak.", 30);
+            delayPrint(L"Dalam sekejap, Allain Ragna melesat secepat kilat, menangkap tubuhmu tepat sebelum kau menghantam reruntuhan tajam lebih jauh!", 50);
+            delayPrint(L"Allain: \"Sialan! Kekuatan macam apa ini?!\" Dia dengan cepat mengeluarkan sebuah botol dari kantungnya.", 40);
+            delayPrint(L"Allain: \"Minumlah ini, Weiss! Cepat! Ini Potion Penyembuh terbaik yang kumiliki!\"", 30); 
+            
+            player.hp = player.maxHp; 
+            delayPrint(L"Cairan penyembuh itu seketika memulihkan seluruh lukamu dan mengisi kembali tenagamu! HP-mu penuh kembali!", 30);
+            delayPrint(L"HP-mu kini: " + to_wstring(player.hp) + L"/" + to_wstring(player.maxHp), 30);
+            wcout << endl;
+
+            delayPrint(L"Raungan iblis-iblis yang lebih kecil terdengar dari segala arah, mereka mulai mengerumuni reruntuhan tempat kalian berada!", 40);
+            delayPrint(L"Allain berdiri siaga di depanmu, pedangnya menebas beberapa iblis yang mendekat.", 40);
+            delayPrint(L"Allain: \"Weiss! Serahkan saja gerombolan iblis ini padaku! Kau harus pusatkan seluruh energimu untuk Vorlag!\"", 50); 
+            delayPrint(L"Allain: \"Jika kau Pahlawan terpilih, hanya kau yang bisa mengimbangi wujud sempurnanya itu! Jika tidak, kita akan menghadapinya bersama setelah aku menahan mereka!\"", 50);
+            delayPrint(L"Allain: \"Jangan sia-siakan pengorbanan para ksatria! Kalahkan dia! Aku percaya padamu!\"", 30);
+            wcout << endl;
+            waitForEnter(L"Tekan Enter untuk menghadapi Wujud Sempurna Vorlag!");
+
+            Enemy vorlag_p2;
+            vorlag_p2.name = "Vorlag, Wujud Sempurna Bencana";
+            vorlag_p2.level = vorlag_p1.level + 7; 
+            vorlag_p2.maxHp = static_cast<int>(vorlag_p1.maxHp * 1.2); 
+            if (vorlag_p2.maxHp < 2500) vorlag_p2.maxHp = 2500;
+            vorlag_p2.hp = vorlag_p2.maxHp;
+            vorlag_p2.attack = vorlag_p1.attack + 30; 
+            vorlag_p2.defense = vorlag_p1.defense + 5; 
+            vorlag_p2.magicDefense = vorlag_p1.magicDefense + 20; 
+            vorlag_p2.expReward = 50000; 
+            vorlag_p2.goldDrop = 100000;
+            vorlag_p2.isBoss = true;
+            vorlag_p2.enemyType = "True Demon Sovereign";
+
+            BattleResult result_p2 = startBattle(vorlag_p2, "ArcadiaFinalBattleground_P2");
+
+            if (result_p2 == ENEMY_DEAD) { 
+                system("cls");
+                printLine();
+                centerText(L"🌟 KEMENANGAN MUTLAK! DUNIA TELAH SELAMAT! 🌟");
+                printLine();
+                delayPrint(L"Setelah pertarungan yang melampaui batas kemampuan, Wujud Sempurna Vorlag akhirnya takluk di hadapan kekuatanmu!", 50);
+                delayPrint(L"Tubuhnya yang kini lebih kecil namun padat energi itu bergetar hebat. \"Tidak mungkin... oleh... manusia...?\"", 40);
+                delayPrint(L"Vorlag: \"Kalian... akan membayar ini... Tuanku yang Agung... akan... bang...kit...\"", 50); 
+                delayPrint(L"Dengan erangan terakhir, tubuh Vorlag hancur menjadi debu hitam yang tertiup angin, lenyap tanpa sisa.", 60);
+                delayPrint(L"Awan hitam pekat di langit perlahan tersibak, memperlihatkan fajar pertama dari era baru yang damai.", 50);
+                delayPrint(L"Perang telah usai. Kegelapan tertinggi telah dikalahkan. Dunia diselamatkan oleh keberanian dan kekuatanmu!", 40);
+                storyFlags["raja_iblis_final"] = 1; 
+                player.exp += vorlag_p2.expReward;
+                player.gold += vorlag_p2.goldDrop;
+                wcout << endl;
+                delayPrint(L"Kau berdiri di tengah medan pertempuran yang kini sunyi, lelah namun dipenuhi kelegaan dan kemenangan.", 30);
+                delayPrint(L"Sorak-sorai para pejuang yang selamat dan warga yang mulai keluar dari persembunyian terdengar, mengelu-elukan namamu.", 40);
+                delayPrint(L"WEISS VON ASTRA, YANG PERNAH DIKENAL SEBAGAI ANTAGONIS, KINI DIABADIKAN SEBAGAI PAHLAWAN TERBESAR, SANG PENYELAMAT DUNIA!", 60);
+                wcout << endl;
+                centerText(L"🎉 SELAMAT! ANDA TELAH MENAMATKAN GAME! 🎉", 70);
+                gameRunning = false; 
+
+            } else if (result_p2 == PLAYER_DEAD) { 
+                system("cls");
+                printLine();
+
+                if (playerIsTheHero) { 
+                    centerText(L"💔 PENGORBANAN SANG PAHLAWAN... HARAPAN DITERUSKAN 💔");
+                    printLine();
+                    delayPrint(L"Wujud Sempurna Vorlag terbukti terlalu kuat, bahkan untukmu yang memegang Lumanaire MoonSword.", 50);
+                    delayPrint(L"Kau bertarung hingga titik darah penghabisan, namun akhirnya tubuhmu tak sanggup lagi menahan serangan brutal Raja Iblis.", 60);
+                    delayPrint(L"Saat pandanganmu memudar, kau melihat Allain Ragna masih berjuang mati-matian melawan gerombolan iblis yang tak ada habisnya.", 40);
+                    delayPrint(L"Dengan sisa kekuatanmu, kau melemparkan Lumanaire MoonSword ke arah Allain, menancap di tanah di dekat kakinya.", 50);
+                    delayPrint(L"Weiss: \"Allain... pedang ini... kini milikmu... Selesaikan... apa yang kumulai! Lindungi... dunia ini!\"", 70);
+                    delayPrint(L"Allain menangkap pedang sucimu. Matanya berkilat dengan kesedihan mendalam dan tekad baru yang membara.", 40);
+                    delayPrint(L"Allain: \"WEISS! Tidak! Aku... aku akan memenuhi janjimu! Aku akan menggunakan kekuatan ini untuk mengakhiri semuanya!\"", 50);
+                    wcout << endl;
+                    delayPrint(L"Dengan Lumanaire MoonSword kini di tangannya, Allain Ragna menghadapi Vorlag. Pertarungan mereka mengguncang langit dan bumi.", 60);
+                    delayPrint(L"Akhirnya, setelah pertempuran yang menghancurkan sisa-sisa kota, Allain berhasil mengalahkan Vorlag.", 50);
+                    delayPrint(L"Dunia selamat, namun atas pengorbananmu. Allain akan melanjutkan warisanmu sebagai pahlawan sejati, selalu mengingat sahabat yang telah memberinya jalan.", 60);
+                    storyFlags["raja_iblis_final"] = 2; 
+                    gameRunning = false;
+
+                } else if (allainIsTheHero) { 
+                    centerText(L"🖤 JIWA TERENGGUT, PERTARUNGAN ANTAR TAKDIR 🖤");
+                    printLine();
+                    delayPrint(L"Kau telah berjuang sekuat tenaga melawan Wujud Sempurna Vorlag, namun akhirnya kegelapan mulai merayapimu...", 50);
+                    delayPrint(L"Tubuhmu ambruk, energi kehidupanmu terkuras habis. Vorlag mendekat, bukan untuk menghancurkan, tapi dengan tatapan penuh perhitungan licik.", 40);
+                    delayPrint(L"Vorlag: \"Menarik... Jiwa yang memiliki potensi seperti ini, namun bukan Pahlawan Terpilih... Kau mampu menahan sebagian kekuatanku dan berinteraksi dengan artefak suci. Kau akan menjadi wadah yang jauh lebih menarik dan mudah dikendalikan!\"", 60);
+                    delayPrint(L"Vorlag: \"Tubuhmu, jiwamu, potensimu... SEMUANYA AKAN MENJADI MILIKKU, WEISS VON ASTRA! KITA AKAN MENJADI SATU!\"", 50);
+                    wcout << endl;
+                    delayPrint(L"Aura hitam pekat keluar dari Vorlag dan dengan paksa menyelimuti dan merasuki tubuhmu yang tak berdaya!", 60);
+                    delayPrint(L"Kau merasakan kesadaranmu terkoyak, digantikan oleh kehendak dingin dan kejam Raja Iblis. Matamu terbuka, kini menyala dengan cahaya merah jahat dan aura dari semua elemen sihir.", 50);
+                    
+                    centerText(L"ANDA KINI ADALAH WEISS-VORLAG!", 70);
+                    wcout << endl;
+
+                    temporarilyGrantAllMagicToPlayer(player, true); 
+                    // HP dan Mana sudah di-set full di dalam temporarilyGrantAllMagicToPlayer
+
+                    delayPrint(L"\"Kekuatan ini... HAHAHA! Luar biasa! Dunia akan menjadi milikku!\" suara gabungan Weiss dan Vorlag menggema.", 40);
+                    delayPrint(L"Allain Ragna, yang baru saja menghalau serbuan iblis terakhir, melihatmu bangkit dengan aura yang mengerikan, berbeda dari sebelumnya.", 30);
+                    delayPrint(L"Allain: \"Weiss?! Apa yang terjadi padamu?! Energi ini... ini bukan dirimu! Vorlag! Keluar dari tubuhnya!\"", 40);
+                    
+                    delayPrint(L"Weiss-Vorlag: \"Weiss yang lemah sudah lenyap, Pahlawan Kecil! Sekarang hanya ada kami!\"", 50);
+                    delayPrint(L"Weiss-Vorlag melesat ke arah Allain, tangannya yang diliputi energi gelap mencoba merebut Lumanaire MoonSword!", 50);
+                    delayPrint(L"Namun, pedang suci itu sendiri seolah menolak, memancarkan gelombang energi perak yang membuat tangan Weiss-Vorlag sedikit terbakar dan mundur!", 60);
+                    delayPrint(L"Allain: (Menggenggam Lumanaire lebih erat) \"Kau tidak akan pernah bisa menyentuh kekuatan suci ini dengan jiwa iblismu, Vorlag! Aku akan membebaskan Weiss!\"", 50);
+                    delayPrint(L"Weiss-Vorlag: (Mendesis) \"Pedang itu akan menjadi milikku setelah aku menghancurkanmu, Pahlawan kecil! Dan jiwa Weiss akan selamanya menjadi bagian dariku!\"", 40);
+                    wcout << endl;
+                    waitForEnter(L"Tekan Enter untuk memulai duel terakhir: WEISS-VORLAG vs ALLAIN RAGNA!");
+
+                    Enemy buffedAllain;
+                    setupBuffedAllainForDuel(buffedAllain); 
+
+                    BattleResult weissVorlagVsAllainResult = startBattle(buffedAllain, "ArcadiaHeroVsPossessedDuel");
+                    
+                    temporarilyGrantAllMagicToPlayer(player, false); 
+
+
+                    if (weissVorlagVsAllainResult == ENEMY_DEAD) { 
+                        system("cls");
+                        printLine();
+                        centerText(L"💥 KEHANCURAN BERSAMA - TAKDIR TRAGIS PARA PAHLAWAN 💥");
+                        printLine();
+                        delayPrint(L"Dengan kekuatan iblis yang menguasaimu sepenuhnya, kau berhasil mengalahkan Allain Ragna, sang Pahlawan Terpilih Arcadia.", 50);
+                        delayPrint(L"Allain tergeletak tak berdaya, Lumanaire MoonSword meredup di sisinya, namun masih memancarkan secercah cahaya suci.", 40);
+                        delayPrint(L"Allain: (Dengan napas terakhir, menatapmu dengan pandangan sedih namun penuh tekad) \"Weiss... kuharap... suatu saat... kau menemukan... kedamaian... Aku... tidak akan membiarkan Vorlag... menang...\"", 60);
+                        delayPrint(L"Melihat Pahlawan terakhir gugur, Allain memutuskan tindakan pamungkas.", 40);
+                        delayPrint(L"Dia menyalurkan seluruh sisa esensi kehidupannya dan kekuatan sucinya yang terakhir ke dalam Lumanaire MoonSword yang tergeletak.", 50);
+                        delayPrint(L"\"CAHAYA ABADI... LENYAPKAN KEGELAPAN INI SELAMANYA!\" teriak Allain.", 40);
+                        delayPrint(L"Pedang itu meledak dalam pancaran cahaya suci yang maha dahsyat, menyelimuti seluruh medan pertempuran, menelanmu (Weiss-Vorlag) dan jasad Allain.", 70);
+                        delayPrint(L"Ketika cahaya mereda, tidak ada yang tersisa selain kehancuran total dan keheningan. Raja Iblis Vorlag, bersama wadahnya, dan sang Pahlawan Allain Ragna, keduanya telah musnah.", 60);
+                        delayPrint(L"Dunia mungkin selamat dari ancaman langsung Vorlag, tapi dengan harga yang tak terbayangkan: kehilangan kedua sosok yang bisa menjadi pahlawannya.", 50);
+                        storyFlags["raja_iblis_final"] = 4; 
+                        gameRunning = false;
+
+                    } else if (weissVorlagVsAllainResult == PLAYER_DEAD) { 
+                        system("cls");
+                        printLine();
+                        centerText(L"✨ PENYELAMATAN TERAKHIR - JIWA YANG DIBEBASKAN ✨");
+                        printLine();
+                        delayPrint(L"Meskipun dirasuki kekuatan Vorlag dan menguasai semua elemen, Allain Ragna, dengan Lumanaire MoonSword dan tekad Pahlawan Terpilih, bertarung dengan gigih.", 50);
+                        delayPrint(L"Setelah pertempuran yang mengerikan, Allain berhasil menemukan celah dalam pertahananmu.", 40);
+                        delayPrint(L"Dengan serangan terakhir yang dipenuhi cahaya suci dari Lumanaire, dia berhasil menghancurkan entitas Vorlag yang bersemayam dalam dirimu.", 50);
+                        delayPrint(L"Tubuh Weiss tergeletak. Energi gelap Vorlag menjerit dan lenyap. Untuk sesaat, matamu kembali menjadi dirimu sendiri.", 60);
+                        delayPrint(L"Weiss: (Berbisik lemah pada Allain) \"Allain... kau berhasil... Terima kasih... telah membebaskanku...\"", 70);
+                        delayPrint(L"Dengan senyum tipis, jiwamu akhirnya menemukan kedamaian sejati.", 40);
+                        delayPrint(L"Allain Ragna berdiri sebagai pahlawan tunggal, telah menyelamatkan dunia dari Raja Iblis dan membebaskan jiwa sahabatnya dari takdir yang mengerikan.", 60);
+                        storyFlags["raja_iblis_final"] = 5; 
+                        gameRunning = false;
+                    }
+                } else { 
+                     system("cls"); printLine();
+                     centerText(L"☠️ KEGELAPAN ABADI TELAH MENYELIMUTI DUNIA ☠️");
+                     printLine();
+                    delayPrint(L"Tanpa Pahlawan Terpilih yang memegang senjata suci, bahkan Wujud Sempurna Vorlag tak terhentikan.", 50);
+                    delayPrint(L"Kekalahanmu adalah kekalahan dunia.", 60);
+                    storyFlags["raja_iblis_final"] = 3; 
+                    gameRunning = false; 
+                }
+            }
+        }
+        waitForEnter(L"Tekan Enter untuk melanjutkan...");
+    }
+}
+
+
+void checkStoryTriggers() {
+            if (currentDay == 15 && storyFlags["duel_persahabatan"] == 0) {
+                triggerDuelAllainRagna();
+            }
+            if (currentDay == 25 && storyFlags["invasi_mansion"] == 0) {
+                triggerInvasiMansion();
+            }
+            if (currentDay == 35 && storyFlags["invasi_arcadia"] == 0) {
+                triggerInvasiArcadia();
+            }
+            if (currentDay == 50 && storyFlags["pedang_pahlawan"] == 0) {
+                triggerPedangPahlawan();
+            }
+            if (currentDay == 60 && storyFlags["raja_iblis_final"] == 0) {
+                triggerFinalBossRajaIblis();
+            }
+        }
 
 
 
@@ -6721,9 +7843,7 @@ void showGameMenu() {
         printLine(50, L'─');
         wcout << L"Pilih aksi ✦: ";
         
-        cin >> choice;
-        cin.ignore(); 
-
+        choice = getValidatedChoice(1, 6); 
         if (choice > 0 && choice <= actions.size()) {
             string action = actions[choice - 1];
 
@@ -6732,29 +7852,46 @@ void showGameMenu() {
             } else if (action == "Membuka Diary" || action == "Buka Diary") {
                 showDiaryMenu();
             } else if (action == "Istirahat") {
-            int pilihan;
-            system("cls");
-            printLine();
-            centerText(L"✦✦✦ ISTIRAHAT ✦✦✦");
-            printLine();
-            delayPrint(L"Tempat tidur tampak nyaman. Apakah kamu ingin beristirahat dan mengakhiri hari ini?", 20);
-            wcout << L"\n❖ 1. Ya, beristirahat\n❖ 2. Tidak, kembali ke aktivitas\n";
-            printLine();
-            wcout << L"Pilih opsi ✦: ";
-            cin >> pilihan;
+                int pilihanIstirahat;
+                system("cls");
+                printLine();
+                centerText(L"✦✦✦ ISTIRAHAT ✦✦✦");
+                printLine();
+                delayPrint(L"Tempat tidur tampak nyaman. Apakah kamu ingin beristirahat dan mengakhiri hari ini?", 20);
+                wcout << L"\n❖ 1. Ya, beristirahat\n❖ 2. Tidak, kembali ke aktivitas\n";
+                printLine();
+                wcout << L"Pilih opsi ✦: ";
+                
+                wstring istirahatInputRaw;
 
-            if (pilihan == 1) {
-                currentActionsRemaining = 0;    
-                delayPrint(L"Kamu merebahkan diri di atas tempat tidur, membiarkan kelelahan hari ini larut dalam kehangatan selimut...", 30);
-                delayPrint(L"Zzz...", 40);
-                delayPrint(L"Lewat jendela, matahari pagi mulai menyapa.", 20);
-                delayPrint(L"--- Hari Baru Telah Tiba ---", 40);
-                currentDay++;
-                talkedToday.clear();
-                printLine();
-                centerText(L"✦ Hari berganti! Sekarang Hari ke-" + to_wstring(currentDay) + L" ✦");
-                printLine();
-                waitForEnter();
+                if (wcin.rdbuf()->in_avail() > 0 && wcin.peek() == L'\n') { 
+                    wcin.ignore();
+                }
+                getline(wcin, istirahatInputRaw);
+                try {
+                    if (!istirahatInputRaw.empty()) {
+                        pilihanIstirahat = stoi(istirahatInputRaw);
+                    } else {
+                        pilihanIstirahat = 0; 
+                    }
+                } catch (const exception& e) {
+                    pilihanIstirahat = 0; 
+                }
+
+                if (pilihanIstirahat == 1) {
+                    currentActionsRemaining = 0;    
+                    delayPrint(L"Kamu merebahkan diri di atas tempat tidur, membiarkan kelelahan hari ini larut dalam kehangatan selimut...", 30);
+                    delayPrint(L"Zzz...", 40);
+                    delayPrint(L"Lewat jendela, matahari pagi mulai menyapa.", 20);
+                    delayPrint(L"--- Hari Baru Telah Tiba ---", 40);
+                    currentDay++;
+                    talkedToday.clear();
+                    printLine();
+                    centerText(L"✦ Hari berganti! Sekarang Hari ke-" + to_wstring(currentDay) + L" ✦");
+                    printLine();
+                    waitForEnter();
+                    advanceToNextDay();
+                    void checkStoryTriggers();
 
 
                 ActiveDailyQuestNode* current = activeDailyQuestsHead;
@@ -6793,23 +7930,23 @@ void showGameMenu() {
                 showBlacksmith();
             } else if (action == "Cek Berita Kota") {
                 wcout << L"Koran hari ini memuat berita tentang pahlawan misterius..." << endl;
-                wcout << L"Tekan Enter untuk kembali..."; cin.get();
+                waitForEnter();
             } else if (action == "Masuk ke Ancient Temple (Dungeon)") {
                 enterDungeon("Ancient Temple");
             } else if (action == "Masuk ke Goa Avernix (Dungeon)") {
                 enterDungeon("Goa Avernix");
             } else {
                 wcout << L"Aksi belum dikenali!" << endl;
-                wcout << L"Tekan Enter untuk kembali..."; cin.get();
+                waitForEnter();
             }
         } else {
             wcout << L"Pilihan tidak valid!" << endl;
-            wcout << L"Tekan Enter untuk melanjutkan...";
-            cin.get();
+            waitForEnter();
         }
 
             } while(gameRunning && choice != 0);
         }
+
 
 void exploreArea() {
     system("cls");
@@ -6844,10 +7981,7 @@ void exploreArea() {
             wcout << L"Mungkin coba area lain?" << endl;
             break;
     }
-    
-    wcout << L"Tekan Enter untuk kembali...";
-    cin.ignore();
-    cin.get();
+    waitForEnter();
 }
 
 void showWorldMapLocationMenu() {
@@ -6872,7 +8006,8 @@ void showWorldMapLocationMenu() {
 
     wcout << L"Pilih world (1-" << backOption << L"): ";
     int choice;
-    cin >> choice;
+    choice = getValidatedChoice(1, 5); 
+
 
     if (choice >= 1 && choice <= availableWorlds.size()) {
         string selectedWorld = availableWorlds[choice - 1];
@@ -6960,7 +8095,8 @@ void showLocationMenu() {
 
     wcout << L"Pilih tujuan (1-" << backOption << L"): ";
     int choice;
-    cin >> choice;
+    choice = getValidatedChoice(1, 3); 
+
 
     if (choice >= 1 && choice <= destinations.size()) {
         string targetSubArea = destinations[choice - 1];
@@ -7049,7 +8185,8 @@ int main() {
     int choice;
     do {
         showTitleScreen();
-        cin >> choice;
+        choice = getValidatedChoice(1, 4); 
+
         
         switch(choice) {
             case 1: {
@@ -7064,9 +8201,7 @@ int main() {
             }
             case 2: {
                 wcout << L"Load Game belum diimplementasikan." << endl;
-                wcout << L"Tekan Enter untuk kembali...";
-                cin.ignore();
-                cin.get();
+                waitForEnter();
                 break;
             }
             case 3: {
@@ -7079,9 +8214,7 @@ int main() {
                 centerText(L"Versi 1.0");
                 centerText(L"Dibuat dengan C++");
                 wcout << endl;
-                wcout << L"Tekan Enter untuk kembali...";
-                cin.ignore();
-                cin.get();
+                waitForEnter();
                 break;
             }
             case 4: {
@@ -7090,9 +8223,7 @@ int main() {
             }
             default: {
                 wcout << L"Pilihan tidak valid!" << endl;
-                wcout << L"Tekan Enter untuk melanjutkan...";
-                cin.ignore();
-                cin.get();
+                waitForEnter();
                 break;          
             }
         }
