@@ -301,6 +301,7 @@ struct Dungeon {
     vector<int> storyLockedFloors;
     map<int, CampArea> campAreas;
     vector<int> visitedCampAreas;
+    unordered_set<int> exploredOnceFloors;
 };
 
 struct SocialLink {
@@ -321,6 +322,59 @@ enum BattleResult {
 };
 
 
+struct SaveSlot {
+    bool isUsed = false;
+    string slotName; // Bisa diisi nama pemain + hari ke-berapa, atau input dari pemain
+    time_t saveTime;
+
+    // Data Pemain
+    string playerName;
+    int playerLevel;
+    int playerHp;
+    int playerMaxHp;
+    int playerMana;
+    int playerMaxMana;
+    int playerStrength;
+    int playerDefense;
+    int playerIntelligence;
+    int playerAgility;
+    int playerExp;
+    long long playerExpToNextLevel;
+    int playerGold;
+    int playerSkillPoints;
+    vector<string> playerUnlockedMagicElements;
+    vector<string> playerKnownSpells;
+    Weapon* playerEquippedWeaponData; // Simpan nama atau ID, lalu resolve saat load
+    string playerEquippedWeaponName; // Lebih aman untuk serialisasi
+
+    // Inventory Pemain
+    vector<string> playerInventoryItemNames; // Simpan nama item
+    vector<string> playerWeaponNames;      // Simpan nama senjata
+
+    // Progres Cerita & Dunia
+    int currentDay;
+    int currentActionsRemaining;
+    string currentWorld;
+    string currentSubArea;
+    unordered_map<string, int> storyFlagsData;
+    queue<GameEvent> scheduledEventsData; // Mungkin perlu diserialisasi secara khusus
+    vector<GameEvent> scheduledEventsVector; // Lebih mudah diserialisasi daripada queue
+
+    // Progres Companion
+    vector<string> companionNamesMet;
+    unordered_map<string, int> companionRelationsData;
+    unordered_map<string, int> companionSocialLinkLevels;
+    unordered_map<string, bool> companionSocialLinkCompleted;
+
+    // Progres Dungeon
+    map<string, vector<int>> dungeonVisitedCampAreasData;
+    map<string, unordered_set<int>> dungeonExploredOnceFloorsData;
+    unordered_map<string, bool> defeatedBossesData;
+
+    // Quest
+    vector<DailyQuest> activeDailyQuestsData; // Simpan quest aktif saat ini
+};
+
 unordered_map<string, WorldArea> allWorlds;
 unordered_map<string, vector<string>> locationGraph;
 unordered_map<string, Dungeon> allDungeons;
@@ -330,6 +384,7 @@ unordered_map<string, vector<wstring>> asciiArtMap;
 unordered_map<string, SocialLink> socialLinks;
 unordered_map<string, SocialLinkStory> socialLinkStories;
 unordered_map<string, bool> talkedToday;
+unordered_set<string> subAreasExploredOnceGlobal;
 
 string currentWorld = "Mansion Astra";
 string currentSubArea = "Kamar Weiss";
@@ -355,6 +410,9 @@ map<string, MagicElement> allMagicElements;
 queue<GameEvent> scheduledEvents;
 stack<PlayerSpellUndoState> spellLearnUndoStack;
 Quest* questHead = nullptr;
+const int MAX_SAVE_SLOTS = 3; 
+vector<SaveSlot> saveSlots(MAX_SAVE_SLOTS);
+string SAVE_FILE_NAME = "savegame.dat"; 
 const double BASE_XP = 7.0;
 const double XP_EXPONENT = 1.1;
 const vector<int> MAGIC_ELEMENT_UNLOCK_LEVELS = {20, 40, 60, 80, 100}; 
@@ -386,6 +444,8 @@ void showWeaponList();
 void showWeaponDetail(Weapon* weapon);
 void showCompanionList();
 void showCompanionDetail(Companion& companion);
+bool sudahBertemuCompanion(const string& namaCompanion);
+void showGenericCompanionDialogue(const string& npcName);
 void showCalendar();
 void showDiaryMenu();
 void setupWorldAreas();
@@ -693,34 +753,137 @@ void inputPlayerName() {
 }
 
 void showTutorial() {
+    bool tutorialSkipped = false;
+    int currentPage = 1;
+    int totalPages = 4; 
+
+    while (currentPage <= totalPages && !tutorialSkipped) {
+        system("cls");
+        printLine();
+
+        if (currentPage == 1) {
+            centerText(L"✦ TUTORIAL - HALAMAN 1 DARI " + to_wstring(totalPages) + L": SELAMAT DATANG, WEISS! ✦");
+            printLine();
+            wcout << endl;
+
+            delayPrint(L"Selamat datang kembali di dunia ini, jiwa yang bereinkarnasi!", 20);
+            delayPrint(L"Kau kini adalah Weiss von Astra, seorang bangsawan muda yang di novel aslinya bernasib... yah, cukup tragis dan konyol.", 20);
+            delayPrint(L"Tujuan utamamu di sini sangat jelas: HINDARI TAKDIR BURUK ITU! Ubah alur cerita, jadilah kuat, dan tulis ulang akhir kisahmu.", 30);
+            wcout << endl;
+
+            delayPrint(L"=== AKSI DASAR & NAVIGASI ===", 20);
+            delayPrint(L"  ❖ MENU UTAMA (AKSI DI LOKASI):", 20);
+            delayPrint(L"    ✧ CEK SEKITAR   : Melihat-lihat area saat ini. Siapa tahu ada item tersembunyi, kejadian kecil, atau petunjuk menarik? Hanya bisa dilakukan sekali per area.", 20);
+            delayPrint(L"    ✧ BUKA DIARY    : Ini adalah pusat komandomu! Dari sini kau bisa melihat status karakter, inventory (item & senjata), daftar quest, mempelajari sihir baru di Skill Tree, mengecek hubungan dengan rekanan (Companion), dan melihat Kalender Event.", 20);
+            delayPrint(L"    ✧ PILIH LOKASI  : Berpindah ke sub-area lain dalam wilayah duniamu saat ini (misalnya, dari Kamar ke Dapur di Mansion Astra).", 20);
+            delayPrint(L"    ✧ ISTIRAHAT     : (Biasanya tersedia di tempat aman seperti kamarmu) Mengakhiri hari, memulihkan HP & Mana, dan melanjutkan ke hari berikutnya. Ini akan menghabiskan sisa aksimu.", 20);
+            wcout << endl;
+            delayPrint(L"  ❖ AKSI HARIAN   : Setiap hari, kau memiliki sejumlah 'Aksi Harian' (misalnya 5 aksi). Berpindah lokasi antar wilayah dunia (World Map), berbicara dengan NPC untuk meningkatkan hubungan, atau masuk dungeon akan mengurangi jumlah aksimu. Gunakan dengan bijak!", 20);
+            wcout << endl;
+            delayPrint(L"Ingat nama aslimu, " + utf8_to_wstring(player.name.substr(player.name.find("(") + 1, player.name.find(")") - player.name.find("(") - 1)) + L"? Jiwa itu kini ada dalam diri Weiss!", 20);
+
+        } else if (currentPage == 2) {
+            centerText(L"✦ TUTORIAL - HALAMAN 2 DARI " + to_wstring(totalPages) + L": PENGEMBANGAN KARAKTER & SIHIR ✦");
+            printLine();
+            wcout << endl;
+
+            delayPrint(L"=== MENJADI LEBIH KUAT ===", 20);
+            delayPrint(L"  ❖ LEVEL & EXP      : Kalahkan musuh dalam pertarungan dan selesaikan quest (terutama Quest Harian dari Cross Guild) untuk mendapatkan EXP (Experience Points).", 20);
+            delayPrint(L"  ❖ NAIK LEVEL       : Ketika EXP mencapai batas tertentu, levelmu akan naik! Ini akan meningkatkan statistik dasar (Max HP, Max Mana, Strength, Intelligence, Defense, Agility) secara otomatis.", 20);
+            delayPrint(L"  ❖ SKILL POINT (SP) : Setiap beberapa level (misalnya tiap 5 level), atau saat membuka elemen sihir baru, kau akan mendapatkan Skill Point. Ini SANGAT PENTING!", 20);
+            wcout << endl;
+
+            delayPrint(L"=== MENGUASAI SIHIR ===", 20);
+            delayPrint(L"  ❖ ELEMEN SIHIR AWAL: Di awal permainan, kau memilih satu elemen sihir dasar (Api, Es, Petir, Angin, Kegelapan, atau Cahaya). Ini menentukan sihir awal yang bisa kau pelajari.", 20);
+            delayPrint(L"  ❖ MEMBUKA ELEMEN BARU: Seiring kenaikan levelmu (pada level 20, 40, 60, 80, 100), kau akan berkesempatan membuka akses ke elemen sihir baru secara acak. Beberapa sihir dasar dari elemen baru itu akan langsung bisa kau pelajari.", 20);
+            delayPrint(L"  ❖ SKILL TREE       : Akses 'Skill Tree' melalui 'Buka Diary'. Di sini kau bisa menggunakan Skill Point untuk mempelajari sihir baru dari elemen yang sudah kau kuasai. Perhatikan prasyarat (sihir sebelumnya yang harus dikuasai) untuk sihir tingkat lanjut!", 20);
+            delayPrint(L"  ❖ MANA             : Setiap sihir membutuhkan Mana untuk dirapal. Pastikan cadangan Mana-mu cukup, atau gunakan Mana Potion!", 20);
+            wcout << endl;
+            delayPrint(L"Kekuatan sihir adalah kunci untuk mengubah takdirmu. Pelajari dan gunakan dengan bijak!", 20);
+
+        } else if (currentPage == 3) {
+            centerText(L"✦ TUTORIAL - HALAMAN 3 DARI " + to_wstring(totalPages) + L": PERTARUNGAN DETAIL & STATUS EFEK ✦");
+            printLine();
+            wcout << endl;
+
+            delayPrint(L"=== MEMAHAMI PERTARUNGAN (TURN-BASED) ===", 20);
+            delayPrint(L"  ❖ AKSI DALAM BERTARUNG:", 20);
+            delayPrint(L"    ✧ SERANG   : Serangan fisik dasar. Kekuatannya dipengaruhi oleh stat Strength dan senjata yang kau pakai.", 20);
+            delayPrint(L"    ✧ MAGIC    : Menggunakan sihir yang sudah kau pelajari. Efektivitasnya dipengaruhi stat Intelligence.", 20);
+            delayPrint(L"    ✧ ITEM     : Menggunakan item dari inventory, seperti Potion untuk memulihkan HP atau Mana.", 20);
+            delayPrint(L"    ✧ BERTAHAN : Kamu fokus menghindar, meningkatkan Evasion-mu secara signifikan untuk serangan musuh berikutnya. Berguna untuk menghindari serangan kuat!", 20);
+            delayPrint(L"    ✧ KABUR    : Mencoba melarikan diri dari pertarungan. Tidak selalu berhasil, dan mustahil jika melawan Boss.", 20);
+            wcout << endl;
+            delayPrint(L"  ❖ STATISTIK PENTING DALAM PERTARUNGAN:", 20);
+            delayPrint(L"    ✧ STRENGTH (STR)    : Meningkatkan damage serangan fisikmu.", 20);
+            delayPrint(L"    ✧ INTELLIGENCE (INT): Meningkatkan damage sihirmu, efektivitas beberapa sihir pendukung, dan sedikit pertahanan terhadap sihir musuh.", 20);
+            delayPrint(L"    ✧ DEFENSE (DEF)     : Mengurangi damage fisik yang kau terima dari musuh.", 20);
+            delayPrint(L"    ✧ AGILITY (AGI)     : Meningkatkan kemungkinanmu menghindari serangan musuh (evasion) dan mungkin akurasimu.", 20);
+            delayPrint(L"    ✧ CRITICAL HIT      : Ada peluang kecil seranganmu menghasilkan Critical Hit (damage 1.5x lebih besar!).", 20);
+            wcout << endl;
+
+            delayPrint(L"=== STATUS EFEK (BUFF, DEBUFF, DLL) ===", 20);
+            delayPrint(L"  ❖ ENCHANTMENT (BUFF): Sihir yang memberikan efek positif sementara pada dirimu (misal 'Flame Weapon' menambah attack, 'Frost Armor' menambah defense, 'Shroud' menambah evasion). Perhatikan durasinya!", 20);
+            delayPrint(L"  ❖ DEBUFF MUSUH    : Beberapa sihirmu bisa melemahkan musuh (misalnya 'Curse of Fatigue' mengurangi Attack & Agility musuh, 'Scorching Haze' mengurangi akurasi musuh).", 20);
+            delayPrint(L"  ❖ DoT & HoT       : Damage over Time (DoT) seperti 'Ignite' akan melukai musuh setiap giliran. Heal over Time (HoT) seperti dari 'Phoenix Blessing' akan memulihkan HP-mu setiap giliran.", 20);
+            delayPrint(L"  ❖ KONDISI NEGATIF : Musuh bisa menyebabkan Stun (lumpuh), Fear (gagal beraksi), atau Silence (tak bisa sihir) padamu. Beberapa sihir cahayamu seperti 'Purification' bisa menghilangkannya.", 20);
+            delayPrint(L"  ❖ PERISAI (SHIELD): Sihir seperti 'Guardian Angel' menciptakan perisai HP tambahan. Damage akan mengenai perisai dulu sebelum HP aslimu.", 20);
+
+        } else if (currentPage == 4) {
+            centerText(L"✦ TUTORIAL - HALAMAN 4 DARI " + to_wstring(totalPages) + L": DUNIA, TAKDIR & AKHIR CERITA ✦");
+            printLine();
+            wcout << endl;
+
+            delayPrint(L"=== MENJELAJAHI DUNIA & BERINTERAKSI ===", 20);
+            delayPrint(L"  ❖ PETA DUNIA & LOKASI: Gunakan 'Pilih Lokasi' untuk berpindah antar sub-area. Untuk pindah ke wilayah dunia yang berbeda (misal, dari Mansion ke Kota Arcadia), gunakan opsi 'Ke World Map'. Perjalanan antar wilayah dunia memakan Aksi Harian.", 20);
+            delayPrint(L"  ❖ DUNGEON           : Lokasi seperti 'Ancient Temple' atau 'Goa Avernix' adalah Dungeon. 'Eksplorasi Lantai' hanya bisa dilakukan sekali per lantai untuk mencari suasana atau temuan kecil. Musuh utama biasanya menunggu di akhir lantai atau sebagai penjaga.", 20);
+            delayPrint(L"  ❖ REKANAN (COMPANION): Berbicaralah dengan karakter-karakter penting yang kau temui ('Bicara dengan [Nama]'). Meningkatkan hubungan (Social Link) dengan mereka akan membuka cerita pribadi mereka, mengungkap sifat mereka, dan pada level maksimal, mereka mungkin memberimu hadiah spesial (seperti senjata unik!) dan bonus stat permanen. Interaksi untuk meningkatkan hubungan memakan Aksi Harian, namun berbicara santai dengan rekanan yang sudah maksimal tidak.", 20);
+            wcout << endl;
+
+            delayPrint(L"=== MENGUKIR TAKDIRMU ===", 20);
+            delayPrint(L"  ❖ STORY FLAGS       : Setiap keputusan penting, kemenangan, atau bahkan kekalahan dalam event cerita utama (yang muncul di Kalender) akan mengubah 'Story Flags'. Flag ini adalah penentu utama bagaimana ceritamu akan berkembang.", 20);
+            delayPrint(L"  ❖ KALENDER & EVENT UTAMA: Perhatikan Kalender di Diary! Event-event utama yang telah dijadwalkan (seperti 'Undangan Tak Terduga' atau 'Bayangan di Kediaman') adalah momen krusial. Keberhasilanmu di sini akan sangat mempengaruhi flag dan jalan ceritamu.", 20);
+            delayPrint(L"  ❖ BEBERAPA AKHIR CERITA: Berdasarkan kombinasi Story Flags yang kau kumpulkan, kisah Weiss von Astra bisa memiliki BEBERAPA AKHIR yang sangat berbeda. Apakah kau akan berhasil menghindari 'mati konyol' dan menjadi pahlawan? Atau takdir kelam lain menantimu? Semua ada di tanganmu!", 30);
+            delayPrint(L"  ❖ JADILAH ARSITEK NASIBMU: Jangan pasrah pada alur novel asli! Eksplorasi, jadi kuat, bangun hubungan, buat pilihan sulit, dan hadapi tantangan. Hanya dengan begitu kau bisa benar-benar 'menderail plot'!", 30);
+            wcout << endl;
+            delayPrint(L"Oh, dan jangan lupakan tujuan mulia lainnya: menemukan secangkir TEH YANG LAYAK di dunia antah berantah ini!", 20);
+            delayPrint(L"Petualanganmu untuk menulis ulang takdir dimulai sekarang. Semoga berhasil, Weiss!", 20);
+        }
+
+        printLine();
+        int choiceTutorial;
+        if (currentPage < totalPages) {
+            wcout << L"Pilihanmu:" << endl;
+            wcout << L"  1. Lanjut ke Halaman " << (currentPage + 1) << endl;
+            wcout << L"  2. Lewati Sisa Tutorial" << endl;
+            wcout << L"Pilih (1-2) ✦: ";
+            choiceTutorial = getValidatedChoice(1, 2);
+            if (choiceTutorial == 1) {
+                currentPage++;
+            } else {
+                tutorialSkipped = true;
+            }
+        } else { 
+            wcout << L"Pilihanmu:" << endl;
+            wcout << L"  1. Selesai Tutorial (Mulai Petualangan)" << endl;
+            wcout << L"Pilih (1) ✦: ";
+            choiceTutorial = getValidatedChoice(1, 1);
+            if (choiceTutorial == 1) {
+                tutorialSkipped = true; 
+            }
+        }
+    }
+
     system("cls");
+    if (currentPage == totalPages && tutorialSkipped ) { 
+         delayPrint(L"Tutorial selesai! Semoga berhasil mengubah takdirmu dan menemukan teh terenak, Weiss!", 30);
+    } else if (tutorialSkipped && currentPage < totalPages) { 
+         delayPrint(L"Baiklah, sepertinya kau sudah tidak sabar! Semoga berhasil mengubah takdirmu, Weiss!", 30);
+    } else { 
+         delayPrint(L"Tutorial selesai! Semoga berhasil mengubah takdirmu dan menemukan teh terenak, Weiss!", 30);
+    }
     printLine();
-    centerText(L"✦✦✦ TUTORIAL & OBJECTIVES ✦✦✦");
-    printLine();
-    wcout << endl;
-    
-    delayPrint(L"=== TUJUAN UTAMA ===", 20);
-    delayPrint(L"✦ 1. BERTAHAN HIDUP - Hindari kematian seperti di novel asli!", 20);
-    delayPrint(L"✦ 2. DERAIL THE PLOT - Ubah alur cerita sesuai keinginanmu!", 20);
-    delayPrint(L"✦ 3. BECOME POWERFUL - Kuasai sihir dan jadi yang terkuat!", 20);
-    delayPrint(L"✦ 4. FIND DECENT TEA - Temukan teh yang layak di dunia ini!", 20);
-    wcout << endl;
-    
-    delayPrint(L"=== KONTROL GAME ===", 20);
-    delayPrint(L"✦ CEK SEKITAR - Eksplorasi lingkungan dan temukan item", 20);
-    delayPrint(L"✦ BUKA DIARY - Akses menu sistem (status, inventory, dll)", 20);
-    delayPrint(L"✦ PILIH LOKASI - Pergi ke tempat lain", 20);
-    wcout << endl;
-    
-    delayPrint(L"=== TIPS BERTAHAN HIDUP ===", 20);
-    delayPrint(L"✦ Tingkatkan level dengan exp", 20);
-    delayPrint(L"✦ Pelajari sihir untuk melawan musuh", 20);
-    delayPrint(L"✦ Bangun hubungan dengan companion", 20);
-    delayPrint(L"✦ Perhatikan event yang dijadwalkan", 20);
-    wcout << endl;
-    
-    printLine();
-    waitForEnter(L"Siap memulai petualangan? Tekan Enter...");
+    waitForEnter(L"Tekan Enter untuk memulai petualanganmu...");
 }
 
 
@@ -761,6 +924,7 @@ void checkEndOfDay() {
         system("cls");
         printLine();
         centerText(L"⚠ Hari telah menuju malam...");
+        printLine();
         delayPrint(L"Aku merasa lelah... Sebaiknya aku segera kembali beristirahat dan mengakhiri hariku.", 30);
         waitForEnter();
     }
@@ -772,6 +936,8 @@ void consumeAction() {
     }
     checkEndOfDay();
 }
+
+
 
 
 void initializeSpellsForElement(MagicElement& element) {
@@ -1216,6 +1382,7 @@ void initializeGame() {
     companions.clear();
     initializeAllQuests();
     generateDailyQuests();
+
     
     allItems = {
         
@@ -1515,33 +1682,35 @@ void initializeGame() {
     for(const auto& comp : companions) {
         companionRelations[comp.name] = comp.initialLoyalty;
     }
-    
-    
-    Quest* quest1 = new Quest{"Avoid Death Flags", "Don't die like a typical villain", false, 100, nullptr};
-    Quest* quest2 = new Quest{"Find Decent Tea", "Locate Earl Grey in this fantasy world", false, 50, nullptr};
-    Quest* quest3 = new Quest{"Derail the Plot", "Prevent the protagonist from following the story", false, 200, nullptr};
-    
-    quest1->next = quest2;
-    quest2->next = quest3;
-    questHead = quest1;
-    
-    
-    scheduledEvents.push({"Magic Academy Entrance", "Time to enroll and meet the protagonist", 30, false});
-    scheduledEvents.push({"Annual Magic Tournament", "Where villains typically lose", 60, false});
-    scheduledEvents.push({"Royal Ball", "Social event with plot significance", 90, false});
-    
-    
-    storyFlags["duel_persahabatan"] = 0;
+      
+    storyFlags["duel_persahabatan"] = 0; 
     storyFlags["invasi_mansion"] = 0;
     storyFlags["invasi_arcadia"] = 0;
-    storyFlags["pedang_pahlawan"] = 0;
-    storyFlags["raja_iblis_final"] = 0;
+    storyFlags["pedang_pahlawan"] = 0; 
+    storyFlags["pedang_pahlawan_weiss_chosen"] = 0;
+    storyFlags["pedang_pahlawan_allain_chosen"] = 0;
+    storyFlags["raja_iblis_final"] = 0; 
+    storyFlags["ruigerd_weapon_given"] = 0;
+    storyFlags["irene_book_given"] = 0;
+    storyFlags["ella_contract_signed"] = 0;
+    storyFlags["charlotte_scoop_shared"] = 0;
+    storyFlags["mars_oath_taken"] = 0;
+    storyFlags["kinich_map_received"] = 0;
+    storyFlags["masha_flower_bloomed"] = 0;
 
     
     storyFlags["blacksmith_tier1_unlocked"] = 0;
     storyFlags["blacksmith_tier2_unlocked"] = 0;
     storyFlags["blacksmith_tier3_unlocked"] = 0;
 
+    while (!scheduledEvents.empty()) {
+        scheduledEvents.pop();
+    }
+    scheduledEvents.push({"Undangan Tak Terduga", "Sebuah panggilan kehormatan akan menentukan langkah awalmu.", 15, false});
+    scheduledEvents.push({"Bayangan di Kediaman", "Sesuatu mengusik ketenangan Mansion Astra di kegelapan malam.", 25, false});
+    scheduledEvents.push({"Gema Perang di Ibukota", "Nasib Arcadia berada di ujung tanduk, suara pertempuran menggema.", 35, false});
+    scheduledEvents.push({"Cahaya Legenda Bangkit", "Sebuah artefak kuno akan muncul, mencari tuannya yang terpilih.", 50, false});
+    scheduledEvents.push({"Fajar Terakhir atau Awal Baru?", "Hari perhitungan terakhir akan tiba, menentukan nasib dunia.", 60, false});
 
 
  
@@ -1654,6 +1823,7 @@ void initializeGame() {
 
     
     Dungeon ancientTemple;
+    ancientTemple.exploredOnceFloors.clear();
     ancientTemple.name = "Ancient Temple";
     ancientTemple.type = "ascending";
     ancientTemple.printAsBasement = false;
@@ -1714,6 +1884,7 @@ void initializeGame() {
 
     
     Dungeon goaAvernix;
+    goaAvernix.exploredOnceFloors.clear();
     goaAvernix.name = "Goa Avernix";
     goaAvernix.type = "ascending";
     goaAvernix.printAsBasement = true;
@@ -1794,6 +1965,15 @@ void initializeGame() {
     initializeMagicSystem();
 
 
+}
+
+bool sudahBertemuCompanion(const string& namaCompanion) {
+    for (const auto& comp : companions) {
+        if (comp.name == namaCompanion && comp.met) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void applyItemEffect(const string& itemName) {
@@ -2625,7 +2805,7 @@ void setupWorldAreas() {
     mansion.name = "Mansion Astra";
     mansion.startSubArea = "Kamar Weiss";
     mansion.subAreas = {
-        {"Kamar Weiss", { "Kamar Weiss", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }},
+        {"Kamar Weiss", { "Kamar Weiss", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi", "Istirahat"} }},
         {"Dapur Mansion", { "Dapur Mansion", {"Cek Sekitar", "Bicara dengan Ruigerd", "Membuka Diary", "Pilih Lokasi", "Istirahat"} }},
         {"Taman Floresia", { "Taman Floresia", {"Cek Sekitar", "Bicara dengan Irene", "Membuka Diary", "Pilih Lokasi"} }},
         {"Lorong Panjang", { "Lorong Panjang", {"Cek Sekitar", "Membuka Diary", "Pilih Lokasi"} }}
@@ -3024,11 +3204,6 @@ void showActiveQuestsInDiary() {
         if (activeDailyQuestsHead == nullptr) {
             wcout << L"Belum ada quest aktif yang diambil." << endl;
             printLine();
-            wcout << L"Tekan Enter untuk kembali ke Diary...";
-            
-            if (cin.peek() == '\n') {
-                cin.ignore();
-            }
             waitForEnter();
             stayInQuestView = false; 
             break; 
@@ -4198,126 +4373,36 @@ void showCompanionDetailScreen(const Companion& companion) {
             waitForEnter(L"Tekan Enter untuk kembali ke Daftar Rekanan."); 
         }
         printLine(70, L'─');
-        
-
-        
-        cin.clear(); 
-        
-        if (cin.rdbuf()->in_avail() > 0) { 
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-        } else if (cin.peek() == '\n' && cin.peek() != EOF) { 
-            cin.ignore(); 
-        }
-        
-        waitForEnter(); 
 
         
     
 }
 
 void enterDungeon(string dungeonName) {
-    if (allDungeons.count("Goa Avernix")) {
-    Dungeon& dungeon = allDungeons["Goa Avernix"];
-    int currentFloor = dungeon.currentFloor; 
-
-    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
-    ActiveDailyQuestNode* prevQuestNode = nullptr;
-    int expFromCompletedQuests = 0;
-
-    while (currentQuestNode != nullptr) {
-        DailyQuest& quest = currentQuestNode->data;
-        bool wasThisQuestCompleted = false;
-
-        if (quest.type == "travel" && quest.taken && !quest.completed &&
-            quest.dungeonName == dungeon.name &&
-            quest.dungeonFloor > 0 && quest.dungeonFloor == currentFloor) {
-            
-            quest.completed = true;
-            expFromCompletedQuests += quest.expReward;
-            player.gold += quest.goldReward;
-            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
-            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
-            wasThisQuestCompleted = true;
-        }
-
-        ActiveDailyQuestNode* nodeToDelete = nullptr;
-        if (wasThisQuestCompleted) {
-            nodeToDelete = currentQuestNode;
-            if (prevQuestNode == nullptr) {
-                activeDailyQuestsHead = currentQuestNode->next;
-                currentQuestNode = activeDailyQuestsHead;
-            } else {
-                prevQuestNode->next = currentQuestNode->next;
-                currentQuestNode = prevQuestNode->next;
-            }
-            delete nodeToDelete;
-        } else {
-            prevQuestNode = currentQuestNode;
-            currentQuestNode = currentQuestNode->next;
-        }
-    }
-
-    if (expFromCompletedQuests > 0) {
-        handleExperienceAndLevelUp(player, expFromCompletedQuests);
+    if (!allDungeons.count(dungeonName)) {
+        delayPrint(L"Error: Dungeon '" + utf8_to_wstring(dungeonName) + L"' tidak ditemukan.", 20);
         waitForEnter();
+        return;
     }
-}
-    if (allDungeons.count("Ancient Temple")) {
-    Dungeon& dungeon = allDungeons["Ancient Temple"];
-    int currentFloor = dungeon.currentFloor; 
+    
+    Dungeon& dungeon = allDungeons.at(dungeonName); 
 
-    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
-    ActiveDailyQuestNode* prevQuestNode = nullptr;
-    int expFromCompletedQuests = 0;
-
-    while (currentQuestNode != nullptr) {
-        DailyQuest& quest = currentQuestNode->data;
-        bool wasThisQuestCompleted = false;
-
-        if (quest.type == "travel" && quest.taken && !quest.completed &&
-            quest.dungeonName == dungeon.name &&
-            quest.dungeonFloor > 0 && quest.dungeonFloor == currentFloor) {
-            
-            quest.completed = true;
-            expFromCompletedQuests += quest.expReward;
-            player.gold += quest.goldReward;
-            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
-            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
-            wasThisQuestCompleted = true;
-        }
-
-        ActiveDailyQuestNode* nodeToDelete = nullptr;
-        if (wasThisQuestCompleted) {
-            nodeToDelete = currentQuestNode;
-            if (prevQuestNode == nullptr) {
-                activeDailyQuestsHead = currentQuestNode->next;
-                currentQuestNode = activeDailyQuestsHead;
-            } else {
-                prevQuestNode->next = currentQuestNode->next;
-                currentQuestNode = prevQuestNode->next;
-            }
-            delete nodeToDelete;
-        } else {
-            prevQuestNode = currentQuestNode;
-            currentQuestNode = currentQuestNode->next;
-        }
+    bool firstTimeEnteringThisSpecificDungeonRun = true; 
+    if (dungeon.currentFloor == 1 && dungeon.visitedCampAreas.empty() && dungeon.exploredOnceFloors.empty()) {
+        firstTimeEnteringThisSpecificDungeonRun = true;
+    } else if (!dungeon.visitedCampAreas.empty()){
+        firstTimeEnteringThisSpecificDungeonRun = false;
     }
 
-    if (expFromCompletedQuests > 0) {
-        handleExperienceAndLevelUp(player, expFromCompletedQuests);
-        waitForEnter();
-    }
-}
 
-    consumeAction();
-    Dungeon& dungeon = allDungeons[dungeonName];
-    bool inDungeon = true;
-
-    if (!dungeon.visitedCampAreas.empty()) {
-        wcout << L"Kamu pernah mencapai lantai " << dungeon.visitedCampAreas.back() << L".\n";
-        wcout << L"❖ 1. Mulai dari lantai 1\n❖ 2. Mulai dari Camp terakhir\nPilih: ";
-        int startChoice;
-        cin >> startChoice;
+    if (!firstTimeEnteringThisSpecificDungeonRun) {
+        system("cls"); printLine();
+        centerText(L"MELANJUTKAN EKSPLORASI " + utf8_to_wstring(dungeon.name)); printLine();
+        wcout << L"Kamu pernah mencapai Camp Area di Lantai " << formatDungeonFloor(dungeon, dungeon.visitedCampAreas.back()) << L".\n";
+        wcout << L"❖ 1. Mulai dari Lantai " << formatDungeonFloor(dungeon, 1) << endl;
+        wcout << L"❖ 2. Mulai dari Camp Area terakhir (Lantai " << formatDungeonFloor(dungeon, dungeon.visitedCampAreas.back()) << L")" << endl;
+        wcout << L"Pilih opsi ✦: ";
+        int startChoice = getValidatedChoice(1, 2);
 
         if (startChoice == 2) {
             dungeon.currentFloor = dungeon.visitedCampAreas.back();  
@@ -4327,13 +4412,15 @@ void enterDungeon(string dungeonName) {
     } else {
         dungeon.currentFloor = 1; 
     }
+    
+    consumeAction(); 
+    bool inDungeon = true;
 
-
-    while (inDungeon) {
+    while (inDungeon && gameRunning) {
         system("cls");
         printLine();
-        wstring title = L"🏛️  " + wstring(dungeon.name.begin(), dungeon.name.end()) +
-                L" - Lantai " + formatDungeonFloor(dungeon, dungeon.currentFloor);
+        wstring title = L"🏛️  " + utf8_to_wstring(dungeon.name) +
+                        L" - Lantai " + formatDungeonFloor(dungeon, dungeon.currentFloor);
         centerText(title); 
         if (dungeon.campAreas.count(dungeon.currentFloor)) {
             centerText(L"🏕️  CAMP AREA");
@@ -4342,280 +4429,361 @@ void enterDungeon(string dungeonName) {
         }
         printLine();
 
-        
-        if (find(dungeon.storyLockedFloors.begin(), dungeon.storyLockedFloors.end(), dungeon.currentFloor) != dungeon.storyLockedFloors.end()) {
-            centerText(L"❌ Ada tembok tinggi yang menghalangi jalan selanjutnya ");
-            centerText(L"        Mungkin progress cerita akan membukanya!         ");
-            printLine();
-            waitForEnter(L"Tekan Enter untuk keluar dari dungeon...");
-            return;
+        ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+        ActiveDailyQuestNode* prevQuestNode = nullptr;
+        int expFromCompletedQuestsThisTurn = 0;
+
+        while (currentQuestNode != nullptr) {
+            DailyQuest& quest = currentQuestNode->data;
+            ActiveDailyQuestNode* nextNode = currentQuestNode->next; 
+            bool wasThisQuestCompletedThisCheck = false;
+
+            if (quest.type == "travel" && quest.taken && !quest.completed &&
+                !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && 
+                quest.dungeonFloor > 0 && quest.dungeonFloor == dungeon.currentFloor) {
+                
+                quest.completed = true; 
+                expFromCompletedQuestsThisTurn += quest.expReward;
+                player.gold += quest.goldReward;
+                
+                system("cls"); 
+                printLine();
+                centerText(L"🎉 QUEST SELESAI! 🎉");
+                printLine();
+                delayPrint(L"✓ Kau telah menyelesaikan Quest Harian: " + utf8_to_wstring(quest.title) + L"!", 20);
+                delayPrint(L"  Hadiah: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+                printLine();
+                waitForEnter();
+                wasThisQuestCompletedThisCheck = true;
+
+                if (prevQuestNode == nullptr) { 
+                    activeDailyQuestsHead = nextNode;
+                } else { 
+                    prevQuestNode->next = nextNode;
+                }
+                delete currentQuestNode; 
+            }
+
+            if (!wasThisQuestCompletedThisCheck) {
+                prevQuestNode = currentQuestNode;
+            }
+            currentQuestNode = nextNode;
         }
 
-        
+        if (expFromCompletedQuestsThisTurn > 0) {
+            handleExperienceAndLevelUp(player, expFromCompletedQuestsThisTurn);
+            waitForEnter(); 
+        }
+
+        if (find(dungeon.storyLockedFloors.begin(), dungeon.storyLockedFloors.end(), dungeon.currentFloor) != dungeon.storyLockedFloors.end() && 
+            !storyFlags.count(dungeon.name + "_Floor_" + to_string(dungeon.currentFloor) + "_Unlocked")) {
+            centerText(L"❌ Jalan menuju lantai ini disegel oleh kekuatan misterius atau membutuhkan progres cerita tertentu.");
+            printLine();
+            delayPrint(L"Kau memutuskan untuk kembali ke lantai sebelumnya.", 20);
+            if (dungeon.currentFloor > 1) {
+                dungeon.currentFloor--;
+            } else {
+                 waitForEnter(L"Tekan Enter untuk keluar dari dungeon...");
+                 return;
+            }
+            continue; 
+        }
+
         if (dungeon.campAreas.count(dungeon.currentFloor)) {
-            CampArea& camp = dungeon.campAreas[dungeon.currentFloor];
-            camp.visited = true;
+            CampArea& camp = dungeon.campAreas.at(dungeon.currentFloor);
             if (find(dungeon.visitedCampAreas.begin(), dungeon.visitedCampAreas.end(), camp.floor) == dungeon.visitedCampAreas.end()) {
                 dungeon.visitedCampAreas.push_back(camp.floor);
+                sort(dungeon.visitedCampAreas.begin(), dungeon.visitedCampAreas.end()); 
             }
-            wcout << L"Kamu tiba di Camp Area lantai " << camp.floor << L". Di sini kamu aman." << endl;
+            camp.visited = true;
+
+            wcout << L"Kau tiba di Camp Area di Lantai " << formatDungeonFloor(dungeon, camp.floor) << L". Tempat ini aman untuk beristirahat." << endl;
             printLine(60, L'─');
-            wcout << L"❖ 1. Istirahat (tersisa " << (2 - camp.restUsed) << L" kali)" << endl;
+            wcout << L"❖ 1. Istirahat (Sisa: " << (camp.diaryAccessible ? (2 - camp.restUsed) : 0) << L" kali)" << endl;
             wcout << L"❖ 2. Lanjut ke lantai berikutnya" << endl;
             wcout << L"❖ 3. Kembali ke lantai sebelumnya" << endl;
-            wcout << L"❖ 4. Buka Diary" << endl;
+            if (camp.diaryAccessible) {
+                wcout << L"❖ 4. Buka Diary" << endl;
+            }
             wcout << L"❖ 0. Keluar dari dungeon" << endl;
             printLine(60, L'─');
             wcout << L"Pilih aksi ✦: ";
 
-            int campChoice;
-            cin >> campChoice;
+            int campChoice = getValidatedChoice(0, (camp.diaryAccessible ? 4 : 3));
 
             switch (campChoice) {
                 case 1:
-                    if (camp.restUsed < 2) {
+                    if (camp.diaryAccessible && camp.restUsed < 2) {
                         player.hp = player.maxHp;
                         player.mana = player.maxMana;
                         camp.restUsed++;
-                        delayPrint(L"Kamu beristirahat di dekat api unggun. Semua HP dan Mana dipulihkan.");
+                        delayPrint(L"Kau beristirahat di dekat api unggun. Semua HP dan Mana dipulihkan.", 20);
+                    } else if (!camp.diaryAccessible) {
+                        delayPrint(L"Istirahat tidak tersedia di camp ini saat ini.", 20);
                     } else {
-                        delayPrint(L"Kamu sudah menggunakan 2x istirahat di lantai ini.");
+                        delayPrint(L"Kau sudah menggunakan semua jatah istirahat di camp ini.", 20);
+                    }
+                    waitForEnter();
+                    break;
+                case 2:
+                    dungeon.currentFloor++;
+                    if (dungeon.currentFloor > dungeon.maxUnlockedFloor) dungeon.maxUnlockedFloor = dungeon.currentFloor;
+                    break;
+                case 3:
+                    if (dungeon.currentFloor > 1) {
+                        dungeon.currentFloor--;
+                    } else {
+                        delayPrint(L"Ini adalah lantai teratas/pintu masuk.", 20);
                     }
                     break;
-                case 2: {
-                    dungeon.currentFloor ++;
-                    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
-                    ActiveDailyQuestNode* prevQuestNode = nullptr;
-                    int expFromCompletedQuests = 0;
-
-                    while (currentQuestNode != nullptr) {
-                        DailyQuest& quest = currentQuestNode->data;
-                        bool wasThisQuestCompleted = false;
-
-                        if (quest.type == "travel" && quest.taken && !quest.completed &&
-                            !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && 
-                            quest.dungeonFloor > 0 && quest.dungeonFloor == dungeon.currentFloor) {
-                            
-                            quest.completed = true;
-                            expFromCompletedQuests += quest.expReward;
-                            player.gold += quest.goldReward;
-                            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
-                            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
-                            wasThisQuestCompleted = true;
-                        }
-
-                        ActiveDailyQuestNode* nodeToDelete = nullptr;
-                        if (wasThisQuestCompleted) {
-                            nodeToDelete = currentQuestNode;
-                            if (prevQuestNode == nullptr) {
-                                activeDailyQuestsHead = currentQuestNode->next;
-                                currentQuestNode = activeDailyQuestsHead;
-                            } else {
-                                prevQuestNode->next = currentQuestNode->next;
-                                currentQuestNode = prevQuestNode->next;
-                            }
-                            delete nodeToDelete;
-                        } else {
-                            prevQuestNode = currentQuestNode;
-                            currentQuestNode = currentQuestNode->next;
-                        }
-                    }
-
-                    if (expFromCompletedQuests > 0) {
-                        
-                        
-                        
-                        handleExperienceAndLevelUp(player, expFromCompletedQuests);
-                        
-                    }
-                    break; }
-                case 3: {
-                    dungeon.currentFloor --;
-                    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
-                    ActiveDailyQuestNode* prevQuestNode = nullptr;
-                    int expFromCompletedQuests = 0;
-
-                    while (currentQuestNode != nullptr) {
-                        DailyQuest& quest = currentQuestNode->data;
-                        bool wasThisQuestCompleted = false;
-
-                        if (quest.type == "travel" && quest.taken && !quest.completed &&
-                            !quest.dungeonName.empty() && quest.dungeonName == dungeon.name && 
-                            quest.dungeonFloor > 0 && quest.dungeonFloor == dungeon.currentFloor) {
-                            
-                            quest.completed = true;
-                            expFromCompletedQuests += quest.expReward;
-                            player.gold += quest.goldReward;
-                            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
-                            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
-                            wasThisQuestCompleted = true;
-                        }
-
-                        ActiveDailyQuestNode* nodeToDelete = nullptr;
-                        if (wasThisQuestCompleted) {
-                            nodeToDelete = currentQuestNode;
-                            if (prevQuestNode == nullptr) {
-                                activeDailyQuestsHead = currentQuestNode->next;
-                                currentQuestNode = activeDailyQuestsHead;
-                            } else {
-                                prevQuestNode->next = currentQuestNode->next;
-                                currentQuestNode = prevQuestNode->next;
-                            }
-                            delete nodeToDelete;
-                        } else {
-                            prevQuestNode = currentQuestNode;
-                            currentQuestNode = currentQuestNode->next;
-                        }
-                    }
-
-                    if (expFromCompletedQuests > 0) {
-                        handleExperienceAndLevelUp(player, expFromCompletedQuests);
-                    }
-                    break; }
                 case 4:
-                    showDiaryMenu();
+                    if (camp.diaryAccessible) {
+                        showDiaryMenu();
+                    } else {
+                        delayPrint(L"Pilihan tidak valid.", 20);
+                        waitForEnter();
+                    }
                     break;
                 case 0:
-                    return;
+                    inDungeon = false;
+                    delayPrint(L"Kau memutuskan untuk keluar dari " + utf8_to_wstring(dungeon.name) + L".", 20);
+                    break;
                 default:
-                    delayPrint(L"Aksi tidak dikenali.");
+                    delayPrint(L"Aksi tidak dikenali.", 20);
+                    waitForEnter();
                     break;
             }
         } else {
-            wcout << L"Kamu berada di lantai " << formatDungeonFloor(dungeon, dungeon.currentFloor)
-                  << L" dari " << dungeon.name.c_str() << L"." << endl;
+            wcout << L"Pilihan aksi di Lantai " << formatDungeonFloor(dungeon, dungeon.currentFloor) << L":" << endl;
             printLine(60, L'─');
             wcout << L"❖ 1. Eksplorasi lantai" << endl;
-            wcout << L"❖ 2. Lanjut ke lantai berikutnya" << endl;
+            wcout << L"❖ 2. Lanjut ke lantai berikutnya (Hadapi Musuh/Boss)" << endl;
             wcout << L"❖ 3. Kembali ke lantai sebelumnya" << endl;
-            wcout << L"❖ 4. Gunakan item" << endl;
+            wcout << L"❖ 4. Gunakan item dari inventory" << endl;
+            wcout << L"❖ 0. Keluar dari dungeon" << endl;
             printLine(60, L'─');
             wcout << L"Pilih aksi ✦: ";
 
-            int choice;
-            choice = getValidatedChoice(1, 4); 
+            int actionChoice = getValidatedChoice(0, 4);
 
-
-            switch (choice) {
-                case 1:
-                    delayPrint(L"(Encounter musuh belum diimplementasikan)");
-                    break;
-                case 2: {
-                    dungeon.currentFloor ++;
-                    if (dungeon.campAreas.count(dungeon.currentFloor)) {
-                        delayPrint(L"Area aman. Tidak ada musuh.");
-                        break;
-                    }
-                    string enemyName;
-                    string floorKey = dungeon.name + "_F" + to_string(dungeon.currentFloor);
-                    if (dungeon.miniBosses.count(dungeon.currentFloor) && !defeatedBosses[floorKey]) {
-                        enemyName = dungeon.miniBosses[dungeon.currentFloor];
-                    } else if (dungeon.finalBoss.count(dungeon.currentFloor) && !defeatedBosses[floorKey]) {
-                        enemyName = dungeon.finalBoss[dungeon.currentFloor];
-                    } else {
-                        enemyName = dungeon.floorEnemies[dungeon.currentFloor][rand() % dungeon.floorEnemies[dungeon.currentFloor].size()];
+            switch (actionChoice) {
+                case 1: {
+                    if (dungeon.exploredOnceFloors.count(dungeon.currentFloor)) {
+                        system("cls");
+                        printLine();
+                        centerText(L"🔎 EKSPLORASI LANTAI 🔎");
+                        printLine();
+                        delayPrint(L"Kau sudah menjelajahi lantai " + formatDungeonFloor(dungeon, dungeon.currentFloor) + L" ini dengan saksama sebelumnya.", 20);
+                        delayPrint(L"Tidak ada lagi yang bisa ditemukan di sini.", 20);
+                        printLine();
+                        waitForEnter();
+                        break; 
                     }
 
-                    if (enemyDatabase.count(enemyName)) {
-                        BattleResult result = startBattle(enemyDatabase[enemyName], dungeon.name);
-                        if (result == PLAYER_DEAD) {
-                            return;  
-                        } else if (result == PLAYER_ESCAPED) {
-                            delayPrint(L"Kamu berhasil kabur, tapi masih di lantai dungeon ini.", 20);
-                            continue;  
-                        } else if (result == ENEMY_DEAD && enemyDatabase[enemyName].isBoss) {
-                            defeatedBosses[floorKey] = true;
-                        }
-                        if (enemyDatabase[enemyName].isBoss) {
-                            defeatedBosses[floorKey] = true;
-                        }
-                    } else {
-                        delayPrint(L"Musuh tidak ditemukan.");
-                    }
-                    break; }
-                case 3:
-                    if (dungeon.currentFloor == 1) {
-                        delayPrint(L"Kamu telah kembali ke lantai awal dungeon dan keluar.");
-                        return;
-                    } else {
-                        dungeon.currentFloor --;
-                        if (dungeon.campAreas.count(dungeon.currentFloor)) {
-                        delayPrint(L"Area aman. Tidak ada musuh.");
-                        break;
-                    }
-                    string enemyName;
-                    string floorKey = dungeon.name + "_F" + to_string(dungeon.currentFloor);
-                    if (dungeon.miniBosses.count(dungeon.currentFloor) && !defeatedBosses[floorKey]) {
-                        enemyName = dungeon.miniBosses[dungeon.currentFloor];
-                    } else if (dungeon.finalBoss.count(dungeon.currentFloor) && !defeatedBosses[floorKey]) {
-                        enemyName = dungeon.finalBoss[dungeon.currentFloor];
-                    } else {
-                        enemyName = dungeon.floorEnemies[dungeon.currentFloor][rand() % dungeon.floorEnemies[dungeon.currentFloor].size()];
-                    }
-
-                    if (enemyDatabase.count(enemyName)) {
-                        BattleResult result = startBattle(enemyDatabase[enemyName], dungeon.name);
-                        if (result == PLAYER_DEAD) {
-                            return;  
-                        } else if (result == PLAYER_ESCAPED) {
-                            delayPrint(L"Kamu berhasil kabur, tapi masih di lantai dungeon ini.", 20);
-                            continue;  
-                        } else if (result == ENEMY_DEAD && enemyDatabase[enemyName].isBoss) {
-                            defeatedBosses[floorKey] = true;
-                        }
-                        if (enemyDatabase[enemyName].isBoss) {
-                            defeatedBosses[floorKey] = true;
-                        }
-                    } else {
-                        delayPrint(L"Musuh tidak ditemukan.");
-                    }
-                    }
-                    break;
-                  case 4: {
-                if (player.inventory.empty()) {
-                    delayPrint(L"Inventaris kamu kosong.", 20);
-                    waitForEnter();
-                    break;
-                }
-                int itemChoice = -1;
-                while (true) {
                     system("cls");
                     printLine();
-                    centerText(L"✦ INVENTORY ✦");
+                    centerText(L"🔎 MENJELAJAHI LANTAI " + formatDungeonFloor(dungeon, dungeon.currentFloor) + L" 🔍");
                     printLine();
-                    for (size_t i = 0; i < player.inventory.size(); ++i) {
-                        wcout << L"❖ " << (i + 1) << L". " << utf8_to_wstring(player.inventory[i]->name)
-                            << L" - " << utf8_to_wstring(player.inventory[i]->description) << endl;
+                    delayPrint(L"Kau dengan seksama mengamati setiap sudut dan celah di lantai ini...", 30);
+                    
+                    int outcomeRoll = rand() % 100;
+
+                    if (outcomeRoll < 10) { 
+                        int foundGold = 3 + rand() % 13;
+                        player.gold += foundGold;
+                        delayPrint(L"Matamu menangkap kilauan samar di antara bebatuan.", 20);
+                        delayPrint(L"Itu beberapa koin emas yang tercecer! Kau mengambilnya.", 20);
+                        delayPrint(L"💰 Gold +" + to_wstring(foundGold) + L"!", 20);
+                    } else if (outcomeRoll < 15) { 
+                        delayPrint(L"Di sudut yang terlupakan, kau menemukan sebuah kantong usang.", 20);
+                        Item* foundItem = nullptr;
+                        if (rand() % 3 == 0 && itemDatabase.count("Mana Potion")) {
+                            foundItem = itemDatabase.at("Mana Potion");
+                        } else if (itemDatabase.count("Health Potion")) {
+                            foundItem = itemDatabase.at("Health Potion");
+                        }
+                        
+                        if (foundItem) {
+                            player.inventory.push_back(foundItem);
+                            delayPrint(L"Isinya adalah sebuah " + utf8_to_wstring(foundItem->name) + L"! Berguna sekali.", 20);
+                            delayPrint(L"✨ Item '" + utf8_to_wstring(foundItem->name) + L"' ditambahkan ke inventory!", 20);
+                        } else {
+                            delayPrint(L"Sayangnya, kantong itu sudah kosong dan robek.", 20);
+                        }
+                    } else if (outcomeRoll < 25) { 
+                        delayPrint(L"Kau menemukan jejak-jejak aneh di lantai berdebu, sepertinya dari makhluk yang belum pernah kau lihat.", 20);
+                        delayPrint(L"Mempelajarinya memberimu sedikit pemahaman baru tentang ekosistem tempat ini.", 20);
+                        int foundExp = 4 + rand() % 5;
+                        player.exp += foundExp;
+                        delayPrint(L"📚 EXP +" + to_wstring(foundExp) + L"!", 20);
+                    } else if (outcomeRoll < 40) { 
+                        if (dungeon.name == "Ancient Temple") {
+                            delayPrint(L"Kau mendengar suara gemericik air samar dari balik dinding batu, namun tak terlihat sumbernya.", 20);
+                            delayPrint(L"Udara terasa sangat tua dan sedikit berbau dupa yang telah lama padam.", 20);
+                        } else if (dungeon.name == "Goa Avernix") {
+                            delayPrint(L"Sebuah stalaktit besar menjuntai dari langit-langit goa, meneteskan air perlahan.", 20);
+                            delayPrint(L"Kau melihat beberapa kristal kecil berkilauan redup di dinding yang lembap.", 20);
+                        } else {
+                            delayPrint(L"Angin dingin berhembus melalui lorong sempit di depanmu, membawa suara yang tak jelas.", 20);
+                            delayPrint(L"Kau merasa sedikit merinding.", 20);
+                        }
+                    } else if (outcomeRoll < 55) { 
+                        if (dungeon.name == "Ancient Temple") {
+                            delayPrint(L"Dinding di sini dipenuhi ukiran rumit yang hampir tak terbaca karena usia.", 20);
+                            delayPrint(L"Kau mencoba memahami artinya, namun hanya bisa menebak-nebak kisah para pendahulu.", 20);
+                        } else if (dungeon.name == "Goa Avernix") {
+                            delayPrint(L"Jejak cakar besar terlihat jelas di tanah berlumpur. Makhluk apa yang sebesar ini?", 20);
+                            delayPrint(L"Kau meningkatkan kewaspadaanmu.", 20);
+                        } else {
+                            delayPrint(L"Sebuah obor yang sudah lama padam tergeletak di sudut, meninggalkan noda jelaga di dinding.", 20);
+                            delayPrint(L"Siapapun yang terakhir di sini, sepertinya pergi dengan tergesa-gesa.", 20);
+                        }
+                    } else if (outcomeRoll < 70) { 
+                        if (dungeon.name == "Ancient Temple") {
+                            delayPrint(L"Kau menemukan sisa-sisa perapian kecil yang sudah dingin. Petualang lain pernah berkemah di sini.", 20);
+                            delayPrint(L"Namun tidak ada barang berharga yang tertinggal.", 20);
+                        } else if (dungeon.name == "Goa Avernix") {
+                            delayPrint(L"Terdengar suara gemuruh samar dari kedalaman goa. Apakah itu hanya angin, atau sesuatu yang lebih besar?", 20);
+                            delayPrint(L"Kau memutuskan untuk tidak mencari tahu lebih jauh untuk saat ini.", 20);
+                        } else {
+                            delayPrint(L"Lorong di depanmu bercabang dua. Keduanya tampak sama-sama gelap dan misterius.", 20);
+                            delayPrint(L"Untuk saat ini, kau memilih untuk tetap di jalur utama lantai ini.", 20);
+                        }
+                    } else if (outcomeRoll < 85) {
+                         delayPrint(L"Keheningan di lantai ini terasa menekan. Hanya suara langkah kakimu sendiri yang bergema.", 20);
+                         delayPrint(L"Kau merasa seolah ada ratusan mata tak terlihat yang mengawasimu dari kegelapan.", 20);
+                    } else if (outcomeRoll < 90) {
+                        delayPrint(L"Kau menemukan sebuah tulisan aneh yang tergores di dinding menggunakan bahasa yang tidak kau kenali.", 20);
+                        delayPrint(L"Mungkin suatu saat kau akan menemukan artinya. Untuk sekarang, itu hanyalah simbol misterius.", 20);
                     }
-                    wcout << L"❖ 0. Batal" << endl;
+                    else { 
+                        delayPrint(L"Setelah berkeliling dengan hati-hati, kau tidak menemukan sesuatu yang benar-benar menonjol.", 20);
+                        delayPrint(L"Lantai ini tampak biasa saja, jika kata 'biasa' bisa digunakan untuk menggambarkan dungeon.", 20);
+                    }
+                    dungeon.exploredOnceFloors.insert(dungeon.currentFloor);
                     printLine();
-                    wcout << L"Pilih item untuk digunakan: ";
-                    cin >> itemChoice;
-
-                    if (cin.fail() || itemChoice < 0 || itemChoice > player.inventory.size()) {
-                        cin.clear();
-                        cin.ignore(numeric_limits<streamsize>::max(), '\n');
-                        delayPrint(L"Input tidak valid.", 20);
-                        continue;
-                    }
-
-                    if (itemChoice == 0) break;
-
-                    Item* selectedItem = player.inventory[itemChoice - 1];
-                    applyItemEffect(selectedItem->name);
-                    player.inventory.erase(player.inventory.begin() + itemChoice - 1);
                     waitForEnter();
                     break;
                 }
-                break;
-            }
+                case 2: {
+                    string enemyName;
+                    bool battleTriggered = false;
+                    string floorKeyForBoss = dungeon.name + "_F" + to_string(dungeon.currentFloor);
 
-                default:
-                    delayPrint(L"Aksi tidak valid.");
+                    if (dungeon.miniBosses.count(dungeon.currentFloor) && !defeatedBosses[floorKeyForBoss + "_MB"]) {
+                        enemyName = dungeon.miniBosses.at(dungeon.currentFloor);
+                        battleTriggered = true;
+                        delayPrint(L"Kau merasakan aura kuat di depan! Sesosok " + utf8_to_wstring(enemyName) + L" menghalangi jalan menuju lantai berikutnya!", 30);
+                        waitForEnter(L"Tekan Enter untuk menghadapi Mini Boss...");
+                    } else if (dungeon.finalBoss.count(dungeon.currentFloor) && !defeatedBosses[dungeon.name + "_FB"]) {
+                        enemyName = dungeon.finalBoss.at(dungeon.currentFloor);
+                        battleTriggered = true;
+                        delayPrint(L"Aura yang sangat menindas datang dari ruangan di depan! " + utf8_to_wstring(enemyName) + L" sang penjaga terakhir dungeon ini, telah menantimu!", 30);
+                        waitForEnter(L"Tekan Enter untuk menghadapi Final Boss Dungeon...");
+                    } else if (dungeon.floorEnemies.count(dungeon.currentFloor) && !dungeon.floorEnemies.at(dungeon.currentFloor).empty()) {
+                        enemyName = dungeon.floorEnemies.at(dungeon.currentFloor)[rand() % dungeon.floorEnemies.at(dungeon.currentFloor).size()];
+                        battleTriggered = true;
+                        delayPrint(L"Saat mencoba ke lantai berikutnya, seekor " + utf8_to_wstring(enemyName) + L" menghadangmu!", 30);
+                        waitForEnter(L"Tekan Enter untuk bertarung...");
+                    }
+
+                    if (battleTriggered && enemyDatabase.count(enemyName)) {
+                        Enemy enemyToFight = enemyDatabase.at(enemyName);
+                        BattleResult result = startBattle(enemyToFight, dungeon.name);
+                        if (result == PLAYER_DEAD) { if (!gameRunning) return; inDungeon = false; } 
+                        else if (result == ENEMY_DEAD) {
+                            if (dungeon.miniBosses.count(dungeon.currentFloor) && dungeon.miniBosses.at(dungeon.currentFloor) == enemyName) {
+                                defeatedBosses[floorKeyForBoss + "_MB"] = true;
+                            } else if (dungeon.finalBoss.count(dungeon.currentFloor) && dungeon.finalBoss.at(dungeon.currentFloor) == enemyName) {
+                                defeatedBosses[dungeon.name + "_FB"] = true;
+                                delayPrint(L"Kau telah menaklukkan " + utf8_to_wstring(dungeon.name) + L"!", 30);
+                                inDungeon = false; 
+                                break; 
+                            }
+                            dungeon.currentFloor++;
+                            if (dungeon.currentFloor > dungeon.maxUnlockedFloor) dungeon.maxUnlockedFloor = dungeon.currentFloor;
+                            delayPrint(L"Setelah mengalahkan musuh, kau melanjutkan ke Lantai " + formatDungeonFloor(dungeon, dungeon.currentFloor) + L"...", 20);
+                        }
+                        else if (result == PLAYER_ESCAPED) { 
+                            delayPrint(L"Kau berhasil kabur, tapi kembali ke awal lantai ini.", 20);
+                        }
+                    } else if (!battleTriggered) { 
+                        dungeon.currentFloor++;
+                        if (dungeon.currentFloor > dungeon.maxUnlockedFloor) dungeon.maxUnlockedFloor = dungeon.currentFloor;
+                        delayPrint(L"Kau melanjutkan ke Lantai " + formatDungeonFloor(dungeon, dungeon.currentFloor) + L" tanpa halangan.", 20);
+                    } else { 
+                        delayPrint(L"Data musuh tidak ditemukan. Kamu melanjutkan dengan hati-hati.", 20);
+                        dungeon.currentFloor++;
+                        if (dungeon.currentFloor > dungeon.maxUnlockedFloor) dungeon.maxUnlockedFloor = dungeon.currentFloor;
+                    }
+                    break; 
+                }
+                case 3: 
+                    if (dungeon.currentFloor > 1) {
+                        dungeon.currentFloor--;
+                        delayPrint(L"Kau kembali ke Lantai " + formatDungeonFloor(dungeon, dungeon.currentFloor) + L"...", 20);
+                    } else {
+                        delayPrint(L"Ini adalah lantai teratas/pintu masuk.", 20);
+                    }
                     break;
-            }   
-}
+                case 4: { 
+                    if (player.inventory.empty()) {
+                        delayPrint(L"Inventaris kamu kosong.", 20);
+                        waitForEnter();
+                        break;
+                    }
+                    int itemChoice = -1;
+                    bool itemUsedOrCancelled = false;
+                    while (!itemUsedOrCancelled) {
+                        system("cls");
+                        printLine();
+                        centerText(L"✦ GUNAKAN ITEM DI DUNGEON ✦");
+                        printLine();
+                        for (size_t i = 0; i < player.inventory.size(); ++i) {
+                            wcout << L"❖ " << (i + 1) << L". " << utf8_to_wstring(player.inventory[i]->name)
+                                << L" - " << utf8_to_wstring(player.inventory[i]->description) << endl;
+                        }
+                        wcout << L"❖ 0. Batal" << endl;
+                        printLine();
+                        wcout << L"Pilih item untuk digunakan ✦: ";
+                        itemChoice = getValidatedChoice(0, static_cast<int>(player.inventory.size()));
+
+                        if (itemChoice == 0) {
+                            delayPrint(L"Batal menggunakan item.", 20);
+                            itemUsedOrCancelled = true; 
+                        } else if (itemChoice > 0 && static_cast<size_t>(itemChoice) <= player.inventory.size()) {
+                            Item* selectedItem = player.inventory[itemChoice - 1];
+                            if (selectedItem->type == "consumable") {
+                                applyItemEffect(selectedItem->name);
+                                player.inventory.erase(player.inventory.begin() + itemChoice - 1);
+                                itemUsedOrCancelled = true;
+                            } else {
+                                delayPrint(L"Item ini tidak bisa digunakan saat ini.", 20);
+                            }
+                        } else {
+                            delayPrint(L"Pilihan tidak valid.", 20);
+                        }
+                        if (itemUsedOrCancelled) waitForEnter();
+                    }
+                    break;
+                }
+                case 0: 
+                    inDungeon = false;
+                    delayPrint(L"Kau memutuskan untuk keluar dari " + utf8_to_wstring(dungeon.name) + L".", 20);
+                    break;
+                default:
+                    delayPrint(L"Aksi tidak valid.", 20);
+                    waitForEnter();
+                    break;
+            }
+        }
+        if (player.hp <= 0 && gameRunning) { 
+            delayPrint(L"Nyawamu habis... Kegelapan menelanmu...", 50);
+            gameRunning = false; 
+            inDungeon = false;
+        }
     }
+    waitForEnter();
 }
 
 
@@ -4647,6 +4815,699 @@ void showCalendar() {
     wcout << L"    ❖ 1. Kembali" << endl;
     printLine(50, L'─');
     wcout << L"Pilih aksi ✦: ";
+}
+
+void populateSaveSlotData(SaveSlot& slot) {
+    slot.isUsed = true;
+    slot.saveTime = time(0); // Waktu saat ini
+
+    // Data Pemain
+    slot.playerName = player.name;
+    slot.playerLevel = player.level;
+    slot.playerHp = player.hp;
+    slot.playerMaxHp = player.maxHp;
+    slot.playerMana = player.mana;
+    slot.playerMaxMana = player.maxMana;
+    slot.playerStrength = player.strength;
+    slot.playerDefense = player.defense;
+    slot.playerIntelligence = player.intelligence;
+    slot.playerAgility = player.agility;
+    slot.playerExp = player.exp;
+    slot.playerExpToNextLevel = player.expToNextLevel;
+    slot.playerGold = player.gold;
+    slot.playerSkillPoints = player.skillPoints;
+    slot.playerUnlockedMagicElements = player.unlockedMagicElements;
+    slot.playerKnownSpells = player.knownSpells;
+    slot.playerEquippedWeaponName = player.equippedWeapon ? player.equippedWeapon->name : "";
+
+    slot.playerInventoryItemNames.clear();
+    for (const auto* item : player.inventory) {
+        if (item) slot.playerInventoryItemNames.push_back(item->name);
+    }
+    slot.playerWeaponNames.clear();
+    for (const auto* weapon : player.weapons) {
+        if (weapon) slot.playerWeaponNames.push_back(weapon->name);
+    }
+
+    // Progres Cerita & Dunia
+    slot.currentDay = currentDay;
+    slot.currentActionsRemaining = currentActionsRemaining;
+    slot.currentWorld = currentWorld;
+    slot.currentSubArea = currentSubArea;
+    slot.storyFlagsData = storyFlags; // Langsung copy map
+
+    slot.scheduledEventsVector.clear();
+    queue<GameEvent> tempScheduledEvents = scheduledEvents; // Salin queue
+    while(!tempScheduledEvents.empty()) {
+        slot.scheduledEventsVector.push_back(tempScheduledEvents.front());
+        tempScheduledEvents.pop();
+    }
+
+    // Progres Companion
+    slot.companionNamesMet.clear();
+    slot.companionRelationsData.clear();
+    slot.companionSocialLinkLevels.clear();
+    slot.companionSocialLinkCompleted.clear();
+    for(const auto& comp : companions) {
+        if(comp.met) slot.companionNamesMet.push_back(comp.name);
+        if(companionRelations.count(comp.name)) slot.companionRelationsData[comp.name] = companionRelations.at(comp.name);
+        if(socialLinks.count(comp.name)) {
+            slot.companionSocialLinkLevels[comp.name] = socialLinks.at(comp.name).currentLevel;
+            slot.companionSocialLinkCompleted[comp.name] = socialLinks.at(comp.name).completed;
+        }
+    }
+
+    // Progres Dungeon
+    slot.dungeonVisitedCampAreasData.clear();
+    slot.dungeonExploredOnceFloorsData.clear();
+    for(const auto& pair_dungeon : allDungeons) {
+        slot.dungeonVisitedCampAreasData[pair_dungeon.first] = pair_dungeon.second.visitedCampAreas;
+        slot.dungeonExploredOnceFloorsData[pair_dungeon.first] = pair_dungeon.second.exploredOnceFloors;
+    }
+    slot.defeatedBossesData = defeatedBosses;
+
+    // Quest Aktif
+    slot.activeDailyQuestsData.clear();
+    ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+    while(currentQuestNode != nullptr) {
+        slot.activeDailyQuestsData.push_back(currentQuestNode->data);
+        currentQuestNode = currentQuestNode->next;
+    }
+
+    // Nama slot bisa dibuat otomatis atau diminta dari pemain
+    char timeBuffer[80];
+    strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", localtime(&slot.saveTime));
+    slot.slotName = player.name + " - Hari " + to_string(currentDay) + " (" + timeBuffer + ")";
+}
+
+void writeSaveDataToFile() {
+    ofstream outFile(SAVE_FILE_NAME, ios::binary | ios::trunc);
+    if (!outFile) {
+        delayPrint(L"Error: Tidak bisa membuka file save untuk ditulis!", 20);
+        waitForEnter();
+        return;
+    }
+
+    for (int i = 0; i < MAX_SAVE_SLOTS; ++i) {
+        const SaveSlot& slot = saveSlots[i];
+        outFile.write(reinterpret_cast<const char*>(&slot.isUsed), sizeof(slot.isUsed));
+        if (slot.isUsed) {
+            size_t slotNameLen = slot.slotName.length();
+            outFile.write(reinterpret_cast<const char*>(&slotNameLen), sizeof(slotNameLen));
+            outFile.write(slot.slotName.c_str(), slotNameLen);
+            outFile.write(reinterpret_cast<const char*>(&slot.saveTime), sizeof(slot.saveTime));
+
+            size_t playerNameLen = slot.playerName.length();
+            outFile.write(reinterpret_cast<const char*>(&playerNameLen), sizeof(playerNameLen));
+            outFile.write(slot.playerName.c_str(), playerNameLen);
+            outFile.write(reinterpret_cast<const char*>(&slot.playerLevel), sizeof(slot.playerLevel));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerHp), sizeof(slot.playerHp));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerMaxHp), sizeof(slot.playerMaxHp));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerMana), sizeof(slot.playerMana));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerMaxMana), sizeof(slot.playerMaxMana));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerStrength), sizeof(slot.playerStrength));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerDefense), sizeof(slot.playerDefense));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerIntelligence), sizeof(slot.playerIntelligence));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerAgility), sizeof(slot.playerAgility));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerExp), sizeof(slot.playerExp));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerExpToNextLevel), sizeof(slot.playerExpToNextLevel));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerGold), sizeof(slot.playerGold));
+            outFile.write(reinterpret_cast<const char*>(&slot.playerSkillPoints), sizeof(slot.playerSkillPoints));
+
+            size_t unlockedElementsSize = slot.playerUnlockedMagicElements.size();
+            outFile.write(reinterpret_cast<const char*>(&unlockedElementsSize), sizeof(unlockedElementsSize));
+            for (const string& elem : slot.playerUnlockedMagicElements) {
+                size_t elemLen = elem.length();
+                outFile.write(reinterpret_cast<const char*>(&elemLen), sizeof(elemLen));
+                outFile.write(elem.c_str(), elemLen);
+            }
+
+            size_t knownSpellsSize = slot.playerKnownSpells.size();
+            outFile.write(reinterpret_cast<const char*>(&knownSpellsSize), sizeof(knownSpellsSize));
+            for (const string& spellId : slot.playerKnownSpells) {
+                size_t idLen = spellId.length();
+                outFile.write(reinterpret_cast<const char*>(&idLen), sizeof(idLen));
+                outFile.write(spellId.c_str(), idLen);
+            }
+            
+            size_t equippedWeaponNameLen = slot.playerEquippedWeaponName.length();
+            outFile.write(reinterpret_cast<const char*>(&equippedWeaponNameLen), sizeof(equippedWeaponNameLen));
+            outFile.write(slot.playerEquippedWeaponName.c_str(), equippedWeaponNameLen);
+
+
+            size_t inventorySize = slot.playerInventoryItemNames.size();
+            outFile.write(reinterpret_cast<const char*>(&inventorySize), sizeof(inventorySize));
+            for (const string& itemName : slot.playerInventoryItemNames) {
+                size_t nameLen = itemName.length();
+                outFile.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
+                outFile.write(itemName.c_str(), nameLen);
+            }
+
+            size_t weaponsSize = slot.playerWeaponNames.size();
+            outFile.write(reinterpret_cast<const char*>(&weaponsSize), sizeof(weaponsSize));
+            for (const string& weaponName : slot.playerWeaponNames) {
+                size_t nameLen = weaponName.length();
+                outFile.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
+                outFile.write(weaponName.c_str(), nameLen);
+            }
+
+            outFile.write(reinterpret_cast<const char*>(&slot.currentDay), sizeof(slot.currentDay));
+            outFile.write(reinterpret_cast<const char*>(&slot.currentActionsRemaining), sizeof(slot.currentActionsRemaining));
+            
+            size_t currentWorldLen = slot.currentWorld.length();
+            outFile.write(reinterpret_cast<const char*>(&currentWorldLen), sizeof(currentWorldLen));
+            outFile.write(slot.currentWorld.c_str(), currentWorldLen);
+
+            size_t currentSubAreaLen = slot.currentSubArea.length();
+            outFile.write(reinterpret_cast<const char*>(&currentSubAreaLen), sizeof(currentSubAreaLen));
+            outFile.write(slot.currentSubArea.c_str(), currentSubAreaLen);
+
+            size_t storyFlagsSize = slot.storyFlagsData.size();
+            outFile.write(reinterpret_cast<const char*>(&storyFlagsSize), sizeof(storyFlagsSize));
+            for (const auto& flagPair : slot.storyFlagsData) {
+                size_t keyLen = flagPair.first.length();
+                outFile.write(reinterpret_cast<const char*>(&keyLen), sizeof(keyLen));
+                outFile.write(flagPair.first.c_str(), keyLen);
+                outFile.write(reinterpret_cast<const char*>(&flagPair.second), sizeof(flagPair.second));
+            }
+
+            size_t scheduledEventsVecSize = slot.scheduledEventsVector.size();
+            outFile.write(reinterpret_cast<const char*>(&scheduledEventsVecSize), sizeof(scheduledEventsVecSize));
+            for(const auto& ev : slot.scheduledEventsVector){
+                size_t eventNameLen = ev.eventName.length();
+                outFile.write(reinterpret_cast<const char*>(&eventNameLen), sizeof(eventNameLen));
+                outFile.write(ev.eventName.c_str(), eventNameLen);
+                size_t descLen = ev.description.length();
+                outFile.write(reinterpret_cast<const char*>(&descLen), sizeof(descLen));
+                outFile.write(ev.description.c_str(), descLen);
+                outFile.write(reinterpret_cast<const char*>(&ev.dayTrigger), sizeof(ev.dayTrigger));
+                outFile.write(reinterpret_cast<const char*>(&ev.triggered), sizeof(ev.triggered));
+            }
+            
+            size_t compMetSize = slot.companionNamesMet.size();
+            outFile.write(reinterpret_cast<const char*>(&compMetSize), sizeof(compMetSize));
+            for(const string& cn : slot.companionNamesMet){
+                size_t cnLen = cn.length();
+                outFile.write(reinterpret_cast<const char*>(&cnLen), sizeof(cnLen));
+                outFile.write(cn.c_str(), cnLen);
+            }
+
+            size_t compRelSize = slot.companionRelationsData.size();
+            outFile.write(reinterpret_cast<const char*>(&compRelSize), sizeof(compRelSize));
+            for(const auto& crPair : slot.companionRelationsData){
+                size_t keyLen = crPair.first.length();
+                outFile.write(reinterpret_cast<const char*>(&keyLen), sizeof(keyLen));
+                outFile.write(crPair.first.c_str(), keyLen);
+                outFile.write(reinterpret_cast<const char*>(&crPair.second), sizeof(crPair.second));
+            }
+            
+            size_t compSlLvlSize = slot.companionSocialLinkLevels.size();
+            outFile.write(reinterpret_cast<const char*>(&compSlLvlSize), sizeof(compSlLvlSize));
+            for(const auto& slPair : slot.companionSocialLinkLevels){
+                size_t keyLen = slPair.first.length();
+                outFile.write(reinterpret_cast<const char*>(&keyLen), sizeof(keyLen));
+                outFile.write(slPair.first.c_str(), keyLen);
+                outFile.write(reinterpret_cast<const char*>(&slPair.second), sizeof(slPair.second));
+            }
+
+            size_t compSlCompSize = slot.companionSocialLinkCompleted.size();
+            outFile.write(reinterpret_cast<const char*>(&compSlCompSize), sizeof(compSlCompSize));
+            for(const auto& slCompPair : slot.companionSocialLinkCompleted){
+                size_t keyLen = slCompPair.first.length();
+                outFile.write(reinterpret_cast<const char*>(&keyLen), sizeof(keyLen));
+                outFile.write(slCompPair.first.c_str(), keyLen);
+                outFile.write(reinterpret_cast<const char*>(&slCompPair.second), sizeof(slCompPair.second));
+            }
+
+            size_t dungeonVisitedSize = slot.dungeonVisitedCampAreasData.size();
+            outFile.write(reinterpret_cast<const char*>(&dungeonVisitedSize), sizeof(dungeonVisitedSize));
+            for(const auto& dPair : slot.dungeonVisitedCampAreasData) {
+                size_t dNameLen = dPair.first.length();
+                outFile.write(reinterpret_cast<const char*>(&dNameLen), sizeof(dNameLen));
+                outFile.write(dPair.first.c_str(), dNameLen);
+                size_t vecSize = dPair.second.size();
+                outFile.write(reinterpret_cast<const char*>(&vecSize), sizeof(vecSize));
+                for(int floorNum : dPair.second) {
+                    outFile.write(reinterpret_cast<const char*>(&floorNum), sizeof(floorNum));
+                }
+            }
+            
+            size_t dungeonExploredSize = slot.dungeonExploredOnceFloorsData.size();
+            outFile.write(reinterpret_cast<const char*>(&dungeonExploredSize), sizeof(dungeonExploredSize));
+            for(const auto& dPair : slot.dungeonExploredOnceFloorsData) {
+                size_t dNameLen = dPair.first.length();
+                outFile.write(reinterpret_cast<const char*>(&dNameLen), sizeof(dNameLen));
+                outFile.write(dPair.first.c_str(), dNameLen);
+                size_t setSize = dPair.second.size();
+                outFile.write(reinterpret_cast<const char*>(&setSize), sizeof(setSize));
+                for(int floorNum : dPair.second) {
+                    outFile.write(reinterpret_cast<const char*>(&floorNum), sizeof(floorNum));
+                }
+            }
+
+            size_t defeatedBossesSize = slot.defeatedBossesData.size();
+            outFile.write(reinterpret_cast<const char*>(&defeatedBossesSize), sizeof(defeatedBossesSize));
+            for(const auto& bossPair : slot.defeatedBossesData) {
+                size_t keyLen = bossPair.first.length();
+                outFile.write(reinterpret_cast<const char*>(&keyLen), sizeof(keyLen));
+                outFile.write(bossPair.first.c_str(), keyLen);
+                outFile.write(reinterpret_cast<const char*>(&bossPair.second), sizeof(bossPair.second));
+            }
+
+            size_t activeQuestsSize = slot.activeDailyQuestsData.size();
+            outFile.write(reinterpret_cast<const char*>(&activeQuestsSize), sizeof(activeQuestsSize));
+            for(const auto& q : slot.activeDailyQuestsData){
+                size_t titleLen = q.title.length(); outFile.write(reinterpret_cast<const char*>(&titleLen), sizeof(titleLen)); outFile.write(q.title.c_str(), titleLen);
+                size_t descLen = q.description.length(); outFile.write(reinterpret_cast<const char*>(&descLen), sizeof(descLen)); outFile.write(q.description.c_str(), descLen);
+                size_t typeLen = q.type.length(); outFile.write(reinterpret_cast<const char*>(&typeLen), sizeof(typeLen)); outFile.write(q.type.c_str(), typeLen);
+                size_t targetLen = q.target.length(); outFile.write(reinterpret_cast<const char*>(&targetLen), sizeof(targetLen)); outFile.write(q.target.c_str(), targetLen);
+                outFile.write(reinterpret_cast<const char*>(&q.dungeonFloor), sizeof(q.dungeonFloor));
+                size_t dNameLen = q.dungeonName.length(); outFile.write(reinterpret_cast<const char*>(&dNameLen), sizeof(dNameLen)); outFile.write(q.dungeonName.c_str(), dNameLen);
+                outFile.write(reinterpret_cast<const char*>(&q.taken), sizeof(q.taken));
+                outFile.write(reinterpret_cast<const char*>(&q.completed), sizeof(q.completed));
+                outFile.write(reinterpret_cast<const char*>(&q.expReward), sizeof(q.expReward));
+                outFile.write(reinterpret_cast<const char*>(&q.goldReward), sizeof(q.goldReward));
+                size_t rankLen = q.rank.length(); outFile.write(reinterpret_cast<const char*>(&rankLen), sizeof(rankLen)); outFile.write(q.rank.c_str(), rankLen);
+            }
+        }
+    }
+    outFile.close();
+}
+
+void saveGame() {
+    system("cls");
+    printLine();
+    centerText(L"✦ SIMPAN PERMAINAN ✦");
+    printLine();
+    wcout << L"Pilih slot untuk menyimpan:" << endl;
+    for (int i = 0; i < MAX_SAVE_SLOTS; ++i) {
+        wcout << L" " << (i + 1) << L". Slot " << (i + 1) << ": ";
+        if (saveSlots[i].isUsed) {
+            wcout << utf8_to_wstring(saveSlots[i].slotName) << endl;
+        } else {
+            wcout << L"[Kosong]" << endl;
+        }
+    }
+    wcout << L" 0. Batal" << endl;
+    printLine();
+    wcout << L"Pilihanmu ✦: ";
+    int slotChoice = getValidatedChoice(0, MAX_SAVE_SLOTS);
+
+    if (slotChoice == 0) {
+        delayPrint(L"Penyimpanan dibatalkan.", 20);
+        waitForEnter();
+        return;
+    }
+
+    int slotIndex = slotChoice - 1;
+    if (saveSlots[slotIndex].isUsed) {
+        wcout << L"Slot ini sudah terisi. Timpa data simpanan ini? (y/n) ✦: ";
+        char overwriteChoice;
+        cin >> overwriteChoice;
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        if (tolower(overwriteChoice) != 'y') {
+            delayPrint(L"Penyimpanan dibatalkan.", 20);
+            waitForEnter();
+            return;
+        }
+    }
+
+    populateSaveSlotData(saveSlots[slotIndex]);
+    writeSaveDataToFile();
+    delayPrint(L"✅ Permainan berhasil disimpan di Slot " + to_wstring(slotChoice) + L"!", 20);
+    waitForEnter();
+}
+
+void applySaveSlotData(const SaveSlot& slot) {
+    // Data Pemain
+    player.name = slot.playerName;
+    player.level = slot.playerLevel;
+    player.hp = slot.playerHp;
+    player.maxHp = slot.playerMaxHp;
+    player.mana = slot.playerMana;
+    player.maxMana = slot.playerMaxMana;
+    player.strength = slot.playerStrength;
+    player.defense = slot.playerDefense;
+    player.intelligence = slot.playerIntelligence;
+    player.agility = slot.playerAgility;
+    player.exp = slot.playerExp;
+    player.expToNextLevel = slot.playerExpToNextLevel;
+    player.gold = slot.playerGold;
+    player.skillPoints = slot.playerSkillPoints;
+    player.unlockedMagicElements = slot.playerUnlockedMagicElements;
+    player.knownSpells = slot.playerKnownSpells;
+    
+    player.inventory.clear();
+    for (const string& itemName : slot.playerInventoryItemNames) {
+        if (itemDatabase.count(itemName)) {
+            player.inventory.push_back(itemDatabase.at(itemName));
+        }
+    }
+    player.weapons.clear();
+    player.equippedWeapon = nullptr; 
+    for (const string& weaponName : slot.playerWeaponNames) {
+        if (weaponDatabase.count(weaponName)) {
+            Weapon* weaponToAdd = weaponDatabase.at(weaponName);
+            player.weapons.push_back(weaponToAdd);
+            if (weaponName == slot.playerEquippedWeaponName) {
+                player.equippedWeapon = weaponToAdd;
+                if (player.equippedWeapon) player.equippedWeapon->equipped = true;
+            } else {
+                 if(weaponToAdd) weaponToAdd->equipped = false;
+            }
+        }
+    }
+    if (player.equippedWeapon && player.weapons.empty()){ 
+        player.equippedWeapon = nullptr;
+    }
+
+
+    // Progres Cerita & Dunia
+    currentDay = slot.currentDay;
+    currentActionsRemaining = slot.currentActionsRemaining;
+    currentWorld = slot.currentWorld;
+    currentSubArea = slot.currentSubArea;
+    storyFlags = slot.storyFlagsData; 
+
+    while(!scheduledEvents.empty()) scheduledEvents.pop(); // Kosongkan queue
+    for(const auto& ev : slot.scheduledEventsVector){
+        scheduledEvents.push(ev);
+    }
+
+
+    // Progres Companion
+    companions.clear(); 
+    initializeCompanions(); 
+    for(const auto& compNameMet : slot.companionNamesMet){
+        for(auto& comp : companions){
+            if(comp.name == compNameMet) {
+                comp.met = true;
+                break;
+            }
+        }
+    }
+    companionRelations = slot.companionRelationsData;
+    for(const auto& slPair : slot.companionSocialLinkLevels){
+        if(socialLinks.count(slPair.first)){
+            socialLinks[slPair.first].currentLevel = slPair.second;
+        }
+    }
+    for(const auto& slCompPair : slot.companionSocialLinkCompleted){
+        if(socialLinks.count(slCompPair.first)){
+            socialLinks[slCompPair.first].completed = slCompPair.second;
+        }
+    }
+    
+    // Progres Dungeon
+    allDungeons.clear(); 
+    initializeDungeons(); 
+    for(const auto& pair_dungeon_data : slot.dungeonVisitedCampAreasData) {
+        if(allDungeons.count(pair_dungeon_data.first)){
+            allDungeons.at(pair_dungeon_data.first).visitedCampAreas = pair_dungeon_data.second;
+        }
+    }
+    for(const auto& pair_dungeon_data : slot.dungeonExploredOnceFloorsData) {
+         if(allDungeons.count(pair_dungeon_data.first)){
+            allDungeons.at(pair_dungeon_data.first).exploredOnceFloors = pair_dungeon_data.second;
+        }
+    }
+    defeatedBosses = slot.defeatedBossesData;
+
+    // Quest Aktif
+    ActiveDailyQuestNode* temp = activeDailyQuestsHead;
+    while(temp != nullptr){
+        ActiveDailyQuestNode* next = temp->next;
+        delete temp;
+        temp = next;
+    }
+    activeDailyQuestsHead = nullptr;
+    for(const auto& qData : slot.activeDailyQuestsData){
+        ActiveDailyQuestNode* newNode = new ActiveDailyQuestNode();
+        newNode->data = qData;
+        newNode->next = activeDailyQuestsHead;
+        activeDailyQuestsHead = newNode;
+    }
+    
+    player.activeEnchantments.clear();
+    player.activeHoTs.clear();
+    player.temporaryStrengthBuff = 0;
+    player.temporaryIntelligenceBuff = 0;
+
+}
+
+void readSaveDataFromFile() {
+    ifstream inFile(SAVE_FILE_NAME, ios::binary);
+    if (!inFile) {
+        delayPrint(L"File save tidak ditemukan atau tidak bisa dibuka. Mungkin belum ada game yang disimpan?", 20);
+        
+        for(int i=0; i<MAX_SAVE_SLOTS; ++i) saveSlots[i].isUsed = false;
+        waitForEnter();
+        return;
+    }
+
+    for (int i = 0; i < MAX_SAVE_SLOTS; ++i) {
+        SaveSlot& slot = saveSlots[i];
+        inFile.read(reinterpret_cast<char*>(&slot.isUsed), sizeof(slot.isUsed));
+        if (slot.isUsed && !inFile.eof()) { // Tambahkan pengecekan eof
+            size_t slotNameLen;
+            inFile.read(reinterpret_cast<char*>(&slotNameLen), sizeof(slotNameLen));
+            slot.slotName.resize(slotNameLen);
+            inFile.read(&slot.slotName[0], slotNameLen);
+            inFile.read(reinterpret_cast<char*>(&slot.saveTime), sizeof(slot.saveTime));
+
+            size_t playerNameLen;
+            inFile.read(reinterpret_cast<char*>(&playerNameLen), sizeof(playerNameLen));
+            slot.playerName.resize(playerNameLen);
+            inFile.read(&slot.playerName[0], playerNameLen);
+            inFile.read(reinterpret_cast<char*>(&slot.playerLevel), sizeof(slot.playerLevel));
+            inFile.read(reinterpret_cast<char*>(&slot.playerHp), sizeof(slot.playerHp));
+            inFile.read(reinterpret_cast<char*>(&slot.playerMaxHp), sizeof(slot.playerMaxHp));
+            inFile.read(reinterpret_cast<char*>(&slot.playerMana), sizeof(slot.playerMana));
+            inFile.read(reinterpret_cast<char*>(&slot.playerMaxMana), sizeof(slot.playerMaxMana));
+            inFile.read(reinterpret_cast<char*>(&slot.playerStrength), sizeof(slot.playerStrength));
+            inFile.read(reinterpret_cast<char*>(&slot.playerDefense), sizeof(slot.playerDefense));
+            inFile.read(reinterpret_cast<char*>(&slot.playerIntelligence), sizeof(slot.playerIntelligence));
+            inFile.read(reinterpret_cast<char*>(&slot.playerAgility), sizeof(slot.playerAgility));
+            inFile.read(reinterpret_cast<char*>(&slot.playerExp), sizeof(slot.playerExp));
+            inFile.read(reinterpret_cast<char*>(&slot.playerExpToNextLevel), sizeof(slot.playerExpToNextLevel));
+            inFile.read(reinterpret_cast<char*>(&slot.playerGold), sizeof(slot.playerGold));
+            inFile.read(reinterpret_cast<char*>(&slot.playerSkillPoints), sizeof(slot.playerSkillPoints));
+            
+            size_t unlockedElementsSize;
+            inFile.read(reinterpret_cast<char*>(&unlockedElementsSize), sizeof(unlockedElementsSize));
+            slot.playerUnlockedMagicElements.resize(unlockedElementsSize);
+            for (size_t j = 0; j < unlockedElementsSize; ++j) {
+                size_t elemLen; inFile.read(reinterpret_cast<char*>(&elemLen), sizeof(elemLen));
+                slot.playerUnlockedMagicElements[j].resize(elemLen);
+                inFile.read(&slot.playerUnlockedMagicElements[j][0], elemLen);
+            }
+
+            size_t knownSpellsSize;
+            inFile.read(reinterpret_cast<char*>(&knownSpellsSize), sizeof(knownSpellsSize));
+            slot.playerKnownSpells.resize(knownSpellsSize);
+            for (size_t j = 0; j < knownSpellsSize; ++j) {
+                size_t idLen; inFile.read(reinterpret_cast<char*>(&idLen), sizeof(idLen));
+                slot.playerKnownSpells[j].resize(idLen);
+                inFile.read(&slot.playerKnownSpells[j][0], idLen);
+            }
+            
+            size_t equippedWeaponNameLen;
+            inFile.read(reinterpret_cast<char*>(&equippedWeaponNameLen), sizeof(equippedWeaponNameLen));
+            slot.playerEquippedWeaponName.resize(equippedWeaponNameLen);
+            inFile.read(&slot.playerEquippedWeaponName[0], equippedWeaponNameLen);
+
+
+            size_t inventorySize;
+            inFile.read(reinterpret_cast<char*>(&inventorySize), sizeof(inventorySize));
+            slot.playerInventoryItemNames.resize(inventorySize);
+            for (size_t j = 0; j < inventorySize; ++j) {
+                size_t nameLen; inFile.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+                slot.playerInventoryItemNames[j].resize(nameLen);
+                inFile.read(&slot.playerInventoryItemNames[j][0], nameLen);
+            }
+
+            size_t weaponsSize;
+            inFile.read(reinterpret_cast<char*>(&weaponsSize), sizeof(weaponsSize));
+            slot.playerWeaponNames.resize(weaponsSize);
+            for (size_t j = 0; j < weaponsSize; ++j) {
+                size_t nameLen; inFile.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+                slot.playerWeaponNames[j].resize(nameLen);
+                inFile.read(&slot.playerWeaponNames[j][0], nameLen);
+            }
+
+            inFile.read(reinterpret_cast<char*>(&slot.currentDay), sizeof(slot.currentDay));
+            inFile.read(reinterpret_cast<char*>(&slot.currentActionsRemaining), sizeof(slot.currentActionsRemaining));
+            
+            size_t currentWorldLen; inFile.read(reinterpret_cast<char*>(&currentWorldLen), sizeof(currentWorldLen));
+            slot.currentWorld.resize(currentWorldLen); inFile.read(&slot.currentWorld[0], currentWorldLen);
+            
+            size_t currentSubAreaLen; inFile.read(reinterpret_cast< char*>(&currentSubAreaLen), sizeof(currentSubAreaLen));
+            slot.currentSubArea.resize(currentSubAreaLen); inFile.read(&slot.currentSubArea[0], currentSubAreaLen);
+
+            size_t storyFlagsSize;
+            inFile.read(reinterpret_cast<char*>(&storyFlagsSize), sizeof(storyFlagsSize));
+            slot.storyFlagsData.clear();
+            for (size_t j = 0; j < storyFlagsSize; ++j) {
+                size_t keyLen; inFile.read(reinterpret_cast<char*>(&keyLen), sizeof(keyLen));
+                string key; key.resize(keyLen); inFile.read(&key[0], keyLen);
+                int value; inFile.read(reinterpret_cast<char*>(&value), sizeof(value));
+                slot.storyFlagsData[key] = value;
+            }
+            
+            size_t scheduledEventsVecSize;
+            inFile.read(reinterpret_cast<char*>(&scheduledEventsVecSize), sizeof(scheduledEventsVecSize));
+            slot.scheduledEventsVector.resize(scheduledEventsVecSize);
+            for(size_t j=0; j < scheduledEventsVecSize; ++j){
+                GameEvent ev;
+                size_t eventNameLen; inFile.read(reinterpret_cast<char*>(&eventNameLen), sizeof(eventNameLen));
+                ev.eventName.resize(eventNameLen); inFile.read(&ev.eventName[0], eventNameLen);
+                size_t descLen; inFile.read(reinterpret_cast<char*>(&descLen), sizeof(descLen));
+                ev.description.resize(descLen); inFile.read(&ev.description[0], descLen);
+                inFile.read(reinterpret_cast<char*>(&ev.dayTrigger), sizeof(ev.dayTrigger));
+                inFile.read(reinterpret_cast<char*>(&ev.triggered), sizeof(ev.triggered));
+                slot.scheduledEventsVector[j] = ev;
+            }
+
+            size_t compMetSize; inFile.read(reinterpret_cast<char*>(&compMetSize), sizeof(compMetSize));
+            slot.companionNamesMet.resize(compMetSize);
+            for(size_t j=0; j<compMetSize; ++j){
+                size_t cnLen; inFile.read(reinterpret_cast<char*>(&cnLen), sizeof(cnLen));
+                slot.companionNamesMet[j].resize(cnLen); inFile.read(&slot.companionNamesMet[j][0], cnLen);
+            }
+
+            size_t compRelSize; inFile.read(reinterpret_cast<char*>(&compRelSize), sizeof(compRelSize));
+            slot.companionRelationsData.clear();
+            for(size_t j=0; j<compRelSize; ++j){
+                size_t keyLen; inFile.read(reinterpret_cast<char*>(&keyLen), sizeof(keyLen));
+                string key; key.resize(keyLen); inFile.read(&key[0], keyLen);
+                int value; inFile.read(reinterpret_cast<char*>(&value), sizeof(value));
+                slot.companionRelationsData[key] = value;
+            }
+            
+            size_t compSlLvlSize; inFile.read(reinterpret_cast<char*>(&compSlLvlSize), sizeof(compSlLvlSize));
+            slot.companionSocialLinkLevels.clear();
+            for(size_t j=0; j<compSlLvlSize; ++j){
+                size_t keyLen; inFile.read(reinterpret_cast<char*>(&keyLen), sizeof(keyLen));
+                string key; key.resize(keyLen); inFile.read(&key[0], keyLen);
+                int value; inFile.read(reinterpret_cast<char*>(&value), sizeof(value));
+                slot.companionSocialLinkLevels[key] = value;
+            }
+
+            size_t compSlCompSize; inFile.read(reinterpret_cast<char*>(&compSlCompSize), sizeof(compSlCompSize));
+            slot.companionSocialLinkCompleted.clear();
+            for(size_t j=0; j<compSlCompSize; ++j){
+                size_t keyLen; inFile.read(reinterpret_cast<char*>(&keyLen), sizeof(keyLen));
+                string key; key.resize(keyLen); inFile.read(&key[0], keyLen);
+                bool value; inFile.read(reinterpret_cast<char*>(&value), sizeof(value));
+                slot.companionSocialLinkCompleted[key] = value;
+            }
+            
+            size_t dungeonVisitedSize; inFile.read(reinterpret_cast<char*>(&dungeonVisitedSize), sizeof(dungeonVisitedSize));
+            slot.dungeonVisitedCampAreasData.clear();
+            for(size_t j=0; j<dungeonVisitedSize; ++j){
+                size_t dNameLen; inFile.read(reinterpret_cast<char*>(&dNameLen), sizeof(dNameLen));
+                string dNameKey; dNameKey.resize(dNameLen); inFile.read(&dNameKey[0], dNameLen);
+                size_t vecSize; inFile.read(reinterpret_cast<char*>(&vecSize), sizeof(vecSize));
+                vector<int> floors(vecSize);
+                for(size_t k=0; k<vecSize; ++k) { inFile.read(reinterpret_cast<char*>(&floors[k]), sizeof(int)); }
+                slot.dungeonVisitedCampAreasData[dNameKey] = floors;
+            }
+            
+            size_t dungeonExploredSize; inFile.read(reinterpret_cast<char*>(&dungeonExploredSize), sizeof(dungeonExploredSize));
+            slot.dungeonExploredOnceFloorsData.clear();
+            for(size_t j=0; j<dungeonExploredSize; ++j){
+                size_t dNameLen; inFile.read(reinterpret_cast<char*>(&dNameLen), sizeof(dNameLen));
+                string dNameKey; dNameKey.resize(dNameLen); inFile.read(&dNameKey[0], dNameLen);
+                size_t setSize; inFile.read(reinterpret_cast<char*>(&setSize), sizeof(setSize));
+                unordered_set<int> floors;
+                for(size_t k=0; k<setSize; ++k) { int floorNum; inFile.read(reinterpret_cast<char*>(&floorNum), sizeof(int)); floors.insert(floorNum); }
+                slot.dungeonExploredOnceFloorsData[dNameKey] = floors;
+            }
+
+            size_t defeatedBossesSize; inFile.read(reinterpret_cast<char*>(&defeatedBossesSize), sizeof(defeatedBossesSize));
+            slot.defeatedBossesData.clear();
+            for(size_t j=0; j<defeatedBossesSize; ++j){
+                size_t keyLen; inFile.read(reinterpret_cast<char*>(&keyLen), sizeof(keyLen));
+                string key; key.resize(keyLen); inFile.read(&key[0], keyLen);
+                bool value; inFile.read(reinterpret_cast<char*>(&value), sizeof(value));
+                slot.defeatedBossesData[key] = value;
+            }
+            
+            size_t activeQuestsSize; inFile.read(reinterpret_cast<char*>(&activeQuestsSize), sizeof(activeQuestsSize));
+            slot.activeDailyQuestsData.resize(activeQuestsSize);
+            for(size_t j=0; j<activeQuestsSize; ++j){
+                DailyQuest q;
+                size_t titleLen; inFile.read(reinterpret_cast<char*>(&titleLen), sizeof(titleLen)); q.title.resize(titleLen); inFile.read(&q.title[0], titleLen);
+                size_t descLen; inFile.read(reinterpret_cast<char*>(&descLen), sizeof(descLen)); q.description.resize(descLen); inFile.read(&q.description[0], descLen);
+                size_t typeLen; inFile.read(reinterpret_cast<char*>(&typeLen), sizeof(typeLen)); q.type.resize(typeLen); inFile.read(&q.type[0], typeLen);
+                size_t targetLen; inFile.read(reinterpret_cast<char*>(&targetLen), sizeof(targetLen)); q.target.resize(targetLen); inFile.read(&q.target[0], targetLen);
+                inFile.read(reinterpret_cast<char*>(&q.dungeonFloor), sizeof(q.dungeonFloor));
+                size_t dNameLen; inFile.read(reinterpret_cast<char*>(&dNameLen), sizeof(dNameLen)); q.dungeonName.resize(dNameLen); inFile.read(&q.dungeonName[0], dNameLen);
+                inFile.read(reinterpret_cast<char*>(&q.taken), sizeof(q.taken));
+                inFile.read(reinterpret_cast<char*>(&q.completed), sizeof(q.completed));
+                inFile.read(reinterpret_cast<char*>(&q.expReward), sizeof(q.expReward));
+                inFile.read(reinterpret_cast<char*>(&q.goldReward), sizeof(q.goldReward));
+                size_t rankLen; inFile.read(reinterpret_cast<char*>(&rankLen), sizeof(rankLen)); q.rank.resize(rankLen); inFile.read(&q.rank[0], rankLen);
+                slot.activeDailyQuestsData[j] = q;
+            }
+        } else if (inFile.eof() && !slot.isUsed) {
+             // Ini normal jika slot di akhir file kosong dan belum pernah ditulis
+        } else if (!inFile.eof()){
+            delayPrint(L"Error: File save mungkin korup atau formatnya tidak sesuai (slot " + to_wstring(i+1) + L").", 20);
+            slot.isUsed = false; 
+        }
+    }
+    inFile.close();
+}
+
+
+void loadGame() {
+    readSaveDataFromFile(); 
+    system("cls");
+    printLine();
+    centerText(L"✦ MUAT PERMAINAN ✦");
+    printLine();
+    wcout << L"Pilih slot untuk dimuat:" << endl;
+    bool hasSave = false;
+    for (int i = 0; i < MAX_SAVE_SLOTS; ++i) {
+        wcout << L" " << (i + 1) << L". Slot " << (i + 1) << ": ";
+        if (saveSlots[i].isUsed) {
+            wcout << utf8_to_wstring(saveSlots[i].slotName) << endl;
+            hasSave = true;
+        } else {
+            wcout << L"[Kosong]" << endl;
+        }
+    }
+    if (!hasSave) {
+        delayPrint(L"Tidak ada data simpanan yang ditemukan.", 20);
+        waitForEnter();
+        return;
+    }
+    wcout << L" 0. Batal" << endl;
+    printLine();
+    wcout << L"Pilihanmu ✦: ";
+    int slotChoice = getValidatedChoice(0, MAX_SAVE_SLOTS);
+
+    if (slotChoice == 0) {
+        delayPrint(L"Pemuatan dibatalkan.", 20);
+        waitForEnter();
+        return;
+    }
+
+    int slotIndex = slotChoice - 1;
+    if (!saveSlots[slotIndex].isUsed) {
+        delayPrint(L"Slot ini kosong. Tidak ada yang bisa dimuat.", 20);
+        waitForEnter();
+        return;
+    }
+
+    applySaveSlotData(saveSlots[slotIndex]);
+    gameRunning = true; // Pastikan game running diset true
+    delayPrint(L"✅ Permainan berhasil dimuat dari Slot " + to_wstring(slotChoice) + L"!", 20);
+    waitForEnter();
+    
+    showGameMenu(); 
+    exit(0); 
 }
 
 void showDiaryMenu() {
@@ -4813,9 +5674,11 @@ void showDiaryMenu() {
             case 4:
                 showSkillTreeMenu(player);
                 break;
-            case 7:
+            case 7: 
+                saveGame();
+                break;
             case 8:
-                waitForEnter();
+                loadGame();
                 break;
         }
     } while(choice != 9 && choice != 0);
@@ -6757,130 +7620,169 @@ void sceneMashaLevel10() {
     waitForEnter();
 }
 
+void showGenericCompanionDialogue(const string& npcName) {
+    system("cls");
+    printLine();
+    centerText(L" berbincang santai dengan " + utf8_to_wstring(npcName) + L" ");
+    printLine();
+    wcout << endl;
+
+    vector<wstring> dialogues;
+
+    if (npcName == "Ruigerd") {
+        dialogues = {
+            L"Ruigerd: \"Ah, Tuan Muda Weiss. Ada yang bisa saya bantu di dapur hari ini? Atau hanya ingin secangkir teh hangat?\"",
+            L"Ruigerd: \"Pastikan Anda makan dengan cukup, Tuan Muda. Pertarungan ke depan pasti akan berat.\"",
+            L"Ruigerd: \"Melihat perkembangan Anda mengingatkan saya pada semangat Tuan Besar Alaric dulu.\"",
+            L"Ruigerd: \"Bagaimana kabarmu hari ini, Weiss? Semua baik-baik saja di mansion?\"",
+            L"Ruigerd: \"Jangan sungkan meminta apapun jika kau butuh sesuatu dari dapur, Tuan Muda.\""
+        };
+    } else if (npcName == "Irene") {
+        dialogues = {
+            L"Irene: \"Tuan Muda Weiss! Senang melihat Anda lagi. Taman hari ini sangat indah, bukan?\"",
+            L"Irene: \"Apakah ada buku baru yang menarik yang sedang Anda baca, Tuan Muda?\"",
+            L"Irene: \"Semoga hari Anda menyenangkan, Tuan Muda. Jika butuh sesuatu, jangan ragu panggil saya.\"",
+            L"Irene: \"Bunga-bunga mawar ini mengingatkanku padamu, selalu berusaha mekar walau ada duri.\"",
+            L"Irene: \"Aku baru saja merapikan beberapa koleksi herbal Nyonya. Aroma mereka menenangkan.\""
+        };
+    } else if (npcName == "Ella") {
+        dialogues = {
+            L"Ella: \"Weiss. Ada angin apa kau mampir? Ada masalah yang butuh 'diselesaikan' atau hanya ingin berbagi cerita?\"",
+            L"Ella: \"Guild berjalan seperti biasa. Beberapa petualang baru membuat ulah, tapi tidak ada yang tidak bisa kutangani.\"",
+            L"Ella: \"Jangan lupakan kesepakatan kita, partner. Kota ini butuh kita berdua.\"",
+            L"Ella: \"Kadang aku berpikir, menjadi bangsawan sepertimu mungkin lebih mudah. Tapi kurasa sama saja rumitnya.\"",
+            L"Ella: \"Ada gosip baru dari dunia bawah? Atau kau hanya ingin kopi pahit kesukaanku?\""
+        };
+    } else if (npcName == "Charlotte") {
+        dialogues = {
+            L"Charlotte: \"Weiss! Kebetulan sekali! Aku baru saja dapat gosip panas dari Balai Kota. Mau dengar?\"",
+            L"Charlotte: \"Bagaimana investigasimu tentang harga roti di pasar utara? Arcadia Chronicle siap mengangkatnya!\"",
+            L"Charlotte: \"Jaga dirimu baik-baik, Weiss. Orang-orang yang kita lawan tidak akan tinggal diam.\"",
+            L"Charlotte: \"Kadang aku lelah menjadi wartawan, tapi melihat perubahan positif di kota ini memberiku semangat lagi.\"",
+            L"Charlotte: \"Ada berita menarik yang kau dengar? Atau hanya ingin bertukar pikiran soal artikel berikutnya?\""
+        };
+    } else if (npcName == "Mars") {
+        dialogues = {
+            L"Mars: \"Weiss, kawan. Bagaimana kabarmu? Hutan hari ini tenang, pertanda baik.\"",
+            L"Mars: \"Jangan lupa untuk sesekali kembali ke hutan, udaranya baik untuk menjernihkan pikiran.\"",
+            L"Mars: \"Para penjaga hutan mengirim salam untukmu. Mereka sangat menghargaimu.\"",
+            L"Mars: \"Aku melihat jejak Lynx Emas tadi pagi. Pertanda langka.\"",
+            L"Mars: \"Ingatlah untuk selalu menghormati alam, maka alam akan menghormatimu kembali.\""
+        };
+    } else if (npcName == "Kinich") {
+        dialogues = {
+            L"Kinich: \"Weiss. Ada perlu? Atau hanya ingin memastikan para penambang ini tidak bermalas-malasan?\"",
+            L"Kinich: \"Goa Avernix masih menyimpan banyak rahasia. Mungkin suatu saat kita bisa menjelajahinya lagi bersama.\"",
+            L"Kinich: \"Ingat pesanku, hati-hati dengan orang licik di kota. Di sini setidaknya bahayanya terlihat jelas.\"",
+            L"Kinich: \"Debu tambang hari ini tidak terlalu parah. Mungkin 'Roh Goa' sedang berbaik hati.\"",
+            L"Kinich: \"Jangan lupakan dari mana kau berasal, tapi jangan biarkan itu membatasimu, Weiss.\""
+        };
+    } else if (npcName == "Masha") {
+        dialogues = {
+            L"Masha: (Sedikit tersenyum saat melihatmu) \"Weiss. Pemandangan hari ini cukup... menenangkan. Tidak seperti biasanya.\"",
+            L"Masha: \"Bagaimana kabar proyek Anggrek Bulan Salju-mu? Milikku menunjukkan perkembangan bagus berkat jurnal darimu.\"",
+            L"Masha: \"Jangan terlalu memaksakan diri dengan semua urusan itu. Terkadang, menikmati ketenangan seperti ini juga penting.\"",
+            L"Masha: \"Aku sedang membaca risalah filosofi baru. Mungkin kau tertarik untuk berdiskusi nanti?\"",
+            L"Masha: \"Edelweiss di paviliun itu mekar dengan indah hari ini. Mengingatkanku pada sesuatu.\""
+        };
+    } else {
+        dialogues = {
+            utf8_to_wstring(npcName) + L": \"Senang bertemu denganmu lagi, Weiss.\"",
+            utf8_to_wstring(npcName) + L": \"Bagaimana kabarmu hari ini?\"",
+            utf8_to_wstring(npcName) + L": \"Selalu ada hal menarik yang terjadi di Arcadia, bukan?\""
+        };
+    }
+
+    if (!dialogues.empty()) {
+        int randomIndex = rand() % dialogues.size();
+        delayPrint(dialogues[randomIndex], 30);
+    } else {
+        delayPrint(utf8_to_wstring(npcName) + L" tersenyum ramah padamu.", 30);
+    }
+    wcout << endl;
+    waitForEnter();
+}
+
 
 void interactWithNPC(const string& npcName) {
-    if (talkedToday[npcName]) {
-        wcout << L"Kamu sudah berbicara dengan " << utf8_to_wstring(npcName) << L" hari ini.\n";
+    Companion* pCompanion = nullptr;
+    for(auto& comp : companions){
+        if(comp.name == npcName){
+            pCompanion = &comp;
+            break;
+        }
+    }
+
+    if(!pCompanion || !pCompanion->met){
+        delayPrint(L"Kau belum mengenal " + utf8_to_wstring(npcName) + L" dengan baik atau mereka tidak ada di sini.", 20);
         waitForEnter();
         return;
     }
 
-    wcout << L"Apakah kamu yakin ingin berbicara dengan " << utf8_to_wstring(npcName) << L"? (y/n): ";
-    char choice;
-    cin >> choice;
+    SocialLink& link = socialLinks[npcName]; 
+    int currentSocialLevel = link.currentLevel;
 
-    if (choice != 'y' && choice != 'Y') return;
-
-    if (currentActionsRemaining <= 0) {
-        wcout << L"Kamu tidak punya cukup poin aksi untuk berbicara.\n";
-        return;
-    }
-
-    consumeAction();
-    talkedToday[npcName] = true;
-
-    SocialLink& link = socialLinks[npcName];
-    int level = link.currentLevel;
-
-    
-    const auto& lockedLevels = socialLinkStories[npcName].lockedLevels;
-    if (lockedLevels.count(level) > 0) {
-        wcout << L"Level ini terkunci. Selesaikan event tertentu untuk membukanya.\n";
-        return;
-    }
-
-    
-    if (npcName == "Ruigerd") {
-        if (level == 1) sceneRuigerdLevel1();
-        else if (level == 2) sceneRuigerdLevel2();
-        else if (level == 3) sceneRuigerdLevel3();
-        else if (level == 4) sceneRuigerdLevel4();
-        else if (level == 5) sceneRuigerdLevel5();
-        else if (level == 6) sceneRuigerdLevel6();
-        else if (level == 7) sceneRuigerdLevel7();
-        else if (level == 8) sceneRuigerdLevel8();
-        else if (level == 9) sceneRuigerdLevel9();
-        else if (level == 10) sceneRuigerdLevel10();
-    } else if (npcName == "Irene") {
-        if (level == 1) sceneIreneLevel1();
-        else if (level == 2) sceneIreneLevel2();
-        else if (level == 3) sceneIreneLevel3();
-        else if (level == 4) sceneIreneLevel4();
-        else if (level == 5) sceneIreneLevel5();
-        else if (level == 6) sceneIreneLevel6();
-        else if (level == 7) sceneIreneLevel7();
-        else if (level == 8) sceneIreneLevel8();
-        else if (level == 9) sceneIreneLevel9();
-        else if (level == 10) sceneIreneLevel10();
-    } else if (npcName == "Ella") {
-        if (level == 1) sceneEllaLevel1();
-        else if (level == 2) sceneEllaLevel2();
-        else if (level == 3) sceneEllaLevel3();
-        else if (level == 4) sceneEllaLevel4();
-        else if (level == 5) sceneEllaLevel5();
-        else if (level == 6) sceneEllaLevel6();
-        else if (level == 7) sceneEllaLevel7();
-        else if (level == 8) sceneEllaLevel8();
-        else if (level == 9) sceneEllaLevel9();
-        else if (level == 10) sceneEllaLevel10();
-    } else if (npcName == "Charlotte") {
-        if (level == 1) sceneCharlotteLevel1();
-        else if (level == 2) sceneCharlotteLevel2();
-        else if (level == 3) sceneCharlotteLevel3();
-        else if (level == 4) sceneCharlotteLevel4();
-        else if (level == 5) sceneCharlotteLevel5();
-        else if (level == 6) sceneCharlotteLevel6();
-        else if (level == 7) sceneCharlotteLevel7();
-        else if (level == 8) sceneCharlotteLevel8();
-        else if (level == 9) sceneCharlotteLevel9();
-        else if (level == 10) sceneCharlotteLevel10();
-    } else if (npcName == "Mars") {
-        if (level == 1) sceneMarsLevel1();
-        else if (level == 2) sceneMarsLevel2();
-        else if (level == 3) sceneMarsLevel3();
-        else if (level == 4) sceneMarsLevel4();
-        else if (level == 5) sceneMarsLevel5();
-        else if (level == 6) sceneMarsLevel6();
-        else if (level == 7) sceneMarsLevel7();
-        else if (level == 8) sceneMarsLevel8();
-        else if (level == 9) sceneMarsLevel9();
-        else if (level == 10) sceneMarsLevel10();
-    } else if (npcName == "Kinich") {
-        if (level == 1) sceneKinichLevel1();
-        else if (level == 2) sceneKinichLevel2();
-        else if (level == 3) sceneKinichLevel3();
-        else if (level == 4) sceneKinichLevel4();
-        else if (level == 5) sceneKinichLevel5();
-        else if (level == 6) sceneKinichLevel6();
-        else if (level == 7) sceneKinichLevel7();
-        else if (level == 8) sceneKinichLevel8();
-        else if (level == 9) sceneKinichLevel9();
-        else if (level == 10) sceneKinichLevel10();
-    } else if (npcName == "Masha") {
-        if (level == 1) sceneMashaLevel1();
-        else if (level == 2) sceneMashaLevel2();
-        else if (level == 3) sceneMashaLevel3();
-        else if (level == 4) sceneMashaLevel4();
-        else if (level == 5) sceneMashaLevel5();
-        else if (level == 6) sceneMashaLevel6();
-        else if (level == 7) sceneMashaLevel7();
-        else if (level == 8) sceneMashaLevel8();
-        else if (level == 9) sceneMashaLevel9();
-        else if (level == 10) sceneMashaLevel10();
+    if (link.completed && currentSocialLevel >= 10) { 
+        showGenericCompanionDialogue(npcName); 
+        
+        return; 
     } else {
-        wcout << L"NPC tidak ditemukan.\n";
-        return;
-    }
+        if (talkedToday[npcName]) {
+            wcout << L"Kamu sudah berbicara dengan " << utf8_to_wstring(npcName) << L" hari ini untuk meningkatkan hubungan." << endl;
+            waitForEnter();
+            return;
+        }
 
-    
-    if (link.currentLevel < 10) {
-        link.currentLevel++;
-    }
+        wcout << L"Apakah kamu yakin ingin menghabiskan waktu dengan " << utf8_to_wstring(npcName) << L" untuk meningkatkan hubungan? (y/n): ";
+        char choice_confirm; 
+        cin >> choice_confirm;
+        cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
 
-    
-    if (link.currentLevel == 10 && !link.completed) {
-        applySocialLinkBonus(npcName);
-        link.completed = true;
+        if (choice_confirm != 'y' && choice_confirm != 'Y') {
+            delayPrint(L"Kamu memutuskan untuk tidak berbicara saat ini.", 20);
+            waitForEnter();
+            return;
+        }
+
+        if (currentActionsRemaining <= 0) {
+            wcout << L"Kamu tidak punya cukup poin aksi untuk menghabiskan waktu." << endl;
+            waitForEnter();
+            return;
+        }
+
+        consumeAction();
+        talkedToday[npcName] = true;
+        
+        const auto& lockedLevels = socialLinkStories[npcName].lockedLevels;
+        if (lockedLevels.count(currentSocialLevel) > 0) {
+            wcout << L"Level hubungan dengan " << utf8_to_wstring(npcName) << L" ini terkunci. Selesaikan event cerita tertentu untuk membukanya." << endl;
+            waitForEnter();
+            return;
+        }
+        
+        if (npcName == "Ruigerd") {
+            if (currentSocialLevel == 1) sceneRuigerdLevel1(); else if (currentSocialLevel == 2) sceneRuigerdLevel2(); else if (currentSocialLevel == 3) sceneRuigerdLevel3(); else if (currentSocialLevel == 4) sceneRuigerdLevel4(); else if (currentSocialLevel == 5) sceneRuigerdLevel5(); else if (currentSocialLevel == 6) sceneRuigerdLevel6(); else if (currentSocialLevel == 7) sceneRuigerdLevel7(); else if (currentSocialLevel == 8) sceneRuigerdLevel8(); else if (currentSocialLevel == 9) sceneRuigerdLevel9(); else if (currentSocialLevel == 10) sceneRuigerdLevel10();
+        } else if (npcName == "Irene") {
+            if (currentSocialLevel == 1) sceneIreneLevel1(); else if (currentSocialLevel == 2) sceneIreneLevel2(); else if (currentSocialLevel == 3) sceneIreneLevel3(); else if (currentSocialLevel == 4) sceneIreneLevel4(); else if (currentSocialLevel == 5) sceneIreneLevel5(); else if (currentSocialLevel == 6) sceneIreneLevel6(); else if (currentSocialLevel == 7) sceneIreneLevel7(); else if (currentSocialLevel == 8) sceneIreneLevel8(); else if (currentSocialLevel == 9) sceneIreneLevel9(); else if (currentSocialLevel == 10) sceneIreneLevel10();
+        } else if (npcName == "Ella") {
+            if (currentSocialLevel == 1) sceneEllaLevel1(); else if (currentSocialLevel == 2) sceneEllaLevel2(); else if (currentSocialLevel == 3) sceneEllaLevel3(); else if (currentSocialLevel == 4) sceneEllaLevel4(); else if (currentSocialLevel == 5) sceneEllaLevel5(); else if (currentSocialLevel == 6) sceneEllaLevel6(); else if (currentSocialLevel == 7) sceneEllaLevel7(); else if (currentSocialLevel == 8) sceneEllaLevel8(); else if (currentSocialLevel == 9) sceneEllaLevel9(); else if (currentSocialLevel == 10) sceneEllaLevel10();
+        } else if (npcName == "Charlotte") {
+            if (currentSocialLevel == 1) sceneCharlotteLevel1(); else if (currentSocialLevel == 2) sceneCharlotteLevel2(); else if (currentSocialLevel == 3) sceneCharlotteLevel3(); else if (currentSocialLevel == 4) sceneCharlotteLevel4(); else if (currentSocialLevel == 5) sceneCharlotteLevel5(); else if (currentSocialLevel == 6) sceneCharlotteLevel6(); else if (currentSocialLevel == 7) sceneCharlotteLevel7(); else if (currentSocialLevel == 8) sceneCharlotteLevel8(); else if (currentSocialLevel == 9) sceneCharlotteLevel9(); else if (currentSocialLevel == 10) sceneCharlotteLevel10();
+        } else if (npcName == "Mars") {
+            if (currentSocialLevel == 1) sceneMarsLevel1(); else if (currentSocialLevel == 2) sceneMarsLevel2(); else if (currentSocialLevel == 3) sceneMarsLevel3(); else if (currentSocialLevel == 4) sceneMarsLevel4(); else if (currentSocialLevel == 5) sceneMarsLevel5(); else if (currentSocialLevel == 6) sceneMarsLevel6(); else if (currentSocialLevel == 7) sceneMarsLevel7(); else if (currentSocialLevel == 8) sceneMarsLevel8(); else if (currentSocialLevel == 9) sceneMarsLevel9(); else if (currentSocialLevel == 10) sceneMarsLevel10();
+        } else if (npcName == "Kinich") {
+            if (currentSocialLevel == 1) sceneKinichLevel1(); else if (currentSocialLevel == 2) sceneKinichLevel2(); else if (currentSocialLevel == 3) sceneKinichLevel3(); else if (currentSocialLevel == 4) sceneKinichLevel4(); else if (currentSocialLevel == 5) sceneKinichLevel5(); else if (currentSocialLevel == 6) sceneKinichLevel6(); else if (currentSocialLevel == 7) sceneKinichLevel7(); else if (currentSocialLevel == 8) sceneKinichLevel8(); else if (currentSocialLevel == 9) sceneKinichLevel9(); else if (currentSocialLevel == 10) sceneKinichLevel10();
+        } else if (npcName == "Masha") {
+            if (currentSocialLevel == 1) sceneMashaLevel1(); else if (currentSocialLevel == 2) sceneMashaLevel2(); else if (currentSocialLevel == 3) sceneMashaLevel3(); else if (currentSocialLevel == 4) sceneMashaLevel4(); else if (currentSocialLevel == 5) sceneMashaLevel5(); else if (currentSocialLevel == 6) sceneMashaLevel6(); else if (currentSocialLevel == 7) sceneMashaLevel7(); else if (currentSocialLevel == 8) sceneMashaLevel8(); else if (currentSocialLevel == 9) sceneMashaLevel9(); else if (currentSocialLevel == 10) sceneMashaLevel10();
+        } else {
+            wcout << L"Data scene untuk " << utf8_to_wstring(npcName) << L" tidak ditemukan.\n";
+            waitForEnter();
+            return;
+        }
+
+        if (link.currentLevel < 10 && !link.completed) { 
+            link.currentLevel++;
+        }
     }
 }
 
@@ -7194,7 +8096,7 @@ void triggerInvasiMansion() {
         azazel.enemyType = "Demon";
 
 
-        BattleResult result = startBattle(azazel, "MansionLobbyInvaded");
+        BattleResult result = startBattle(azazel, "");
 
         if (result == ENEMY_DEAD) { 
             system("cls");
@@ -7323,7 +8225,7 @@ void triggerInvasiArcadia() {
         bael.enemyType = "Demon";
 
 
-        BattleResult result = startBattle(bael, "ArcadiaCityHallRuins");
+        BattleResult result = startBattle(bael, "");
 
         if (result == ENEMY_DEAD) { 
             system("cls");
@@ -7600,7 +8502,7 @@ void triggerFinalBossRajaIblis() {
         vorlag_p1.isBoss = true;
         vorlag_p1.enemyType = "Demon Lord (Form 1)";
         
-        BattleResult result_p1 = startBattle(vorlag_p1, "ArcadiaFinalBattleground_P1");
+        BattleResult result_p1 = startBattle(vorlag_p1, "");
 
         if (result_p1 == PLAYER_DEAD) { 
             system("cls");
@@ -7675,7 +8577,7 @@ void triggerFinalBossRajaIblis() {
             vorlag_p2.isBoss = true;
             vorlag_p2.enemyType = "True Demon Sovereign";
 
-            BattleResult result_p2 = startBattle(vorlag_p2, "ArcadiaFinalBattleground_P2");
+            BattleResult result_p2 = startBattle(vorlag_p2, "");
 
             if (result_p2 == ENEMY_DEAD) { 
                 system("cls");
@@ -7752,7 +8654,7 @@ void triggerFinalBossRajaIblis() {
                     Enemy buffedAllain;
                     setupBuffedAllainForDuel(buffedAllain); 
 
-                    BattleResult weissVorlagVsAllainResult = startBattle(buffedAllain, "ArcadiaHeroVsPossessedDuel");
+                    BattleResult weissVorlagVsAllainResult = startBattle(buffedAllain, "");
                     
                     temporarilyGrantAllMagicToPlayer(player, false); 
 
@@ -7929,7 +8831,89 @@ void showGameMenu() {
             } else if (action == "Penempa Besi") {
                 showBlacksmith();
             } else if (action == "Cek Berita Kota") {
-                wcout << L"Koran hari ini memuat berita tentang pahlawan misterius..." << endl;
+                system("cls");
+                printLine();
+                centerText(L"✦✦✦ KABAR DARI ARCADIA CHRONICLE ✦✦✦");
+                printLine();
+                delayPrint(L"Kau mengambil edisi terbaru Harian Arcadia Chronicle yang terpajang...", 20);
+                wcout << endl;
+
+                bool beritaUtamaTampil = false;
+                if (storyFlags.count("raja_iblis_final") && storyFlags.at("raja_iblis_final") == 1) {
+                    delayPrint(L"HEADLINE UTAMA: DUNIA SELAMAT! RAJA IBLIS VORLAG DITAKLUKKAN OLEH PAHLAWAN WEISS VON ASTRA!", 30);
+                    delayPrint(L"  Isi Berita: Seluruh negeri bersukacita atas kemenangan gemilang melawan Penguasa Bencana. Era baru perdamaian dan pembangunan kembali telah dimulai berkat kepahlawanan Tuan Muda Weiss.", 20);
+                    beritaUtamaTampil = true;
+                } else if (storyFlags.count("raja_iblis_final") && storyFlags.at("raja_iblis_final") == 2) {
+                    delayPrint(L"HEADLINE UTAMA: RAJA IBLIS MUSNAH! ALLAIN RAGNA MENYELAMATKAN DUNIA DI SAAT-SAAT AKHIR!", 30);
+                    delayPrint(L"  Isi Berita: Dalam pertempuran terakhir yang menentukan, Allain Ragna, dengan warisan Pedang Pahlawan, berhasil mengalahkan Vorlag. Weiss von Astra dikenang sebagai martir yang membuka jalan.", 20);
+                    beritaUtamaTampil = true;
+                } else if (storyFlags.count("raja_iblis_final") && storyFlags.at("raja_iblis_final") == 4) {
+                    delayPrint(L"HEADLINE UTAMA: TRAGEDI DAN KEMENANGAN! KEDUA PENANTANG RAJA IBLIS GUGUR DALAM KEHANCURAN BERSAMA!", 30);
+                    delayPrint(L"  Isi Berita: Dunia selamat dari Vorlag, namun harus kehilangan Weiss von Astra dan Allain Ragna dalam ledakan kekuatan terakhir yang menghancurkan kedua belah pihak. Sebuah kemenangan yang dibayar mahal.", 20);
+                    beritaUtamaTampil = true;
+                } else if (storyFlags.count("raja_iblis_final") && storyFlags.at("raja_iblis_final") == 5) {
+                    delayPrint(L"HEADLINE UTAMA: ALLAIN RAGNA HENTIKAN ANCAMAN GANDA! JIWA WEISS DIBEBASKAN, RAJA IBLIS MUSNAH!", 30);
+                    delayPrint(L"  Isi Berita: Setelah Weiss von Astra dirasuki Vorlag, Allain Ragna berhasil mengalahkan keduanya. Dunia kini aman...", 20);
+                    beritaUtamaTampil = true;
+                } else if (storyFlags.count("raja_iblis_final") && storyFlags.at("raja_iblis_final") == 3) {
+                    delayPrint(L"HEADLINE UTAMA: KEGELAPAN MENANG! ARCADIA JATUH DI BAWAH KEKUASAAN RAJA IBLIS VORLAG!", 30);
+                    delayPrint(L"  Isi Berita: Perlawanan terakhir telah dipatahkan. Tidak ada lagi harapan. Vorlag kini berkuasa mutlak atas negeri ini...", 20);
+                    beritaUtamaTampil = true;
+                }
+  
+                else if (storyFlags.count("pedang_pahlawan_weiss_chosen") && storyFlags.at("pedang_pahlawan_weiss_chosen") == 1 && storyFlags.count("raja_iblis_final") == 0) {
+                    delayPrint(L"HEADLINE: LUMANAIRE MOONSWORD TELAH MEMILIH TUANNYA! WEISS VON ASTRA SANG PAHLAWAN TERPILIH!", 30);
+                    delayPrint(L"  Isi Berita: Seluruh bangsawan menjadi saksi saat pedang legendaris mengakui Weiss von Astra. Harapan kini ada padanya untuk menghadapi ancaman Raja Iblis yang semakin nyata!", 20);
+                    beritaUtamaTampil = true;
+                } else if (storyFlags.count("pedang_pahlawan_allain_chosen") && storyFlags.at("pedang_pahlawan_allain_chosen") == 1 && storyFlags.count("raja_iblis_final") == 0) {
+                    delayPrint(L"HEADLINE: ALLAIN RAGNA, SANG CAHAYA HARAPAN! DIPILIH OLEH PEDANG LEGENDARIS LUMANAIRE!", 30);
+                    delayPrint(L"  Isi Berita: Ramalan tergenapi! Allain Ragna diakui oleh Lumanaire MoonSword sebagai pahlawan yang akan memimpin perlawanan melawan kegelapan. Seluruh negeri menaruh harapan padanya.", 20);
+                    beritaUtamaTampil = true;
+                }
+
+                else if (storyFlags.count("invasi_arcadia") && storyFlags.at("invasi_arcadia") == 1 && storyFlags.count("pedang_pahlawan") == 0) {
+                    delayPrint(L"HEADLINE: HEROISME DI BALAI KOTA! WEISS VON ASTRA PATAHKAN SERBUAN IBLIS BAEL!", 30);
+                    delayPrint(L"  Isi Berita: Ibukota Arcadia berhasil mempertahankan diri dari serangan Komandan Iblis Bael berkat keberanian Tuan Muda Weiss yang mengalahkan langsung Tangan Kanan Raja Iblis. Warga merayakan, namun kewaspadaan meningkat.", 20);
+                    beritaUtamaTampil = true;
+                } else if (storyFlags.count("invasi_arcadia") == 0 && currentDay > 35 && storyFlags.count("pedang_pahlawan") == 0) {
+                    delayPrint(L"HEADLINE: TRAGEDI DI BALAI KOTA! KOMANDAN IBLIS BAEL REBUT PUSAT PEMERINTAHAN!", 30);
+                    delayPrint(L"  Isi Berita: Meskipun ada perlawanan, Balai Kota Arcadia jatuh ke tangan iblis. Allain Ragna terlihat memimpin sisa pasukan untuk mengamankan warga dan mundur. Kerusakan parah tak terhindarkan.", 20);
+                    beritaUtamaTampil = true;
+                }
+
+                else if (storyFlags.count("invasi_mansion") && storyFlags.at("invasi_mansion") == 1 && storyFlags.count("invasi_arcadia") == 0) {
+                    delayPrint(L"HEADLINE: PENYERANGAN MENGERIKAN DI KEDIAMAN ASTRA! WEISS VON ASTRA BERHASIL MENGUSIR UTUSAN IBLIS!", 30);
+                    delayPrint(L"  Isi Berita: Rumor yang beredar santer tentang serangan iblis tingkat tinggi di Mansion Astra akhirnya terkonfirmasi. Tuan Muda Weiss dikabarkan berhasil mengatasi ancaman tersebut seorang diri. Para bangsawan mulai membicarakan keberaniannya.", 20);
+                    beritaUtamaTampil = true;
+                } else if (storyFlags.count("invasi_mansion") == 0 && currentDay > 25 && storyFlags.count("invasi_arcadia") == 0) {
+                    delayPrint(L"HEADLINE: INSIDEN DI MANSION ASTRA! KEDIAMAN BANGSAWAN DISERANG, BANTUAN DATANG TEPAT WAKTU!", 30);
+                    delayPrint(L"  Isi Berita: Dilaporkan terjadi serangan misterius di Mansion Astra. Meskipun Tuan Muda Weiss terluka, pasukan kerajaan berhasil mengatasi penyerang. Keamanan di sekitar kediaman bangsawan ditingkatkan.", 20);
+                    beritaUtamaTampil = true;
+                }
+          
+                else if (storyFlags.count("duel_persahabatan") && storyFlags.at("duel_persahabatan") == 1 && storyFlags.count("invasi_mansion") == 0) {
+                    delayPrint(L"HEADLINE: KEJUTAN DI TURNAMEN BANGSAWAN! WEISS VON ASTRA TAMPIL MEMUKAU, KALAHKAN ALLAIN RAGNA!", 30);
+                    delayPrint(L"  Isi Berita: Turnamen persahabatan bangsawan di Colosseum Imperial berakhir dengan kemenangan tak terduga Tuan Muda Weiss atas favorit juara, Allain Ragna. Perubahan besar terlihat pada Tuan Muda Astra, banyak yang mulai memperhitungkannya.", 20);
+                    beritaUtamaTampil = true;
+                } else if (storyFlags.count("duel_persahabatan") == 0 && currentDay > 15 && storyFlags.count("invasi_mansion") == 0) {
+                     delayPrint(L"HEADLINE: ALLAIN RAGNA KEMBALI BERSINAR DI COLOSSEUM!", 30);
+                     delayPrint(L"  Isi Berita: Pahlawan muda Allain Ragna sekali lagi menunjukkan kebolehannya dalam turnamen persahabatan bangsawan, mengukuhkan reputasinya sebagai pendekar pedang terbaik di generasinya.", 20);
+                     beritaUtamaTampil = true;
+                }
+                
+                if (!beritaUtamaTampil) {
+                    int randomBerita = rand() % 4;
+                    if (randomBerita == 0) {
+                        delayPrint(L"BERITA LOKAL: Perbaikan jalan di distrik perdagangan akan dimulai minggu depan. Beberapa penutupan jalan mungkin terjadi.", 20);
+                    } else if (randomBerita == 1) {
+                        delayPrint(L"GOSIP BANGSAWAN: Putri Masha von Aurora terlihat semakin sering mengunjungi Taman Norelia untuk proyek botani rahasianya. Ada apa gerangan?", 20);
+                    } else if (randomBerita == 2) {
+                        delayPrint(L"INFO GUILD: Cross Guild melaporkan peningkatan aktivitas monster minor di sekitar Hutan Merah. Para petualang baru dihimbau berhati-hati.", 20);
+                    } else {
+                        delayPrint(L"Tidak ada berita yang terlalu menonjol hari ini. Kota Arcadia tampak relatif tenang, meskipun ketegangan perang masih terasa.", 20);
+                    }
+                }
+                wcout << endl;
                 waitForEnter();
             } else if (action == "Masuk ke Ancient Temple (Dungeon)") {
                 enterDungeon("Ancient Temple");
@@ -7949,127 +8933,351 @@ void showGameMenu() {
 
 
 void exploreArea() {
+    string uniqueSubAreaKey = currentWorld + "_" + currentSubArea;
+
+    if (subAreasExploredOnceGlobal.count(uniqueSubAreaKey)) {
+        system("cls");
+        printLine();
+        centerText(L"✦✦✦ CEK SEKITAR ✦✦✦");
+        printLine();
+        delayPrint(L"Kau sudah memeriksa area " + utf8_to_wstring(currentSubArea) + L" ini dengan saksama sebelumnya.", 20);
+        delayPrint(L"Sepertinya tidak ada hal baru yang bisa ditemukan di sini untuk saat ini.", 20);
+        printLine();
+        waitForEnter();
+        return;
+    }
+
     system("cls");
     printLine();
-    centerText(L"✦✦✦ EKSPLORASI AREA ✦✦✦");
+    centerText(L"✦✦✦ CEK SEKITAR ✦✦✦");
     printLine();
     
-    wcout << L"Kamu melihat-lihat sekitar " << currentSubArea.c_str() << L" di " << currentWorld.c_str() << L"..." << endl;
+    delayPrint(L"Kau mengedarkan pandangan, memperhatikan detail di " + utf8_to_wstring(currentSubArea) + L", " + utf8_to_wstring(currentWorld) + L"...", 20);
 
-    
-    
-    int randomEvent = rand() % 3;
-    
-    switch(randomEvent) {
-        case 0:
-            wcout << L"Kamu menemukan sebuah item tersembunyi!" << endl;
-            if(rand() % 2 == 0) {
-                player.inventory.push_back(&allItems[0]); 
-                wcout << L"Health Potion ditambahkan ke inventory!" << endl;
+    int outcomeRoll = rand() % 100;
+    bool eventKhususTerjadi = false;
+
+    if (currentWorld == "Mansion Astra") {
+        if (currentSubArea == "Kamar Weiss") {
+            if (outcomeRoll < 20) {
+                delayPrint(L"Kau menemukan beberapa koin emas yang sepertinya terjatuh di bawah ranjang.", 20);
+                int foundGold = 5 + rand() % 11; 
+                player.gold += foundGold;
+                delayPrint(L"💰 Gold +" + to_wstring(foundGold) + L"!", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 40) {
+                delayPrint(L"Di antara tumpukan buku di mejamu, ada satu yang belum pernah kau baca. Isinya tentang etiket bangsawan kuno.", 20);
+                player.exp += 5;
+                delayPrint(L"📚 EXP +" + to_wstring(5) + L" dari bacaan ringan!", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 70) {
+                delayPrint(L"Jendelamu sedikit terbuka, angin sepoi-sepoi masuk membawa aroma taman.", 20);
+                delayPrint(L"Tidak ada yang terlalu istimewa, hanya kamarmu yang tenang.", 20);
+                eventKhususTerjadi = true;
             } else {
-                player.inventory.push_back(&allItems[1]); 
-                wcout << L"Mana Potion ditambahkan ke inventory!" << endl;
+                delayPrint(L"Kau merapikan sedikit barang-barangmu. Kamar ini butuh sedikit sentuhan sihir pembersih, mungkin?", 20);
+                eventKhususTerjadi = true;
             }
-            break;
-        case 1:
-            wcout << L"Kamu mendapatkan sedikit experience dari observasi..." << endl;
-            player.exp += 10;
-            wcout << L"EXP +10!" << endl;
-            break;
-        case 2:
-            wcout << L"Tidak ada yang menarik di area ini..." << endl;
-            wcout << L"Mungkin coba area lain?" << endl;
-            break;
+        } else if (currentSubArea == "Dapur Mansion") {
+            if (outcomeRoll < 25 && sudahBertemuCompanion("Ruigerd")) {
+                delayPrint(L"Dari kejauhan, kau melihat Kepala Koki Ruigerd sedang dengan serius mengawasi para juru masak muda.", 20);
+                delayPrint(L"Aroma masakan yang lezat tercium samar-samar.", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 50) {
+                delayPrint(L"Kau menemukan beberapa bumbu dapur berkualitas yang sepertinya tidak terpakai.", 20);
+                int value = 3 + rand() % 8;
+                player.gold += value; 
+                delayPrint(L"💰 (Senilai " + to_wstring(value) + L" Gold dari bumbu)!", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Suara dentingan panci dan wajan terdengar dari dalam. Dapur tampak sibuk seperti biasa.", 20);
+                eventKhususTerjadi = true;
+            }
+        } else if (currentSubArea == "Taman Floresia") {
+            if (outcomeRoll < 25 && sudahBertemuCompanion("Irene")) {
+                delayPrint(L"Irene terlihat sedang merawat hamparan bunga mawar dengan sangat telaten di ujung taman.", 20);
+                delayPrint(L"Dia tampak sangat damai di antara bunga-bunga itu.", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 50) {
+                delayPrint(L"Seekor kupu-kupu berwarna cerah hinggap di jemarimu sejenak sebelum terbang menjauh.", 20);
+                delayPrint(L"Momen kecil yang menyenangkan.", 20);
+                player.exp += 3;
+                delayPrint(L"📚 EXP +" + to_wstring(3) + L"!", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Aroma bunga mawar dan melati memenuhi udara. Taman ini benar-benar terawat dengan baik.", 20);
+                eventKhususTerjadi = true;
+            }
+        } else if (currentSubArea == "Lorong Panjang") {
+            if (outcomeRoll < 30) {
+                delayPrint(L"Kau melihat sebuah lukisan potret leluhur keluarga Astra yang tampak mengawasimu.", 20);
+                delayPrint(L"Ada aura kuno dan sedikit misterius darinya.", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Lorong ini panjang dan sedikit temaram. Langkah kakimu menggema pelan di lantai marmer.", 20);
+                eventKhususTerjadi = true;
+            }
+        }
+    } else if (currentWorld == "Kota Arcadia") {
+        if (currentSubArea == "Balai Kota") {
+            if (outcomeRoll < 25 && sudahBertemuCompanion("Charlotte")) {
+                delayPrint(L"Kau melihat Charlotte sedang berdebat sengit dengan salah satu staf administrasi, buku catatannya siap di tangan.", 20);
+                delayPrint(L"Sepertinya dia sedang mengejar berita penting lagi.", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 50) {
+                delayPrint(L"Beberapa bangsawan terlihat keluar dari ruang rapat dengan wajah serius.", 20);
+                delayPrint(L"Sepertinya ada pembahasan penting yang baru saja selesai.", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Suasana Balai Kota hari ini cukup sibuk dengan lalu lalang para pejabat dan warga yang mengurus keperluan.", 20);
+                eventKhususTerjadi = true;
+            }
+        } else if (currentSubArea == "Cross Guild") {
+             if (outcomeRoll < 25 && sudahBertemuCompanion("Ella")) {
+                delayPrint(L"Dari ruangannya, kau bisa melihat siluet Ella yang sedang memeriksa setumpuk dokumen, sesekali memberi perintah tegas.", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 50) {
+                delayPrint(L"Kau mendengar beberapa petualang sedang membual tentang monster yang baru saja mereka kalahkan.", 20);
+                delayPrint(L"Suasana Guild selalu ramai dan penuh cerita.", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Papan quest penuh dengan berbagai permintaan, dari yang sepele hingga yang berbahaya.", 20);
+                eventKhususTerjadi = true;
+            }
+        } else if (currentSubArea == "Perbelanjaan") {
+            if (outcomeRoll < 20) {
+                delayPrint(L"Kau menemukan sebuah bros kecil yang berkilau terjatuh di dekat etalase toko perhiasan.", 20);
+                int value = 15 + rand() % 26; 
+                player.gold += value;
+                delayPrint(L"💰 Kau menjualnya dan mendapatkan " + to_wstring(value) + L" Gold!", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 60) {
+                delayPrint(L"Para pedagang berteriak menawarkan dagangannya. Aroma roti panggang dan rempah-rempah bercampur di udara.", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Kau melihat beberapa anak jalanan bermain kejar-kejaran di antara kerumunan.", 20);
+                eventKhususTerjadi = true;
+            }
+        }
+    } else if (currentWorld == "Hutan Merah") {
+        if (currentSubArea == "Pos Hutan") {
+            if (outcomeRoll < 25 && sudahBertemuCompanion("Mars")) {
+                delayPrint(L"Mars terlihat sedang mengasah kapaknya dengan tatapan fokus, atau sedang mempelajari peta patroli.", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 60) {
+                delayPrint(L"Kau menemukan beberapa jenis beri hutan yang bisa dimakan di sekitar pos.", 20);
+                delayPrint(L"(Menambah sedikit bekal perjalanan).", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Suara binatang hutan terdengar dari kejauhan. Angin sejuk berhembus membawa aroma pinus.", 20);
+                eventKhususTerjadi = true;
+            }
+        } else if (currentSubArea == "Reruntuhan Kuno") {
+             if (outcomeRoll < 30) {
+                delayPrint(L"Kau melihat ukiran kuno yang samar di salah satu batu reruntuhan. Sepertinya simbol peradaban yang telah lama hilang.", 20);
+                player.exp += 8;
+                delayPrint(L"📚 EXP +" + to_wstring(8) + L"!", 20);
+                eventKhususTerjadi = true;
+             } else {
+                delayPrint(L"Reruntuhan ini diselimuti lumut dan tanaman liar. Suasananya sunyi dan sedikit angker.", 20);
+                eventKhususTerjadi = true;
+             }
+        }
+    } else if (currentWorld == "Goa Avernix") {
+        if (currentSubArea == "Camp Avernix") {
+            if (outcomeRoll < 25 && sudahBertemuCompanion("Kinich")) {
+                delayPrint(L"Kinich terlihat sedang memberi arahan kepada para penambang sebelum mereka masuk ke goa.", 20);
+                delayPrint(L"Ekspresinya tegas seperti biasa.", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 50) {
+                delayPrint(L"Beberapa penambang sedang beristirahat sambil membersihkan peralatan mereka yang kotor.", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Udara di sekitar camp berbau belerang dan debu batu bara. Suara dentuman dari dalam goa sesekali terdengar.", 20);
+                eventKhususTerjadi = true;
+            }
+        } else if (currentSubArea == "Tambang Terbengkalai") {
+            if (outcomeRoll < 20) {
+                delayPrint(L"Di antara puing-puing, kau menemukan sepotong kecil bijih berkualitas rendah.", 20);
+                int value = 5 + rand() % 11;
+                player.gold += value;
+                delayPrint(L"💰 (Senilai " + to_wstring(value) + L" Gold)!", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Lorong tambang ini gelap dan penuh sarang laba-laba. Terasa ada aura tidak menyenangkan.", 20);
+                eventKhususTerjadi = true;
+            }
+        }
+    } else if (currentWorld == "Puncak Arcadia") {
+        if (currentSubArea == "Taman Norelia") {
+            if (outcomeRoll < 25 && sudahBertemuCompanion("Masha")) {
+                delayPrint(L"Kau melihat Masha von Aurora sedang membaca buku di bangku taman favoritnya, tampak anggun dan menyendiri.", 20);
+                eventKhususTerjadi = true;
+            } else if (outcomeRoll < 60) {
+                delayPrint(L"Pemandangan kota Arcadia dari atas puncak ini sungguh menakjubkan.", 20);
+                delayPrint(L"Angin gunung terasa sejuk dan menyegarkan.", 20);
+                eventKhususTerjadi = true;
+            } else {
+                delayPrint(L"Beberapa bangsawan lain juga terlihat sedang berjalan-jalan menikmati keindahan taman.", 20);
+                eventKhususTerjadi = true;
+            }
+        } else if (currentSubArea == "Bendungan" || currentSubArea == "Bukit Myriad") {
+            if (outcomeRoll < 30) {
+                 delayPrint(L"Suara gemericik air dari bendungan dan pemandangan lembah hijau menenangkan pikiranmu.", 20);
+                 eventKhususTerjadi = true;
+            } else {
+                 delayPrint(L"Kau melihat beberapa elang terbang tinggi di atas perbukitan. Langit sangat cerah hari ini.", 20);
+                 eventKhususTerjadi = true;
+            }
+        }
     }
+    
+
+    if (!eventKhususTerjadi) {
+        int genericOutcome = rand() % 3;
+        switch(genericOutcome) {
+            case 0:
+                delayPrint(L"Kau tidak menemukan sesuatu yang istimewa, namun udara segar cukup menyegarkan pikiran.", 20);
+                break;
+            case 1:
+                delayPrint(L"Kau merenung sejenak, memikirkan langkah selanjutnya dalam petualanganmu.", 20);
+                player.exp += 2;
+                delayPrint(L"📚 EXP +" + to_wstring(2) + L"!", 20);
+                break;
+            case 2:
+                delayPrint(L"Area ini tampak tenang. Kau melanjutkan perjalananmu dengan lebih waspada.", 20);
+                break;
+        }
+    }
+    
+    subAreasExploredOnceGlobal.insert(uniqueSubAreaKey); 
+    printLine();
     waitForEnter();
 }
+
 
 void showWorldMapLocationMenu() {
     system("cls");
     printLine();
-    centerText(L"✦✦✦ PILIH WORLD MAP ✦✦✦");
+    centerText(L"✦✦✦ PETA DUNIA - PILIH WILAYAH TUJUAN ✦✦✦");
     printLine();
 
     vector<string> availableWorlds;
-    for (const auto& [worldName, worldArea] : allWorlds) {
+    wcout << L"Saat ini kau berada di: " << utf8_to_wstring(currentWorld) << endl;
+    wcout << L"Wilayah yang bisa dikunjungi:" << endl;
+    printLine(50, L'-');
+
+    int displayIndex = 1;
+    for (const auto& pair_world : allWorlds) {
+        const string& worldName = pair_world.first;
         if (worldName != currentWorld) {
+            wcout << L"  ❖ " << displayIndex++ << L". " << utf8_to_wstring(worldName) << endl;
             availableWorlds.push_back(worldName);
         }
     }
 
-    for (size_t i = 0; i < availableWorlds.size(); ++i) {
-        wcout << L"  " << (i + 1) << L". " << utf8_to_wstring(availableWorlds[i]) << endl;
-    }
+    printLine(50, L'-');
+    wcout << L"  ❖ 0. Kembali ke Menu Pilihan Lokasi" << endl;
+    printLine(50, L'-');
+    wcout << L"Pilih wilayah tujuan (nomor) ✦: ";
+    
+    int choice = getValidatedChoice(0, static_cast<int>(availableWorlds.size()));
 
-    size_t backOption = availableWorlds.size() + 1;
-    wcout << L"  " << backOption << L". Kembali" << endl;
-
-    wcout << L"Pilih world (1-" << backOption << L"): ";
-    int choice;
-    choice = getValidatedChoice(1, 5); 
-
-
-    if (choice >= 1 && choice <= availableWorlds.size()) {
-        string selectedWorld = availableWorlds[choice - 1];
-        currentWorld = selectedWorld;
-        currentSubArea = allWorlds[currentWorld].startSubArea;
-        wcout << L"Berpindah ke dunia: " << utf8_to_wstring(currentWorld) << endl;
-        consumeAction();
-        ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
-ActiveDailyQuestNode* prevQuestNode = nullptr;
-int expFromCompletedQuests = 0;
-
-while (currentQuestNode != nullptr) {
-    DailyQuest& quest = currentQuestNode->data;
-    bool wasThisQuestCompleted = false;
-
-    if (quest.type == "travel" && quest.taken && !quest.completed) {
-        bool targetLocationReached = false;
-
-        if (!quest.dungeonName.empty() &&
-            currentWorld == quest.dungeonName &&
-            currentSubArea == quest.target) {
-            targetLocationReached = true;
-        }
-        else if (quest.dungeonName.empty() &&
-                 currentSubArea == quest.target) {
-            targetLocationReached = true;
-        }
-
-        if (targetLocationReached) {
-            quest.completed = true;
-            expFromCompletedQuests += quest.expReward;
-            player.gold += quest.goldReward;
-            delayPrint(L"✓ Quest Harian Selesai: " + utf8_to_wstring(quest.title) + L"!", 20);
-            delayPrint(L"  Reward: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
-            wasThisQuestCompleted = true;
-        }
-    }
-
-    ActiveDailyQuestNode* nodeToDelete = nullptr;
-    if (wasThisQuestCompleted) {
-        nodeToDelete = currentQuestNode;
-        if (prevQuestNode == nullptr) {
-            activeDailyQuestsHead = currentQuestNode->next;
-            currentQuestNode = activeDailyQuestsHead;
-        } else {
-            prevQuestNode->next = currentQuestNode->next;
-            currentQuestNode = prevQuestNode->next;
-        }
-        delete nodeToDelete;
-    } else {
-        prevQuestNode = currentQuestNode;
-        currentQuestNode = currentQuestNode->next;
-    }
-}
-
-if (expFromCompletedQuests > 0) {
-    handleExperienceAndLevelUp(player, expFromCompletedQuests);
-}
-    } else if (choice == backOption) {
+    if (choice == 0) {
         return; 
-    } else {
-        wcout << L"Pilihan tidak valid." << endl;
+    }
+
+    if (choice > 0 && static_cast<size_t>(choice) <= availableWorlds.size()) {
+        string selectedWorld = availableWorlds[choice - 1];
+        string targetStartSubArea = allWorlds[selectedWorld].startSubArea;
+
+        system("cls");
+        printLine();
+        centerText(L"✈️ PERJALANAN ANTAR WILAYAH ✈️");
+        printLine();
+        delayPrint(L"Kau mempersiapkan diri untuk melakukan perjalanan ke " + utf8_to_wstring(selectedWorld) + L"...", 30);
+
+        bool canTravelAndActionConsumed = false;
+
+        if (selectedWorld == "Mansion Astra") {
+            delayPrint(L"Kau memutuskan untuk segera kembali ke Mansion Astra. Perjalanan ini terasa cepat dan tidak melelahkan.", 20);
+            currentWorld = selectedWorld;
+            currentSubArea = targetStartSubArea;
+            canTravelAndActionConsumed = true; 
+        } else {
+            if (currentActionsRemaining > 0) {
+                delayPrint(L"Perjalanan ini akan menghabiskan 1 poin aksi.", 20);
+                currentWorld = selectedWorld;
+                currentSubArea = targetStartSubArea;
+                consumeAction(); 
+                canTravelAndActionConsumed = true;
+            } else {
+                delayPrint(L"Sayangnya kau tidak punya cukup poin aksi (0 tersisa) untuk melakukan perjalanan jauh hari ini.", 20);
+                delayPrint(L"Kau memutuskan untuk tetap tinggal di " + utf8_to_wstring(currentWorld) + L" (lokasi saat ini).", 20);
+                canTravelAndActionConsumed = false; 
+            }
+        }
+
+        if (canTravelAndActionConsumed) {
+            delayPrint(L"Kau telah tiba di " + utf8_to_wstring(currentSubArea) + L", " + utf8_to_wstring(currentWorld) + L".", 30);
+            
+            ActiveDailyQuestNode* currentQuestNode = activeDailyQuestsHead;
+            ActiveDailyQuestNode* prevQuestNode = nullptr;
+            int expFromCompletedQuests = 0;
+
+            while (currentQuestNode != nullptr) {
+                DailyQuest& quest = currentQuestNode->data;
+                bool wasThisQuestCompleted = false;
+
+                if (quest.type == "travel" && quest.taken && !quest.completed) {
+                    bool targetLocationReached = false;
+                    
+                    if (!quest.dungeonName.empty() && currentWorld == quest.dungeonName && currentSubArea == quest.target) {
+                        targetLocationReached = true;
+                    } else if (quest.dungeonName.empty() && allWorlds.count(currentWorld) && allWorlds.at(currentWorld).subAreas.count(currentSubArea) && currentSubArea == quest.target) {
+                        targetLocationReached = true;
+                    }
+
+                    if (targetLocationReached) {
+                        quest.completed = true;
+                        expFromCompletedQuests += quest.expReward;
+                        player.gold += quest.goldReward;
+                        system("cls"); printLine();
+                        centerText(L"🎉 QUEST SELESAI! 🎉"); printLine();
+                        delayPrint(L"✓ Kau telah menyelesaikan Quest Harian: " + utf8_to_wstring(quest.title) + L"!", 20);
+                        delayPrint(L"  Hadiah: +" + to_wstring(quest.expReward) + L" EXP, +" + to_wstring(quest.goldReward) + L" Gold", 20);
+                        printLine(); waitForEnter();
+                        wasThisQuestCompleted = true;
+                    }
+                }
+
+                ActiveDailyQuestNode* nodeToDelete = nullptr;
+                if (wasThisQuestCompleted) {
+                    nodeToDelete = currentQuestNode;
+                    if (prevQuestNode == nullptr) {
+                        activeDailyQuestsHead = currentQuestNode->next;
+                        currentQuestNode = activeDailyQuestsHead;
+                    } else {
+                        prevQuestNode->next = currentQuestNode->next;
+                        currentQuestNode = prevQuestNode->next;
+                    }
+                    if (nodeToDelete != nullptr) { 
+                         delete nodeToDelete;
+                    }
+                } else {
+                    prevQuestNode = currentQuestNode;
+                    currentQuestNode = currentQuestNode->next;
+                }
+            }
+
+            if (expFromCompletedQuests > 0) {
+                handleExperienceAndLevelUp(player, expFromCompletedQuests);
+            }
+        }
+        waitForEnter();
+        
+    } else if (choice != 0) { 
+        delayPrint(L"Pilihan wilayah tidak valid.", 20);
         waitForEnter();
     }
 }
